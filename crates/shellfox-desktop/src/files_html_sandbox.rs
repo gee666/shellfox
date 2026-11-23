@@ -16,10 +16,13 @@ pub(super) const ENTRY: &str = SHELL;
 pub(super) const FRAME: &str = "http://shellfox-preview.document/files/content";
 #[cfg(not(windows))]
 const FRAME: &str = CONTENT;
+// The CSP admits the whole preview origin so a reference above the document's
+// folder (../x.svg) reaches the handler, which lists it as unavailable and
+// serves nothing. Only the wrapper, the document and its folder are ever served.
 #[cfg(windows)]
-const ASSET_SOURCE: &str = "http://shellfox-preview.document/files/";
+const ASSET_ORIGIN: &str = "http://shellfox-preview.document/";
 #[cfg(not(windows))]
-const ASSET_SOURCE: &str = ASSETS;
+const ASSET_ORIGIN: &str = SHELL;
 const MAX_ASSET_PATH: usize = 4096;
 
 // The outer document restricts frame navigation before the browser requests a
@@ -43,7 +46,7 @@ const KEEP_LINKS_IN_PREVIEW: &[u8] = br#"<script>(() => {
 })();</script>"#;
 
 fn content_policy() -> String {
-    let assets = ASSET_SOURCE;
+    let assets = ASSET_ORIGIN;
     format!(
         "default-src 'none'; script-src 'unsafe-inline' data: blob: {assets}; style-src 'unsafe-inline' data: blob: {assets}; img-src data: blob: {assets}; font-src data: blob: {assets}; media-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     )
@@ -197,7 +200,7 @@ mod tests {
             document.headers()[http::header::CONTENT_SECURITY_POLICY],
             format!("{}; sandbox allow-scripts", content_policy())
         );
-        assert!(content_policy().contains(&format!("img-src data: blob: {ASSET_SOURCE};")));
+        assert!(content_policy().contains(&format!("img-src data: blob: {ASSET_ORIGIN};")));
         assert!(content_policy().contains("connect-src 'none'"));
         assert!(document.body().ends_with(b"<h1>preview</h1>"));
     }
