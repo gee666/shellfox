@@ -325,7 +325,8 @@ impl ServiceOwner {
             }
         }
         if let Some(thread) = self.thread.take() {
-            if thread.join().is_err() {
+            let joined = tokio::task::spawn_blocking(move || thread.join()).await;
+            if !matches!(joined, Ok(Ok(()))) {
                 self.cleanup_error = Some("Service owner panicked before confirmed join.".into());
             }
         }
