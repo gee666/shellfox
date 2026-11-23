@@ -11,7 +11,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::mpsc::{self, Receiver, SyncSender},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 type ReplyPacket = (Reply, Vec<u8>);
@@ -161,17 +161,16 @@ impl Drop for Worker {
         self.requests.take();
         if let Some(mut child) = self.child.take() {
             thread::spawn(move || {
-                let deadline = Instant::now() + Duration::from_secs(5);
-                loop {
-                    match child.try_wait() {
-                        Ok(Some(_)) => return,
-                        Ok(None) if Instant::now() < deadline => {
-                            thread::sleep(Duration::from_millis(25))
-                        }
-                        _ => break,
-                    }
+                use std::os::windows::io::AsRawHandle;
+                use windows_sys::Win32::{
+                    Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject,
+                };
+                // SAFETY: `child` owns the process handle for the whole wait.
+                let exited =
+                    unsafe { WaitForSingleObject(child.as_raw_handle().cast(), 5_000) } == WAIT_OBJECT_0;
+                if !exited {
+                    let _ = child.kill();
                 }
-                let _ = child.kill();
                 let _ = child.wait();
             });
         }
