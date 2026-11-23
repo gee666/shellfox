@@ -1,5 +1,5 @@
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 include!("../../../shellfox-terminal/tests/support/raw_process_fixture.rs");
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn main() {}

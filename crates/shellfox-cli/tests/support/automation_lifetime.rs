@@ -8,24 +8,27 @@ use std::{
 };
 fn command(data: &Path, helper: &Path, hash: &str, cwd: &Path) -> Result<Command> {
     let mut command = Command::new(env!("CARGO_BIN_EXE_shellfox-cli"));
-    command
-        .env_clear()
-        .env(
-            "SystemRoot",
-            std::env::var_os("SystemRoot").context("Windows system root")?,
-        )
-        .env("USERPROFILE", cwd)
-        .env("TEMP", cwd)
-        .env("TMP", cwd)
-        .current_dir(cwd)
-        .args([
-            "--data-dir",
-            data.to_str().context("Unicode fixture")?,
-            "--helper",
-            helper.to_str().context("Unicode helper")?,
-            "--helper-sha256",
-            hash,
-        ]);
+    command.env_clear();
+    if cfg!(windows) {
+        command
+            .env(
+                "SystemRoot",
+                std::env::var_os("SystemRoot").context("Windows system root")?,
+            )
+            .env("USERPROFILE", cwd)
+            .env("TEMP", cwd)
+            .env("TMP", cwd);
+    } else {
+        command.env("HOME", cwd).env("TMPDIR", cwd);
+    }
+    command.current_dir(cwd).args([
+        "--data-dir",
+        data.to_str().context("Unicode fixture")?,
+        "--helper",
+        helper.to_str().context("Unicode helper")?,
+        "--helper-sha256",
+        hash,
+    ]);
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -40,7 +43,9 @@ pub async fn actual_cli_lifetime(
     raw: &Path,
     cwd: &Path,
 ) -> Result<()> {
-    for code in [7_u32, 0xffff_ffff] {
+    // Windows exit codes are 32-bit; Unix keeps the low byte.
+    let widest = if cfg!(windows) { 0xffff_ffff } else { 255 };
+    for code in [7_u32, widest] {
         let mut command = command(data, helper, hash, cwd)?;
         command.args([
             "run",

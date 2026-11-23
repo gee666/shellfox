@@ -229,21 +229,6 @@ async fn measure(
         });
     }
     // A quiet `shellfox run` with its output read held, as the CLI does.
-    // macOS has no automation processes yet.
-    if cfg!(windows) {
-        keep_reading_quiet_run(&client, &count, data).await?;
-    }
-    tokio::time::sleep(SETTLE).await;
-    let before = count.get();
-    tokio::time::sleep(MEASURE).await;
-    Ok(count.get() - before)
-}
-
-async fn keep_reading_quiet_run(
-    client: &Rc<LocalClient>,
-    count: &Rc<Cell<usize>>,
-    data: &Path,
-) -> Result<()> {
     let quiet = AutomationStart {
         request_id: uuid::Uuid::new_v4(),
         executable: quiet_program().0,
@@ -274,7 +259,10 @@ async fn keep_reading_quiet_run(
             })
         });
     }
-    Ok(())
+    tokio::time::sleep(SETTLE).await;
+    let before = count.get();
+    tokio::time::sleep(MEASURE).await;
+    Ok(count.get() - before)
 }
 
 /// A program that prints nothing for longer than the measurement.

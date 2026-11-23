@@ -1,4 +1,4 @@
-#![cfg(windows)]
+#![cfg(any(windows, target_os = "macos"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 #[path = "support/automation_lifetime.rs"]
