@@ -41,7 +41,17 @@ impl PreparedLaunch {
             .flatten(),
             None => None,
         };
+        let mut env = std::collections::BTreeMap::from([(
+            "SHELLFOX_SUPERVISOR_MARKER".into(),
+            std::ffi::OsString::from(marker),
+        )]);
         let argv = if let Some(runner) = runner {
+            // The PTY gets a cleared environment, and systemd-run --user needs
+            // the user bus, as in the production PTY launch.
+            env.insert(
+                "DBUS_SESSION_BUS_ADDRESS".into(),
+                format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() }).into(),
+            );
             let scope_args = super::linux::scope::scope_arguments(
                 &super::linux::scope::fresh_nonce()?,
                 command,
@@ -60,10 +70,7 @@ impl PreparedLaunch {
             },
             program: supervisor,
             args: argv,
-            env: std::collections::BTreeMap::from([(
-                "SHELLFOX_SUPERVISOR_MARKER".into(),
-                marker.into(),
-            )]),
+            env,
         })
     }
     #[cfg(target_os = "macos")]
