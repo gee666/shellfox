@@ -23,6 +23,9 @@ use std::{
 const CLEANUP_RETRY: Duration = Duration::from_millis(100);
 /// Poll cadence for teardown the platform can't signal (see Owner::deadline).
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
+/// Recheck during woken teardown: Windows doesn't guarantee delivery of the
+/// Job completion-port messages behind those wakes.
+const TEARDOWN_RECHECK: Duration = Duration::from_millis(250);
 
 #[cfg(windows)]
 #[path = "elevated_pty.rs"]
@@ -240,8 +243,9 @@ fn drive(mut owner: Owner, incoming: Receiver<Request>, events: EventSender) {
 }
 impl Owner {
     /// The next time the owner must look without being woken: cleanup
-    /// retries, and PTY teardown where the platform has no wake for it
-    /// (macOS, or a PTY whose wake failed to register).
+    /// retries, and PTY teardown. Teardown polls where the platform has no
+    /// wake for it (macOS, or a PTY whose wake failed to register), and is
+    /// rechecked slowly where it does.
     fn deadline(&self) -> Option<Instant> {
         if self.shared.abandoned.load(Ordering::Acquire) {
             return Some(Instant::now());
@@ -250,12 +254,31 @@ impl Owner {
             return Some(self.retry_at);
         }
         self.pty.as_ref()?;
-        let Some(exit) = &self.exit else {
-            return Some(Instant::now() + POLL_INTERVAL);
-        };
-        let tearing_down = exit.exited() || self.phase == Phase::Draining;
-        (tearing_down && !exit.wakes_teardown()).then(|| Instant::now() + POLL_INTERVAL)
+        teardown_step(self.exit.as_ref(), self.phase == Phase::Draining)
+            .map(|step| Instant::now() + step)
     }
+}
+/// How often to look at a PTY without a wake. None means wakes alone suffice.
+fn teardown_step(exit: Option<&shellfox_terminal::ExitSignal>, draining: bool) -> Option<Duration> {
+    let Some(exit) = exit else {
+        return Some(POLL_INTERVAL);
+    };
+    (exit.exited() || draining).then(|| {
+        if exit.wakes_teardown() {
+            TEARDOWN_RECHECK
+        } else {
+            POLL_INTERVAL
+        }
+    })
+}
+#[cfg(test)]
+#[test]
+fn only_teardown_without_a_wake_polls_fast() {
+    use shellfox_terminal::ExitSignal;
+    let unwoken = ExitSignal::default();
+    assert_eq!(teardown_step(None, false), Some(POLL_INTERVAL));
+    assert_eq!(teardown_step(Some(&unwoken), false), None);
+    assert_eq!(teardown_step(Some(&unwoken), true), Some(POLL_INTERVAL));
 }
 impl Owner {
     pub(crate) fn set_phase(&mut self, phase: Phase, error: Option<String>) {
