@@ -53,9 +53,7 @@ impl TextPreview {
 
     pub fn render(
         &self,
-        path: &str,
-        backend: &DocumentBackend,
-        text: Arc<str>,
+        PreviewDocument { path, backend, text }: PreviewDocument<'_>,
         palette: Palette,
         window: &gpui::Window,
         root: &Root,
@@ -80,7 +78,7 @@ impl TextPreview {
                 .render(path, backend, images, palette, window, cx)
                 .into_any_element(),
             Some(Content::Svg(image)) => render_image(image.clone()),
-            Some(Content::Html(html)) => html.render(&root.html_preview, palette, &root.semantic_context.frame()),
+            Some(Content::Html(html)) => html.render(&root.files.html_preview, palette, &root.semantics.context.frame()),
             _ => div()
                 .p(px(8.))
                 .text_color(palette.muted)
@@ -88,6 +86,13 @@ impl TextPreview {
                 .into_any_element(),
         }
     }
+}
+
+/// The open document a preview renders.
+pub(crate) struct PreviewDocument<'a> {
+    pub path: &'a str,
+    pub backend: &'a DocumentBackend,
+    pub text: Arc<str>,
 }
 
 pub(crate) fn image_error() -> AnyElement {

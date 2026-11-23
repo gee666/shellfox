@@ -4,32 +4,11 @@ mod reply;
 mod selection;
 pub(crate) mod tabs;
 pub(crate) mod visibility;
+mod state;
+pub(crate) use state::{ActivationFence, RecentSelection, WorkspaceState};
 use gpui::{Context, Window};
 use shellfox_host::{AddTab, HostRequest, ProfileId, SessionId, TabId};
 use shellfox_service::native::{NativeAction, NativeResponse};
-
-/// A reply may change focus only while both the machine and its selection are current.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ActivationFence {
-    pub source: u64,
-    pub navigation: u64,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum RecentSelection {
-    Session(SessionId),
-    Tab(TabId),
-}
-
-/// Snapshot refreshes and selection writes run beside user actions, never
-/// blocking them. Each kind keeps one request in flight; ordering comes from
-/// snapshot revisions.
-#[derive(Default)]
-pub(crate) struct Background {
-    refresh: bool,
-    refresh_again: bool,
-    remember: bool,
-}
 
 #[derive(Clone, Copy)]
 pub(crate) enum AfterAction {
@@ -44,7 +23,7 @@ impl Root {
     fn local_activation_fence(&self) -> ActivationFence {
         ActivationFence {
             source: self.source_selection_epoch(),
-            navigation: self.navigation.epoch(),
+            navigation: self.workspace.navigation.epoch(),
         }
     }
 
@@ -52,7 +31,7 @@ impl Root {
         let saved = self.snapshot
             .as_ref()
             .map_or("", |snapshot| snapshot.preferences.default_profile_id.as_str());
-        let usable = self.profiles.iter().filter(|p| p.available && !p.elevation).map(|p| p.id.as_str());
+        let usable = self.workspace.profiles.iter().filter(|p| p.available && !p.elevation).map(|p| p.id.as_str());
         // Before the catalog arrives, keep the saved one unless it needs elevation.
         shellfox_service::effective_default_profile(saved, usable)
             .unwrap_or(match saved {
@@ -86,7 +65,7 @@ impl Root {
                     if root.snapshot.as_ref().is_none_or(|snapshot| snapshot.revision < revision) {
                         root.refresh_snapshot(window, cx);
                     }
-                    !root.closing_window
+                    !root.close.closing
                 });
                 if !matches!(current, Ok(true)) {
                     return;
@@ -109,17 +88,17 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.closing_window {
+        if self.close.closing {
             return;
         }
         let busy = match after {
             AfterAction::Refresh => {
-                self.background.refresh_again |= self.background.refresh;
-                self.background.refresh
+                self.workspace.background.refresh_again |= self.workspace.background.refresh;
+                self.workspace.background.refresh
             }
-            AfterAction::Remember => self.background.remember,
+            AfterAction::Remember => self.workspace.background.remember,
             // User actions stay exclusive; their controls are locked meanwhile.
-            _ => self.action_pending,
+            _ => self.workspace.action_pending,
         };
         if busy {
             return;
@@ -130,11 +109,11 @@ impl Root {
             return;
         };
         match after {
-            AfterAction::Refresh => self.background.refresh = true,
-            AfterAction::Remember => self.background.remember = true,
+            AfterAction::Refresh => self.workspace.background.refresh = true,
+            AfterAction::Remember => self.workspace.background.remember = true,
             _ => {
-                self.action_pending = true;
-                self.user_action_pending = true;
+                self.workspace.action_pending = true;
+                self.dialogs.user_action_pending = true;
             }
         }
         let selection_fence = self.local_activation_fence();
@@ -161,7 +140,7 @@ impl Root {
             _ => None,
         };
         if activated_session.is_some() {
-            self.activating_session = activated_session;
+            self.workspace.activating_session = activated_session;
         }
         let before_close = match &action {
             NativeAction::CloseTab { tab }
@@ -191,15 +170,15 @@ impl Root {
             } else {None};
             let _ = root.update_in(cx, |root, window, cx| {
                 match after {
-                    AfterAction::Refresh => root.background.refresh = false,
-                    AfterAction::Remember => root.background.remember = false,
+                    AfterAction::Refresh => root.workspace.background.refresh = false,
+                    AfterAction::Remember => root.workspace.background.remember = false,
                     _ => {
-                        root.action_pending = false;
-                        root.user_action_pending = false;
+                        root.workspace.action_pending = false;
+                        root.dialogs.user_action_pending = false;
                     }
                 }
                 if activated_session.is_some() {
-                    root.activating_session = None;
+                    root.workspace.activating_session = None;
                 }
                 match result {
                     Ok(NativeResponse::Snapshot(snapshot)) => {
@@ -208,14 +187,14 @@ impl Root {
                         let focus = reply::focus_target(reply_intent, receipt_value, &snapshot, selection_current);
                         let receipt_unavailable = creation_request.is_some() && !matches!(receipt_value, Some(shellfox_host::CreationRequestReceipt::SessionCreated {..}));
                         let selected_tab_closed = selection_current && before_close.as_ref().is_some_and(|(before, tab)| {
-                            root.navigation.tab_closed(before, *tab, selection_fence.navigation)
+                            root.workspace.navigation.tab_closed(before, *tab, selection_fence.navigation)
                         });
-                        let renamed_tab = match root.dialog {
-                            Some(crate::root::Dialog::RenameTab { id, .. }) if matches!(after, AfterAction::Dialog) => Some(id),
+                        let renamed_tab = match root.dialogs.current {
+                            Some(crate::dialogs::Dialog::RenameTab { id, .. }) if matches!(after, AfterAction::Dialog) => Some(id),
                             _ => None,
                         };
-                        let renamed_session = match root.dialog {
-                            Some(crate::root::Dialog::RenameSession { id, .. }) if matches!(after, AfterAction::Dialog) => Some(id),
+                        let renamed_session = match root.dialogs.current {
+                            Some(crate::dialogs::Dialog::RenameSession { id, .. }) if matches!(after, AfterAction::Dialog) => Some(id),
                             _ => None,
                         };
                         let open_history = activated_session.filter(|request| {
@@ -232,9 +211,9 @@ impl Root {
                             .is_none_or(|old| old.preferences != snapshot.preferences);
                         if let Some(id) = cleared_session && let Some(session) = snapshot.sessions.iter().find(|session| session.id == id) {
                             for tab in &session.tabs {
-                                root.failures.remove(&tab.id);
-                                if root.views.get(&tab.id).is_some_and(|view| view.read(cx).is_failed()) {
-                                    root.views.remove(&tab.id);
+                                root.tabs.failures.remove(&tab.id);
+                                if root.tabs.views.get(&tab.id).is_some_and(|view| view.read(cx).is_failed()) {
+                                    root.tabs.views.remove(&tab.id);
                                 }
                             }
                         }
@@ -246,15 +225,15 @@ impl Root {
                                 root.apply_terminal_preferences(window, cx);
                             }
                             if matches!(after, AfterAction::Dialog | AfterAction::Create) {
-                                root.dialog = None;
+                                root.dialogs.current = None;
                             }
                             if matches!(after, AfterAction::Create | AfterAction::NewTab)
                                 && let Some(target) = focus
                                 && let Some(snapshot) = &root.snapshot {
                                 if let Some(tab) = target.tab {
-                                    root.navigation.select_tab(snapshot, target.session, tab);
+                                    root.workspace.navigation.select_tab(snapshot, target.session, tab);
                                 } else {
-                                    root.navigation.select_session(snapshot, target.session);
+                                    root.workspace.navigation.select_session(snapshot, target.session);
                                 }
                                 root.reveal_sidebar_session(target.session, cx);
                                 root.ensure_terminal(window, cx);
@@ -264,7 +243,7 @@ impl Root {
                                 if let Some(tab) = renamed_tab {
                                     root.focus_tab_label(tab, window, cx);
                                 } else if let Some(id) = renamed_session {
-                                    root.sidebar_ui.focus_row(id, window);
+                                    root.sidebar.focus_row(id, window);
                                 } else {
                                     root.focus_selected(window, cx);
                                 }
@@ -293,7 +272,7 @@ impl Root {
                     Err(_) if matches!(after, AfterAction::Refresh) => {},
                     Err(error) => root.notify_operation_error(&error, cx),
                 }
-                if std::mem::take(&mut root.background.refresh_again) {
+                if std::mem::take(&mut root.workspace.background.refresh_again) {
                     root.refresh_snapshot(window, cx);
                 }
                 root.flush_recent(window, cx);

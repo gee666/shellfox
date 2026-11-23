@@ -1,13 +1,13 @@
 use crate::{
+    dialogs::Dialog,
     terminal::TerminalView,
     app_host::{AppHost, CloseConfirmation, CloseTicket, WindowId},
-    field::Field,
     host_client::HostClient,
 };
 use gpui::{Context, Entity, FocusHandle, Window};
 use shellfox_host::{SessionId, Snapshot, TabId};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     path::PathBuf,
 };
 
@@ -22,6 +22,7 @@ mod startup;
 
 pub(crate) mod layout;
 pub(crate) mod shortcuts;
+pub(crate) mod panes;
 pub struct StartupError {
     pub message: String,
     pub control_required: bool,
@@ -30,79 +31,36 @@ pub struct StartupError {
 }
 impl From<anyhow::Error> for StartupError {
     fn from(error: anyhow::Error) -> Self {
-        let control_required = error.downcast_ref::<shellfox_runtime::RuntimeError>()
-            .is_some_and(|error| error.code == shellfox_runtime::ErrorCode::ControlRequired);
+        let control_required = crate::terminal::control_required(&error);
         Self { message: format!("{error:#}"), control_required, generation: None }
     }
 }
-pub enum Dialog {
-    Create(crate::dialogs::directory::Draft),
-    RenameSession { id: SessionId, title: Entity<Field> },
-    SessionEnvironment { id: SessionId, text: Entity<Field> },
-    PeerSession(crate::peers::session_dialog::PeerSessionDialog),
-    RenameTab { id: TabId, title: Entity<Field>, _blur: gpui::Subscription },
-    DeleteSession(SessionId),
-    CloseTab(shellfox_core::TerminalIdentity),
-    Quit,
-}
 pub struct Root {
     pub(crate) host: Option<HostClient>,
-    pub(crate) tab_activity: crate::workspace::tabs::activity::TabActivity,
+    pub(crate) pending_boot: Option<crate::host_client::HostEndpointConfig>,
+    /// The host model this window shows; the newest revision wins.
+    pub(crate) snapshot: Option<Snapshot>,
+    pub(crate) workspace: crate::workspace::WorkspaceState,
+    pub(crate) tabs: crate::workspace::tabs::TabsState,
+    pub(crate) sidebar: crate::sidebar::SidebarUi,
+    pub(crate) files: crate::files::FilesArea,
+    pub(crate) settings: crate::settings::SettingsSlot,
+    pub(crate) dialogs: crate::dialogs::DialogState,
     pub(crate) peers: crate::peers::source::PeerSources,
     pub(crate) peer_ui: crate::peers::PeerUi,
-    pub(crate) semantic_context: crate::accessibility::WindowSemanticContext,
-    pub(crate) native_accessibility: Option<crate::accessibility::NativeAccessibility>,
-    pub(crate) pending_boot: Option<crate::host_client::HostEndpointConfig>,
-    pub(crate) app_host: Option<AppHost>,
-    pub(crate) window_id: Option<WindowId>,
-    pub(crate) close_confirmation: Option<CloseConfirmation>,
-    pub(crate) quit_focus: QuitFocus,
-    pub(crate) window_tracker: Option<crate::desktop_geometry::WindowTracker>,
-    pub(crate) close_ticket: Option<CloseTicket>,
-    pub(crate) update_restart: bool,
+    pub(crate) close: close::CloseState,
+    pub(crate) semantics: semantics::Semantics,
+    pub(crate) power: power::PowerUi,
     pub(crate) update_ui: crate::update::view::UpdateUi,
-    pub(crate) close_check_pending: bool,
-    pub(crate) close_failed: bool,
-    pub(crate) snapshot: Option<Snapshot>,
-    pub(crate) navigation: crate::window_manager::WindowSelection,
-    pub(crate) tab_scroll: crate::workspace::tabs::TabScroll,
-    pub(crate) pending_recent: Option<(crate::workspace::RecentSelection, u64)>,
-    pub(crate) activating_session: Option<(SessionId, crate::workspace::ActivationFence)>,
-    pub(crate) views: HashMap<TabId, Entity<TerminalView>>,
-    pub(crate) attaching: HashSet<TabId>,
-    pub(crate) failures: HashMap<TabId, StartupError>,
-    pub(crate) settings_panel: Option<Entity<crate::settings::SettingsPanel>>,
-    pub(crate) files: Option<crate::files::Files>,
-    pub(crate) html_preview: crate::files::text_preview::html::Surface,
-    pub(crate) retained_files: Vec<crate::files::Files>,
+    pub(crate) window_tracker: Option<crate::desktop_geometry::WindowTracker>,
     pub(crate) fixture: Option<Entity<TerminalView>>,
     pub(crate) run_dir: PathBuf,
-    pub(crate) window_caption: String,
     pub(crate) error: Option<String>,
     pub(crate) notifications: crate::chrome::Notifications,
-    pub(crate) dialog: Option<Dialog>,
-    pub(crate) settings: bool,
-    pub(crate) sidebar: bool,
     pub(crate) layout_focus: FocusHandle,
-    pub(crate) sidebar_width: f32,
-    pub(crate) resizing_sidebar: bool,
-    pub(crate) local_expanded: bool,
-    pub(crate) history_page_size: usize,
-    pub(crate) session_pages: usize,
-    pub(crate) sidebar_ui: crate::sidebar::SidebarUi,
-    pub(crate) session_menu: Option<crate::sidebar::session_menu::SessionMenu>,
-    pub(crate) tab_menu: Option<crate::workspace::tabs::TabMenu>,
-    pub(crate) modal_focus: FocusHandle,
-    pub(crate) closing_window: bool,
-    pub(crate) action_pending: bool,
-    pub(crate) user_action_pending: bool,
-    pub(crate) background: crate::workspace::Background,
-    pub(crate) profiles: Vec<crate::settings::api::Profile>,
-    pub(crate) catalog_epoch: u64,
-    pub(crate) profile_menu: Option<crate::workspace::tabs::profile_menu::ProfileMenu>,
-    pub(crate) power: power::PowerUi,
     /// Host change subscriptions; dropped with the window.
     pub(crate) watches: Vec<gpui::Task<()>>,
+    pub(crate) panes: panes::Panes,
 }
 impl Root {
     pub(crate) fn is_local_source(&self)->bool{
@@ -120,7 +78,7 @@ impl Root {
         {
             return false;
         }
-        if !self.navigation.accept_snapshot(&snapshot) {
+        if !self.workspace.navigation.accept_snapshot(&snapshot) {
             return false;
         }
         let retained: HashSet<_> = snapshot
@@ -129,9 +87,9 @@ impl Root {
             .flat_map(|session| session.tabs.iter().map(|tab| tab.id))
             .collect();
         self.retire_wsl_file_tabs(&retained, cx);
-        self.failures.retain(|id, _| retained.contains(id));
-        self.views.retain(|id, _| retained.contains(id));
-        for (tab, view) in &self.views {
+        self.tabs.failures.retain(|id, _| retained.contains(id));
+        self.tabs.views.retain(|id, _| retained.contains(id));
+        for (tab, view) in &self.tabs.views {
             if let Some(session) = snapshot
                 .sessions
                 .iter()
@@ -142,48 +100,48 @@ impl Root {
             }
         }
         crate::startup_chrome::StartupPalette::remember(&snapshot, cx);
-        self.sidebar_ui.snapshot(&snapshot, cx);
+        self.sidebar.snapshot(&snapshot, cx);
         self.snapshot = Some(snapshot);
         true
     }
     pub(crate) fn sync_dialog_edit_state(&self, cx: &mut Context<Self>) {
-        match &self.dialog {
+        match &self.dialogs.current {
             Some(Dialog::PeerSession(dialog)) => if let Some(field) = dialog.field() {
                 field.update(cx, |field, cx| field.set_read_only(self.dialog_locked(), cx));
             },
             Some(Dialog::Create(draft)) => draft.path.update(cx, |field, cx| {
-                field.set_read_only(self.user_action_pending || draft.busy.is_some(), cx)
+                field.set_read_only(self.dialogs.user_action_pending || draft.busy.is_some(), cx)
             }),
             Some(Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. } | Dialog::SessionEnvironment { text: title, .. }) => title
                 .update(cx, |field, cx| {
-                    field.set_read_only(self.user_action_pending, cx)
+                    field.set_read_only(self.dialogs.user_action_pending, cx)
                 }),
             _ => {}
         }
     }
     pub(crate) fn dialog_locked(&self) -> bool {
-        self.user_action_pending
-            || matches!(self.dialog, Some(Dialog::Quit))
-                && (self.closing_window && !self.close_failed || self.close_check_pending)
-            || matches!(&self.dialog, Some(Dialog::Create(draft)) if draft.busy.is_some())
-            || matches!(&self.dialog, Some(Dialog::PeerSession(dialog)) if self.peer_ui.pending.contains(&dialog.cycle.peer))
+        self.dialogs.user_action_pending
+            || matches!(self.dialogs.current, Some(Dialog::Quit))
+                && (self.close.closing && !self.close.failed || self.close.check_pending)
+            || matches!(&self.dialogs.current, Some(Dialog::Create(draft)) if draft.busy.is_some())
+            || matches!(&self.dialogs.current, Some(Dialog::PeerSession(dialog)) if self.peer_ui.pending.contains(&dialog.cycle.peer))
     }
     pub(crate) fn dismiss_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog_locked() {
             return;
         }
-        if matches!(self.dialog, Some(Dialog::Quit)) {
-            self.quit_focus.error = None;
-            self.close_confirmation = None;
-            self.close_ticket = None;
-            self.update_restart = false;
+        if matches!(self.dialogs.current, Some(Dialog::Quit)) {
+            self.close.quit_focus.error = None;
+            self.close.confirmation = None;
+            self.close.ticket = None;
+            self.close.update_restart = false;
             self.update_ui.restart_request = None;
         }
-        if matches!(self.dialog, Some(Dialog::PeerSession(_))) { self.dismiss_peer_session_dialog(window, cx); return; }
-        let dialog = self.dialog.take();
+        if matches!(self.dialogs.current, Some(Dialog::PeerSession(_))) { self.dismiss_peer_session_dialog(window, cx); return; }
+        let dialog = self.dialogs.current.take();
         if let Some(Dialog::RenameTab { id, .. }) = dialog {
             self.focus_tab_label(id, window, cx);
-        } else if !matches!(dialog, Some(Dialog::Quit)) || !self.quit_focus.restore(window) {
+        } else if !matches!(dialog, Some(Dialog::Quit)) || !self.close.quit_focus.restore(window) {
             self.focus_selected(window, cx);
         }
         cx.notify();
@@ -191,13 +149,13 @@ impl Root {
     pub(crate) fn selected_tab(&self) -> Option<TabId> {
         let selected_session = self.selected_session()?;
         let session = self.snapshot.as_ref()?.sessions.iter().find(|item| item.id == selected_session)?;
-        let selected = self.navigation.selected().tab_id;
+        let selected = self.workspace.navigation.selected().tab_id;
         let mut visible = session.tabs.iter().filter(|tab| self.local_tab_viewable(tab));
         visible.clone().find(|tab| Some(tab.id) == selected).or_else(|| visible.next()).map(|tab| tab.id)
     }
     pub(crate) fn selected_session(&self) -> Option<SessionId> {
         if !self.is_local_source(){return None;}
-        self.navigation.selected().session_id
+        self.workspace.navigation.selected().session_id
     }
     pub(crate) fn focus_selected(&self, window: &mut Window, cx: &gpui::App) {
         if !self.is_local_source() {
@@ -208,7 +166,7 @@ impl Root {
             }
             return;
         }
-        if let Some(view) = self.selected_tab().and_then(|id| self.views.get(&id)) {
+        if let Some(view) = self.selected_tab().and_then(|id| self.tabs.views.get(&id)) {
             view.read(cx).focus.focus(window);
         }
     }

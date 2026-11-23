@@ -14,67 +14,32 @@ impl Root {
     ) -> Self {
         let mut root = Self {
             host: None,
-            tab_activity: Default::default(),
+            pending_boot: None,
+            snapshot: None,
+            workspace: crate::workspace::WorkspaceState::new(initial),
+            tabs: Default::default(),
+            sidebar: crate::sidebar::SidebarUi::new(cx),
+            files: crate::files::FilesArea::new(&options.run_dir),
+            settings: Default::default(),
+            dialogs: crate::dialogs::DialogState::new(cx),
             peers: crate::peers::source::PeerSources::default(),
             peer_ui: crate::peers::PeerUi::default(),
-            semantic_context: crate::accessibility::WindowSemanticContext::new(
-                crate::accessibility::SemanticId(1),
-            ),
-            native_accessibility: None,
-            pending_boot: None,
-            app_host: None,
-            window_id: None,
-            close_confirmation: None,
-            quit_focus: QuitFocus::new(cx),
-            window_tracker: None,
-            close_ticket: None,
-            update_restart: false,
+            close: close::CloseState::new(cx),
+            semantics: semantics::Semantics::new(crate::desktop_windows::caption(cx).into()),
+            power: power::PowerUi::default(),
             update_ui: Default::default(),
-            close_check_pending: false,
-            close_failed: false,
-            snapshot: None,
-            navigation: crate::window_manager::WindowSelection::new(initial),
-            tab_scroll: crate::workspace::tabs::TabScroll::default(),
-            pending_recent: None,
-            activating_session: None,
-            views: HashMap::new(),
-            attaching: HashSet::new(),
-            failures: HashMap::new(),
-            settings_panel: None,
-            files: None,
-            html_preview: crate::files::text_preview::html::Surface::new(&options.run_dir),
-            retained_files: Vec::new(),
+            window_tracker: None,
             fixture: None,
             run_dir: options.run_dir,
-            window_caption: crate::desktop_windows::caption(cx).into(),
             error: None,
             notifications: Default::default(),
-            dialog: None,
-            settings: false,
-            sidebar: true,
             layout_focus: cx.focus_handle(),
-            sidebar_width: 220.,
-            resizing_sidebar: false,
-            local_expanded: true,
-            history_page_size: 10,
-            session_pages: 1,
-            sidebar_ui: crate::sidebar::SidebarUi::new(cx),
-            session_menu: None,
-            tab_menu: None,
-            modal_focus: cx.focus_handle(),
-            closing_window: false,
-            action_pending: false,
-            user_action_pending: false,
-            background: Default::default(),
-            profiles: Vec::new(),
-            catalog_epoch: 0,
-            profile_menu: None,
-            power: power::PowerUi::default(),
             watches: Vec::new(),
+            panes: panes::Panes::new(cx),
         };
-        root.sidebar_ui.visibility.trace = options.ui_acceptance;
+        root.sidebar.visibility.trace = options.ui_acceptance;
         match native {
-            Ok(provider) => root.native_accessibility = Some(provider),
+            Ok(provider) => root.semantics.native = Some(provider),
             Err(error) => {
                 root.error = Some(format!("Native accessibility attachment failed: {error}"));
                 return root;
@@ -113,7 +78,7 @@ impl Root {
         };
         match crate::app_host::adapter::get(cx).ok_or_else(|| anyhow::anyhow!("The exact prestarted application owner is not installed; Root will not start another Host")) {
             Ok(app_host) => {
-                root.app_host = Some(app_host.clone());
+                root.close.app_host = Some(app_host.clone());
                 cx.spawn_in(window, async move |root, cx| {
                     let ready = app_host.open_window().await;
                     let catalog = match &ready {
@@ -130,7 +95,7 @@ impl Root {
                                     cx.notify();
                                     return;
                                 }
-                                root.window_id = Some(registered.id);
+                                root.close.window_id = Some(registered.id);
                                 let client = registered.client;
                                 let panel =
                                     crate::settings::SettingsPanel::new(client.clone(), window, cx);
@@ -155,7 +120,7 @@ impl Root {
                                     }
                                 })
                                 .detach();
-                                root.settings_panel = Some(panel);
+                                root.settings.panel = Some(panel);
                                 crate::launch_runtime::install(cx);
                                 root.watch_tab_activity(client.clone(), window, cx);
                                 let workspace = root.watch_workspace(client.clone(), window, cx);

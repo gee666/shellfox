@@ -44,14 +44,14 @@ impl Root {
         let matches = |files: &Files| {
             files.request == request && files.saving() && files.backend.same_origin(backend)
         };
-        if self.files.as_ref().is_some_and(matches) {
+        if self.files.panel.as_ref().is_some_and(matches) {
             let presented = self.files_source_current();
-            return self.files.as_mut().map(|files| {
+            return self.files.panel.as_mut().map(|files| {
                 let presented = presented && files.visible;
                 (files, presented)
             });
         }
-        self.retained_files.iter_mut().find(|files| matches(files)).map(|files| (files, false))
+        self.files.retained.iter_mut().find(|files| matches(files)).map(|files| (files, false))
     }
 
     /// Move only presentation state. Reconnecting separately revalidates the file.
@@ -59,17 +59,17 @@ impl Root {
         let source = self.peers.selected.clone();
         let epoch = self.source_selection_epoch();
         if self
-            .files
+            .files.panel
             .as_ref()
             .is_some_and(|files| files.source == source && files.source_epoch == epoch)
         {
             return;
         }
         self.remember_panel(cx);
-        let active = self.retained_files.iter().rposition(|files| {
+        let active = self.files.retained.iter().rposition(|files| {
             files.source == source && self.active_file_tab(&files.backend)
         });
-        if let Some(index) = active.or_else(|| self.retained_files.iter().rposition(|files| files.source == source)) {
+        if let Some(index) = active.or_else(|| self.files.retained.iter().rposition(|files| files.source == source)) {
             self.restore_panel(index);
         }
     }
@@ -84,13 +84,13 @@ impl Root {
         }
         self.sync_file_source(cx);
         if !self
-            .files
+            .files.panel
             .as_ref()
             .is_some_and(|files| files.backend.same_panel_scope(&backend))
         {
             self.remember_panel(cx);
             let source = &self.peers.selected;
-            if let Some(index) = self.retained_files.iter().rposition(|files| {
+            if let Some(index) = self.files.retained.iter().rposition(|files| {
                 files.source == *source && files.backend.same_panel_scope(&backend)
             }) {
                 self.restore_panel(index);
@@ -98,13 +98,13 @@ impl Root {
                 self.initialize_file_panel(backend, cx);
             }
         }
-        if let Some(files) = &mut self.files {
+        if let Some(files) = &mut self.files.panel {
             files.visible = true;
         }
     }
 
     pub(crate) fn follow_wsl_file_tab(&mut self, cx: &mut Context<Self>) {
-        if self.is_local_source() && self.files.as_ref().is_some_and(|files| files.visible && files.backend.is_wsl()) {
+        if self.is_local_source() && self.files.panel.as_ref().is_some_and(|files| files.visible && files.backend.is_wsl()) {
             self.show_selected_file_scope(cx);
         }
     }
@@ -116,20 +116,20 @@ impl Root {
             return;
         };
         self.select_file_scope(backend, cx);
-        if self.files.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
+        if self.files.panel.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
             self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
         }
     }
 
     pub(crate) fn follow_peer_file_tab(&mut self, cx: &mut Context<Self>) {
         self.sync_file_source(cx);
-        if !self.files.as_ref().is_some_and(|files| files.visible && files.source == self.peers.selected) {
+        if !self.files.panel.as_ref().is_some_and(|files| files.visible && files.source == self.peers.selected) {
             return;
         }
         let Ok((backend, preferred)) = self.peer_file_backend() else { return; };
-        if backend.is_wsl() || self.files.as_ref().is_some_and(|files| files.backend.is_wsl()) {
+        if backend.is_wsl() || self.files.panel.as_ref().is_some_and(|files| files.backend.is_wsl()) {
             self.select_file_scope(backend, cx);
-            if self.files.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
+            if self.files.panel.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
                 self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
             }
         }
@@ -151,9 +151,9 @@ impl Root {
                         && session.tabs.iter().any(|tab| tab.id == scope.tab && viewable_tab(tab)))
                 })
         };
-        self.retained_files.retain(|files| !removable(files));
-        if self.files.as_ref().is_some_and(removable) {
-            let visible = self.files.take().is_some_and(|files| files.visible);
+        self.files.retained.retain(|files| !removable(files));
+        if self.files.panel.as_ref().is_some_and(removable) {
+            let visible = self.files.panel.take().is_some_and(|files| files.visible);
             if visible && self.peers.selected == source {
                 self.show_selected_file_scope(cx);
             }
@@ -161,16 +161,16 @@ impl Root {
     }
 
     pub(crate) fn reveal_dirty_file_on_close(&mut self, cx: &mut Context<Self>) {
-        if !self.files.as_ref().is_some_and(|files| files.dirty(cx)) {
-            let Some(index) = self.retained_files.iter().position(|files| files.dirty(cx)) else { return };
-            let original = self.retained_files.remove(index);
+        if !self.files.panel.as_ref().is_some_and(|files| files.dirty(cx)) {
+            let Some(index) = self.files.retained.iter().position(|files| files.dirty(cx)) else { return };
+            let original = self.files.retained.remove(index);
             self.remember_panel(cx);
-            self.files = Some(original);
+            self.files.panel = Some(original);
         }
-        let Some(source) = self.files.as_ref().map(|files| files.source.clone()) else { return };
+        let Some(source) = self.files.panel.as_ref().map(|files| files.source.clone()) else { return };
         if self.peers.choose(source).is_ok() {
             let epoch = self.source_selection_epoch();
-            if let Some(files) = &mut self.files {
+            if let Some(files) = &mut self.files.panel {
                 files.source_epoch = epoch;
                 files.visible = true;
             }
@@ -178,7 +178,7 @@ impl Root {
     }
 
     pub(crate) fn wsl_tab_has_draft(&self, tab: shellfox_core::TabId, cx: &App) -> bool {
-        self.files.iter().chain(&self.retained_files).any(|files| {
+        self.files.panel.iter().chain(&self.files.retained).any(|files| {
             files.backend.wsl_tab() == Some(tab) && (files.dirty(cx) || files.busy)
         })
     }
@@ -186,17 +186,17 @@ impl Root {
     pub(crate) fn retire_wsl_file_tabs(&mut self, retained: &std::collections::HashSet<shellfox_core::TabId>, cx: &mut Context<Self>) {
         let retired = |files: &Files| files.backend.wsl_tab().is_some_and(|tab| !retained.contains(&tab));
         let clean = |files: &Files| retired(files) && !files.dirty(cx);
-        for files in self.files.iter_mut().chain(&mut self.retained_files).filter(|files| retired(files)) {
+        for files in self.files.panel.iter_mut().chain(&mut self.files.retained).filter(|files| retired(files)) {
             files.backend.retire_wsl_editor();
             if let Some(editor) = &mut files.editor {
                 editor.reload_required = true;
             }
             files.document_error = Some("The terminal tab closed. The draft has not been saved.".into());
         }
-        if self.files.as_ref().is_some_and(clean) {
-            self.files.take();
+        if self.files.panel.as_ref().is_some_and(clean) {
+            self.files.panel.take();
         }
-        self.retained_files.retain(|files| !clean(files));
+        self.files.retained.retain(|files| !clean(files));
     }
 
     pub(crate) fn use_host_file_scope(&mut self, cx: &mut Context<Self>) -> bool {
@@ -212,20 +212,20 @@ impl Root {
     }
 
     fn restore_panel(&mut self, index: usize) {
-        let mut files = self.retained_files.remove(index);
+        let mut files = self.files.retained.remove(index);
         files.source_epoch = self.source_selection_epoch();
-        self.files = Some(files);
+        self.files.panel = Some(files);
     }
 
     fn remember_panel(&mut self, cx: &mut Context<Self>) {
-        if let Some(mut files) = self.files.take() {
+        if let Some(mut files) = self.files.panel.take() {
             files.check_cached_revision |= files.dirty(cx);
             files.suspend_presentation(cx);
-            self.retained_files.retain(|retained| {
+            self.files.retained.retain(|retained| {
                 retained.source != files.source
                     || !retained.backend.same_panel_scope(&files.backend)
             });
-            self.retained_files.push(files);
+            self.files.retained.push(files);
         }
     }
 }

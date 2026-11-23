@@ -2,7 +2,7 @@ use super::*;
 use crate::root::Root;
 impl Root {
     pub(crate) fn settings_page(&self, palette: Palette, cx: &mut Context<Self>) -> AnyElement {
-        match &self.settings_panel {
+        match &self.settings.panel {
             Some(panel) => {
                 panel.update(cx, |panel, cx| panel.set_palette(palette, cx));
                 panel.clone().into_any_element()
@@ -14,9 +14,9 @@ impl Root {
         }
     }
     pub(crate) fn review_access_requests(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(panel) = &self.settings_panel else { return; };
-        if matches!(self.dialog, Some(crate::root::Dialog::Create(_))) && !self.dialog_locked() {
-            self.dialog = None;
+        let Some(panel) = &self.settings.panel else { return; };
+        if matches!(self.dialogs.current, Some(crate::dialogs::Dialog::Create(_))) && !self.dialog_locked() {
+            self.dialogs.current = None;
         }
         panel.update(cx, |panel, cx| {
             panel.opened(cx);
@@ -24,41 +24,41 @@ impl Root {
             panel.category = Category::RemoteAccess;
             panel.access_review.set(true);
         });
-        self.settings = true;
+        self.settings.open = true;
         cx.notify();
     }
 
     pub(crate) fn open_settings(&mut self, cx: &mut Context<Self>) {
-        if let Some(panel) = &self.settings_panel {
-            if self.settings {
+        if let Some(panel) = &self.settings.panel {
+            if self.settings.open {
                 panel.update(cx, |panel, cx| panel.request_close(cx));
                 return;
             }
             panel.update(cx, |panel, cx| panel.opened(cx));
         }
-        self.settings = !self.settings;
+        self.settings.open = !self.settings.open;
         cx.notify();
     }
     pub(crate) fn hide_settings(&mut self, cx: &mut Context<Self>) {
-        if std::mem::take(&mut self.settings)
-            && let Some(panel) = &self.settings_panel
+        if std::mem::take(&mut self.settings.open)
+            && let Some(panel) = &self.settings.panel
         {
             panel.update(cx, |panel, cx| panel.dismiss(cx));
         }
     }
     pub(crate) fn sync_field_palette(&self, palette: Palette, cx: &mut Context<Self>) {
         let mut fields = Vec::new();
-        match &self.dialog {
-            Some(crate::root::Dialog::Create(draft)) => fields.push(draft.path.clone()),
-            Some(crate::root::Dialog::SessionEnvironment { text, .. }) => fields.push(text.clone()),
-            Some(crate::root::Dialog::PeerSession(dialog)) => fields.extend(dialog.field().cloned()),
+        match &self.dialogs.current {
+            Some(crate::dialogs::Dialog::Create(draft)) => fields.push(draft.path.clone()),
+            Some(crate::dialogs::Dialog::SessionEnvironment { text, .. }) => fields.push(text.clone()),
+            Some(crate::dialogs::Dialog::PeerSession(dialog)) => fields.extend(dialog.field().cloned()),
             Some(
-                crate::root::Dialog::RenameSession { title, .. }
-                | crate::root::Dialog::RenameTab { title, .. },
+                crate::dialogs::Dialog::RenameSession { title, .. }
+                | crate::dialogs::Dialog::RenameTab { title, .. },
             ) => fields.push(title.clone()),
             _ => {}
         }
-        if let Some(files) = &self.files {
+        if let Some(files) = &self.files.panel {
             fields.push(files.location.clone());
             if let Some(editor) = &files.editor {
                 fields.push(editor.text.clone());
@@ -81,7 +81,7 @@ impl Root {
             return;
         };
         let palette = Palette::new(&prefs.accent_color, &prefs.background_color);
-        let views = self.views.values();
+        let views = self.tabs.views.values();
         let views = views.chain(self.peer_ui.v1_views.values());
         for view in views {
             if let Err(error) = view.update(cx, |view, cx| {

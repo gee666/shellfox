@@ -11,7 +11,7 @@ impl Root {
 
     /// The selected peer tab has no view and its last open didn't fail.
     pub(crate) fn peer_attach_due(&self) -> bool {
-        if self.is_local_source() || self.peer_ui.frozen || self.closing_window || self.host.is_none() {
+        if self.is_local_source() || self.peer_ui.frozen || self.close.closing || self.host.is_none() {
             return false;
         }
         let Some((peer, state)) = self.peers.selected_peer() else {
@@ -27,7 +27,7 @@ impl Root {
     }
 
     pub(crate) fn open_v1_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.peer_ui.frozen || self.closing_window {
+        if self.peer_ui.frozen || self.close.closing {
             return;
         }
         let Some((peer, state)) = self.peers.selected_peer() else {
@@ -80,7 +80,7 @@ impl Root {
                 view.update(cx, |view, _| view.enable_file_links());
                 let link_key = key.clone();
                 cx.subscribe_in(&view, window, move |root, emitter, event: &crate::terminal::TerminalFileLink, window, cx| {
-                    if root.peer_ui.v1_views.get(&link_key) == Some(&emitter) {
+                    if root.peer_ui.v1_views.get(&link_key) == Some(emitter) {
                         root.open_peer_terminal_file_link(&link_key.0, link_key.1, event, window, cx);
                     }
                 }).detach();
@@ -95,48 +95,53 @@ impl Root {
         cx.notify();
     }
 
-    fn start_v1_stream(
+    pub(super) fn start_v1_stream(
         &mut self,
         peer: AuthenticatedPeerId,
         binding: Arc<V1Binding>,
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        let wake = self.peer_ui.stream_wake.clone();
         self.peer_ui
             .v1_streams
             .entry(peer.clone())
             .or_insert_with(|| {
                 cx.spawn_in(window, async move |root, cx| {
                     let mut retry = Duration::ZERO;
+                    let mut changes = binding.state_changes();
+                    let mut catalog = binding.state().catalog;
                     loop {
                         if !retry.is_zero() {
                             cx.background_executor().timer(retry).await;
+                            retry = Duration::ZERO;
                         }
-                        let Ok((active, attaching)) = root.update_in(cx, |root, _, cx| {
-                            let mut views = root
+                        let unfrozen = wake.notified();
+                        let Ok((frozen, attaching)) = root.update_in(cx, |root, _, cx| {
+                            let attaching = root
                                 .peer_ui
                                 .v1_views
                                 .iter()
-                                .filter(|((id, _), _)| id == &peer);
-                            let active = !root.peer_ui.frozen
-                                && views
-                                    .clone()
-                                    .any(|(_, view)| !view.read(cx).peer_released());
-                            (
-                                active,
-                                views.any(|(_, view)| view.read(cx).peer_attaching()),
-                            )
+                                .any(|((id, _), view)| id == &peer && view.read(cx).peer_attaching());
+                            (root.peer_ui.frozen, attaching)
                         }) else {
                             break;
                         };
-                        // Recovery can reset the wire sequence even when control
-                        // has not changed. Don't poll a new batch through that cut.
+                        if frozen {
+                            unfrozen.await;
+                            continue;
+                        }
+                        // A view's recovery can reset the wire sequence even when control
+                        // has not changed, so no batch is polled through that cut. The
+                        // attach reply arrives on the view, not here; it is short.
                         if attaching {
                             retry = Duration::from_millis(30);
                             continue;
                         }
-                        if !active || binding.state().status == ConnectionStatus::Rejected {
-                            retry = Duration::from_millis(250);
+                        if binding.state().status == ConnectionStatus::Rejected {
+                            if changes.changed().await.is_err() {
+                                break;
+                            }
                             continue;
                         }
                         if binding.connect().await.is_ok() {
@@ -144,13 +149,17 @@ impl Root {
                             if let Ok(poll) = binding.poll().await {
                                 // The host long poll already waits for events,
                                 // so a successful batch re-polls immediately.
-                                retry = Duration::ZERO;
                                 if binding.state().connection_id != connection {
                                     continue;
                                 }
+                                // Any Changed event bumps the catalog; the sidebar re-reads it.
+                                let changed = std::mem::replace(&mut catalog, binding.state().catalog) != catalog;
                                 if root
                                     .update_in(cx, |root, _, cx| {
-                                        root.deliver_v1_events(&peer, connection, poll.events, cx)
+                                        root.deliver_v1_events(&peer, connection, poll.events, cx);
+                                        if changed {
+                                            cx.notify();
+                                        }
                                     })
                                     .is_err()
                                 {

@@ -1,5 +1,6 @@
 use crate::{
-    root::{Dialog, Root},
+    dialogs::Dialog,
+    root::Root,
     theme::Palette,
 };
 use gpui::{AnyElement, Context, Entity, Window, div, prelude::*, px};
@@ -25,8 +26,11 @@ pub(crate) struct PeerUi {
     /// Last view that failed to open; the render hook skips it until Reconnect.
     pub(crate) v1_failed: Option<(AuthenticatedPeerId, TabId)>,
     v1_streams: HashMap<AuthenticatedPeerId, gpui::Task<()>>,
+    /// Wakes the v1 streams when the UI unfreezes.
+    stream_wake: std::sync::Arc<tokio::sync::Notify>,
     v1_activity: HashMap<(AuthenticatedPeerId, TabId), bool>,
     metadata_polls: HashMap<AuthenticatedPeerId, Option<std::time::Instant>>,
+    catalog_reads: HashMap<AuthenticatedPeerId, metadata_poll::CatalogRead>,
     pub paused: HashSet<AuthenticatedPeerId>,
     pub pending: HashSet<AuthenticatedPeerId>,
     opening: sidebar_actions::PeerActivations,
@@ -67,10 +71,10 @@ impl Root {
             let mut changes = client.remote_changes();
             while let Ok(state) = changes.next().await {
                 let current = root.update_in(cx, |root, window, cx| {
-                    if !root.closing_window && !root.peer_ui.frozen {
+                    if !root.close.closing && !root.peer_ui.frozen {
                         root.accept_peer_remote(state, window, cx);
                     }
-                    !root.closing_window
+                    !root.close.closing
                 });
                 if !matches!(current, Ok(true)) {
                     return;
@@ -79,7 +83,7 @@ impl Root {
         })
     }
     pub(crate) fn poll_peer_inventory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.closing_window || self.peer_ui.frozen || self.peers.inventory_pending {
+        if self.close.closing || self.peer_ui.frozen || self.peers.inventory_pending {
             return;
         }
         let Some(client) = self.host.clone() else {
@@ -95,10 +99,10 @@ impl Root {
                 .await;
             let _ = root.update_in(cx, |root, window, cx| {
                 root.peers.inventory_pending = false;
-                if generation == root.peer_ui.inventory_generation {
-                    if let Ok(shellfox_service::native::NativeResponse::Remote(state)) = reply {
-                        root.accept_peer_remote(state, window, cx);
-                    }
+                if generation == root.peer_ui.inventory_generation
+                    && let Ok(shellfox_service::native::NativeResponse::Remote(state)) = reply
+                {
+                    root.accept_peer_remote(state, window, cx);
                 }
             });
         })
@@ -112,7 +116,7 @@ impl Root {
         cx: &mut Context<Self>,
     ) {
         use shellfox_service::remote::native::RemoteConnection;
-        if !state.enabled || self.closing_window || self.peer_ui.frozen {
+        if !state.enabled || self.close.closing || self.peer_ui.frozen {
             self.peer_ui.inventory_catalogs.clear();
             return;
         }
@@ -142,16 +146,16 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.closing_window
+        if self.close.closing
             || self.peer_ui.frozen
             || self.dialog_locked()
-            || self.user_action_pending
+            || self.dialogs.user_action_pending
         {
             return;
         }
-        self.dialog = None;
-        self.session_menu = None;
-        self.profile_menu = None;
+        self.dialogs.current = None;
+        self.sidebar.session_menu = None;
+        self.tabs.profile_menu = None;
         self.hide_settings(cx);
         if let Err(error) = self.peers.choose(source::Source::Peer(peer.clone())) {
             self.error = Some(error.to_string());
@@ -293,6 +297,7 @@ impl Root {
         self.peer_ui.pending.remove(peer);
         self.peer_ui.opening.retire(peer);
         self.peer_ui.metadata_polls.remove(peer);
+        self.peer_ui.catalog_reads.remove(peer);
         cx.notify();
     }
 }

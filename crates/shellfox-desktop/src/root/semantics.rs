@@ -2,6 +2,24 @@ use super::*;
 use crate::accessibility::{Role, SemanticActionKind, SemanticError, SemanticNode, SemanticTree};
 use gpui::{AnyElement, IntoElement};
 
+/// The window's semantic tree collector and its native accessibility provider.
+pub(crate) struct Semantics {
+    pub(crate) context: crate::accessibility::WindowSemanticContext,
+    pub(crate) native: Option<crate::accessibility::NativeAccessibility>,
+    /// The window title, also the name of the semantic root.
+    pub(crate) caption: String,
+}
+
+impl Semantics {
+    pub(crate) fn new(caption: String) -> Self {
+        Self {
+            context: crate::accessibility::WindowSemanticContext::new(crate::accessibility::SemanticId(1)),
+            native: None,
+            caption,
+        }
+    }
+}
+
 impl Root {
     /// Admission only. Services start after the queued native show and viewport verification finish.
     pub(crate) fn queue_presentation(
@@ -11,7 +29,7 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> Result<(), SemanticError> {
         let task = self
-            .native_accessibility
+            .semantics.native
             .as_mut()
             .ok_or_else(|| SemanticError::Native("Native provider did not attach.".into()))?
             .queue_present_hidden(window, plan, cx)?;
@@ -39,15 +57,15 @@ impl Root {
         plan: &crate::accessibility::HiddenWindowPresentation,
         cx: &gpui::App,
     ) -> Result<(), SemanticError> {
-        self.native_accessibility
+        self.semantics.native
             .as_mut()
             .ok_or_else(|| SemanticError::Native("Native provider did not attach.".into()))?
             .present_hidden(window, plan, cx)
     }
     pub(crate) fn sync_semantic_children(&self, cx: &mut Context<Self>) {
-        let frame = self.semantic_context.frame();
-        let root = self.semantic_context.root_id();
-        for view in self.views.values().chain(self.fixture.iter()) {
+        let frame = self.semantics.context.frame();
+        let root = self.semantics.context.root_id();
+        for view in self.tabs.views.values().chain(self.fixture.iter()) {
             let key = format!("terminal/{:?}", view.entity_id());
             if let Err(error) = view.update(cx, |view, cx| {
                 view.set_semantic_frame(frame.clone(), root, key, cx)
@@ -55,13 +73,13 @@ impl Root {
                 frame.reject(error);
             }
         }
-        if let Some(panel) = &self.settings_panel
+        if let Some(panel) = &self.settings.panel
             && let Err(error) =
                 panel.update(cx, |panel, cx| panel.set_frame(frame.clone(), root, cx))
         {
             frame.reject(error);
         }
-        let parent = match &self.dialog {
+        let parent = match &self.dialogs.current {
             None | Some(Dialog::RenameTab { .. } | Dialog::RenameSession { .. }) => root,
             Some(_) => match frame.id_for("root/dialog") {
                 Ok(id) => id,
@@ -71,7 +89,7 @@ impl Root {
                 }
             },
         };
-        match &self.dialog {
+        match &self.dialogs.current {
             Some(Dialog::Create(draft)) => {
                 if let Err(error) = draft.path.update(cx, |field, cx| {
                     field.set_frame(frame.clone(), parent, "Folder path", cx)
@@ -100,7 +118,7 @@ impl Root {
             }
             _ => {}
         }
-        if let Some(files) = &self.files {
+        if let Some(files) = &self.files.panel {
             let parent = match frame.id_for("root/files") {
                 Ok(id) => id,
                 Err(error) => {
@@ -129,7 +147,7 @@ impl Root {
         name: impl Into<String>,
         child: E,
     ) -> AnyElement {
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         match frame.id_for(key) {
             Ok(id) => {
                 let mut node = SemanticNode::new(id, Some(frame.root_id()), role, name);
@@ -150,7 +168,7 @@ impl Root {
         name: impl Into<String>,
         child: E,
     ) -> AnyElement {
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         match frame.id_for(key) {
             Ok(id) => {
                 let mut node = SemanticNode::new(id, Some(frame.root_id()), Role::Button, name);
@@ -165,15 +183,15 @@ impl Root {
         child: E,
         cx: &Context<Self>,
     ) -> AnyElement {
-        if self.native_accessibility.is_none() {
+        if self.semantics.native.is_none() {
             return child.into_any_element();
         }
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         let node = SemanticNode::new(
             frame.root_id(),
             None,
             Role::Window,
-            self.window_caption.clone(),
+            self.semantics.caption.clone(),
         );
         let root = cx.weak_entity();
         frame
@@ -189,21 +207,21 @@ impl Root {
         cx: &mut Context<Self>,
     ) {
         let result = tree.and_then(|tree| {
-            self.native_accessibility
+            self.semantics.native
                 .as_mut()
                 .ok_or_else(|| SemanticError::Native("Native provider unavailable.".into()))?
                 .publish(tree, window)
         });
         if let Err(error) = result {
             // Do not leave an old native tree representing a different dialog/document.
-            self.native_accessibility = None;
+            self.semantics.native = None;
             self.error = Some(format!("Native accessibility unavailable: {error}"));
             cx.notify();
         }
     }
     /// Runs the actions and tree requests queued by OS accessibility callbacks.
     pub(super) fn watch_semantics(&self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::Task<()>> {
-        let wake = self.native_accessibility.as_ref()?.wake();
+        let wake = self.semantics.native.as_ref()?.wake();
         Some(cx.spawn_in(window, async move |root, cx| loop {
             wake.notified().await;
             if root.update_in(cx, |root, window, cx| root.poll_semantics(window, cx)).is_err() {
@@ -212,7 +230,7 @@ impl Root {
         }))
     }
     fn poll_semantics(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(provider) = &self.native_accessibility else {
+        let Some(provider) = &self.semantics.native else {
             return;
         };
         // Draining can itself request a full tree, so check after it.
@@ -221,7 +239,7 @@ impl Root {
         if refresh {
             cx.notify();
         }
-        if self.closing_window {
+        if self.close.closing {
             return;
         }
         for action in actions {
@@ -240,8 +258,8 @@ impl Root {
             if self.handle_power_action(&action, window, cx) {
                 continue;
             }
-            if self.settings
-                && let Some(panel) = &self.settings_panel
+            if self.settings.open
+                && let Some(panel) = &self.settings.panel
                 && panel.update(cx, |panel, cx| {
                     panel.handle_semantic_action(&action, window, cx)
                 })
@@ -249,15 +267,15 @@ impl Root {
                 continue;
             }
             let mut fields = Vec::new();
-            match &self.dialog {
+            match &self.dialogs.current {
                 Some(Dialog::Create(draft)) => fields.push(draft.path.clone()),
                 Some(Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. } | Dialog::SessionEnvironment { text: title, .. }) => {
                     fields.push(title.clone())
                 }
                 _ => {}
             }
-            if self.dialog.is_none()
-                && let Some(files) = &self.files
+            if self.dialogs.current.is_none()
+                && let Some(files) = &self.files.panel
                 && files.visible
             {
                 fields.push(files.location.clone());
@@ -272,13 +290,13 @@ impl Root {
             }) {
                 continue;
             }
-            if self.settings || self.dialog.is_some() {
+            if self.settings.open || self.dialogs.current.is_some() {
                 continue;
             }
             let covered =
-                self.files.as_ref().is_some_and(|files| files.visible) && self.files_narrow(window);
+                self.files.panel.as_ref().is_some_and(|files| files.visible) && self.files_narrow(window);
             if !covered
-                && let Some(view) = self.selected_tab().and_then(|id| self.views.get(&id))
+                && let Some(view) = self.selected_tab().and_then(|id| self.tabs.views.get(&id))
                 && view.update(cx, |view, cx| {
                     view.handle_terminal_semantic_action(&action, window, cx)
                 })
@@ -293,7 +311,7 @@ impl Root {
                 continue;
             }
             if matches!(action.kind, SemanticActionKind::Focus)
-                && let Some(handle) = self.semantic_context.frame().focus_handle(action.target)
+                && let Some(handle) = self.semantics.context.frame().focus_handle(action.target)
             {
                 handle.focus(window);
                 cx.notify();

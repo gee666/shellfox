@@ -6,7 +6,7 @@ const SETTINGS_BUTTON: &str = "chrome/sidebar/settings";
 
 impl Root {
     fn toggle_settings_from_toolbar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.settings && self.pending_access_count() > 0 {
+        if !self.settings.open && self.pending_access_count() > 0 {
             self.review_access_requests(window, cx);
         } else {
             self.open_settings(cx);
@@ -14,7 +14,7 @@ impl Root {
     }
 
     fn settings_button_semantics(&self, button: Stateful<gpui::Div>, hint: &str) -> AnyElement {
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         match frame.id_for(SETTINGS_BUTTON) {
             Ok(id) => {
                 let mut node =
@@ -22,14 +22,14 @@ impl Root {
                 if self.pending_access_count() != 0 {
                     node.data.set_description(hint);
                 }
-                node.data.set_toggled(if self.settings {
+                node.data.set_toggled(if self.settings.open {
                     accesskit::Toggled::True
                 } else {
                     accesskit::Toggled::False
                 });
-                if self.snapshot.is_some() && !self.closing_window {
+                if self.snapshot.is_some() && !self.close.closing {
                     node.data.add_action(Action::Click);
-                    node.focus = Some(self.sidebar_ui.settings.clone());
+                    node.focus = Some(self.sidebar.settings.clone());
                 } else {
                     node.data.set_disabled();
                 }
@@ -48,11 +48,11 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         if !matches!(action.kind, SemanticActionKind::Click)
-            || self.dialog.is_some()
-            || self.tab_menu.is_some()
-            || self.profile_menu.is_some()
+            || self.dialogs.current.is_some()
+            || self.tabs.menu.is_some()
+            || self.tabs.profile_menu.is_some()
             || frame.id_for(SETTINGS_BUTTON).ok() != Some(action.target)
             || frame.focus_handle(action.target).is_none()
         {
@@ -63,10 +63,10 @@ impl Root {
     }
 
     pub(super) fn sidebar_toolbar(&self, palette: Palette, cx: &Context<Self>) -> gpui::Div {
-        let create_ready = !self.user_action_pending
+        let create_ready = !self.dialogs.user_action_pending
             && (self.can_create_local_session()
                 || self.peers.peers.values().any(|peer| peer.remembered));
-        let new_session_anchor = self.sidebar_ui.new_session_anchor.clone();
+        let new_session_anchor = self.sidebar.new_session_anchor.clone();
         let requests = self.pending_access_count();
         let settings_hint = if requests == 0 {
             "Settings".to_owned()
@@ -87,11 +87,11 @@ impl Root {
             .child(
                 icon_button("hide-sessions", "back", palette)
                     .w(px(24.))
-                    .track_focus(&self.sidebar_ui.toggle)
+                    .track_focus(&self.sidebar.toggle)
                     .focus(|style| style.border_1().border_color(palette.accent))
                     .tooltip(tooltip(crate::root::layout::sessions_tooltip(true), palette))
                     .on_click(cx.listener(|root, _, window, cx| {
-                        root.sidebar_ui.toggle.focus(window);
+                        root.sidebar.toggle.focus(window);
                         root.toggle_sessions_layout(window, cx);
                     })),
             )
@@ -103,7 +103,7 @@ impl Root {
                     .child(
                         toolbar_tip(
                             icon_button("new-session", "plus", palette)
-                                .when(self.sidebar_ui.target_menu.is_some(), |button| {
+                                .when(self.sidebar.target_menu.is_some(), |button| {
                                     button.text_color(palette.accent)
                                 })
                                 .relative()
@@ -115,7 +115,7 @@ impl Root {
                                     .absolute()
                                     .inset_0(),
                                 ),
-                            if self.user_action_pending {
+                            if self.dialogs.user_action_pending {
                                 "Preparing session…"
                             } else {
                                 "New session"
@@ -125,7 +125,7 @@ impl Root {
                         .when(!create_ready, |style| style.opacity(0.4))
                         .when(create_ready, |button| {
                             button
-                                .track_focus(&self.sidebar_ui.new_session)
+                                .track_focus(&self.sidebar.new_session)
                                 .focus(|style| style.border_1().border_color(palette.accent))
                                 .on_click(cx.listener(
                                     |root, event: &gpui::ClickEvent, window, cx| {
@@ -167,7 +167,7 @@ impl Root {
                                                 }),
                                         )
                                     })
-                                    .track_focus(&self.sidebar_ui.settings)
+                                    .track_focus(&self.sidebar.settings)
                                     .on_key_down(cx.listener(
                                         |root, event: &gpui::KeyDownEvent, window, cx| {
                                             if matches!(
@@ -183,7 +183,7 @@ impl Root {
                                 settings_hint.clone(),
                                 palette,
                             )
-                            .when(self.settings, |style| style.text_color(palette.accent))
+                            .when(self.settings.open, |style| style.text_color(palette.accent))
                             .on_click(cx.listener(
                                 |root, _, window, cx| root.toggle_settings_from_toolbar(window, cx),
                             )),

@@ -56,8 +56,8 @@ fn focus_source(field: &gpui::Entity<Field>, position: SourcePosition, cx: &mut 
     cx.defer(move |cx| {
         let Some(root) = entity.upgrade() else { return };
         let root = root.read(cx);
-        if !root.settings
-            && root.files.as_ref().is_some_and(|files| {
+        if !root.settings.open
+            && root.files.panel.as_ref().is_some_and(|files| {
                 files.visible
                     && files.pending_file_action.is_none()
                     && files
@@ -75,7 +75,7 @@ fn focus_source(field: &gpui::Entity<Field>, position: SourcePosition, cx: &mut 
 
 impl Root {
     pub(crate) fn request_open_file(&mut self, path: String, cx: &mut Context<Self>) {
-        if self.files_dirty(cx) && self.files.as_ref().and_then(|f| f.opened_path()) == Some(&path)
+        if self.files_dirty(cx) && self.files.panel.as_ref().and_then(|f| f.opened_path()) == Some(&path)
         {
             return;
         }
@@ -88,7 +88,7 @@ impl Root {
         position: SourcePosition,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(editor) = self.files.as_mut().and_then(|files| files.editor.as_mut()) else {
+        let Some(editor) = self.files.panel.as_mut().and_then(|files| files.editor.as_mut()) else {
             return false;
         };
         if editor.file.path != path {
@@ -119,7 +119,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files else { return };
+        let Some(files) = &mut self.files.panel else { return };
         if files.busy {
             return;
         }
@@ -147,7 +147,7 @@ impl Root {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
                 let current = root.files_result_current(epoch, &backend);
-                let Some(files) = &mut root.files else { return };
+                let Some(files) = &mut root.files.panel else { return };
                 if files.request != request || !files.backend.same_origin(&backend) {
                     return;
                 }
@@ -222,7 +222,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files else { return };
+        let Some(files) = &mut self.files.panel else { return };
         if files.busy {
             return;
         }
@@ -309,7 +309,7 @@ impl Root {
     }
 
     pub(crate) fn cancel_file_operation(&mut self, cx: &mut Context<Self>) {
-        if let Some(operation) = self.files.as_ref().and_then(|f| f.operation.as_ref()) {
+        if let Some(operation) = self.files.panel.as_ref().and_then(|f| f.operation.as_ref()) {
             operation.cancel();
         }
         cx.notify();

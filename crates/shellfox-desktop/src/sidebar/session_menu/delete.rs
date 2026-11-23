@@ -44,10 +44,10 @@ impl Root {
             .on_key_down(cx.listener(move |root, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
                     "escape" => root.cancel_session_delete(window, cx),
-                    "tab" if root.sidebar_ui.delete_cancel.is_focused(window) => {
-                        root.modal_focus.focus(window)
+                    "tab" if root.sidebar.delete_cancel.is_focused(window) => {
+                        root.dialogs.modal_focus.focus(window)
                     }
-                    "tab" => root.sidebar_ui.delete_cancel.focus(window),
+                    "tab" => root.sidebar.delete_cancel.focus(window),
                     _ => return,
                 }
                 window.prevent_default();
@@ -63,7 +63,7 @@ impl Root {
                     .gap(px(4.))
                     .child(
                         dialog_button("delete-session-confirm", "Delete", palette)
-                            .track_focus(&self.modal_focus)
+                            .track_focus(&self.dialogs.modal_focus)
                             .when(self.dialog_locked(), |style| style.opacity(0.4))
                             .on_click(
                                 cx.listener(|root, _, window, cx| root.confirm_dialog(window, cx)),
@@ -71,7 +71,7 @@ impl Root {
                     )
                     .child(
                         dialog_button("delete-session-cancel", "Cancel", palette)
-                            .track_focus(&self.sidebar_ui.delete_cancel)
+                            .track_focus(&self.sidebar.delete_cancel)
                             .on_click(cx.listener(move |root, _, window, cx| {
                                 root.cancel_session_delete(window, cx)
                             })),
@@ -90,9 +90,9 @@ impl Root {
         if self.dialog_locked() {
             return;
         }
-        if let Some(Dialog::DeleteSession(id)) = self.dialog {
-            self.dialog = None;
-            self.sidebar_ui.focus_row(id, window);
+        if let Some(Dialog::DeleteSession(id)) = self.dialogs.current {
+            self.dialogs.current = None;
+            self.sidebar.focus_row(id, window);
             cx.notify();
         } else {
             self.dismiss_dialog(window, cx);

@@ -1,6 +1,7 @@
 use crate::{
     peers::source::PeerCycle,
-    root::{Dialog, Root},
+    dialogs::Dialog,
+    root::Root,
     theme::Palette,
     workspace::AfterAction,
 };
@@ -102,16 +103,16 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.closing_window || self.dialog_locked() {
+        if self.close.closing || self.dialog_locked() {
             return;
         }
         let prior = self
-            .session_menu
+            .sidebar.session_menu
             .take()
             .and_then(|menu| menu.prior)
             .or_else(|| window.focused(cx));
-        self.modal_focus.focus(window);
-        self.session_menu = Some(SessionMenu {
+        self.dialogs.modal_focus.focus(window);
+        self.sidebar.session_menu = Some(SessionMenu {
             target,
             position,
             selected: 0,
@@ -122,8 +123,8 @@ impl Root {
     }
 
     fn dismiss_session_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(menu) = self.session_menu.take() {
-            if self.modal_focus.is_focused(window)
+        if let Some(menu) = self.sidebar.session_menu.take() {
+            if self.dialogs.modal_focus.is_focused(window)
                 && let Some(focus) = menu.prior
             {
                 focus.focus(window);
@@ -149,7 +150,7 @@ impl Root {
                     pinned: session.pinned_at.is_some(),
                     settled: session.settled_at.is_some(),
                     has_error: self.session_has_error(session, cx),
-                    pending: self.user_action_pending,
+                    pending: self.dialogs.user_action_pending,
                     local: true,
                 })
             }
@@ -162,7 +163,7 @@ impl Root {
         window: &Window,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let Some(menu) = &self.session_menu else {
+        let Some(menu) = &self.sidebar.session_menu else {
             return div().into_any_element();
         };
         let Some(info) = self.menu_session(&menu.target, cx) else {
@@ -179,7 +180,7 @@ impl Root {
         );
         let mut panel = div()
             .id("session-context-menu")
-            .track_focus(&self.modal_focus)
+            .track_focus(&self.dialogs.modal_focus)
             .absolute()
             .occlude()
             .left(px(x))
@@ -226,13 +227,13 @@ impl Root {
     }
 
     fn run_session_item(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(target) = self.session_menu.as_ref().map(|menu| menu.target.clone()) else {
+        let Some(target) = self.sidebar.session_menu.as_ref().map(|menu| menu.target.clone()) else {
             return;
         };
         let Some(info) = self.menu_session(&target, cx) else {
             return;
         };
-        if info.pending || self.closing_window {
+        if info.pending || self.close.closing {
             return;
         }
         self.dismiss_session_menu(window, cx);
@@ -265,8 +266,8 @@ impl Root {
             ),
             Item::Settle => self.toggle_session_settled(id, !info.settled, window, cx),
             Item::Delete => {
-                self.modal_focus.focus(window);
-                self.dialog = Some(Dialog::DeleteSession(id));
+                self.dialogs.modal_focus.focus(window);
+                self.dialogs.current = Some(Dialog::DeleteSession(id));
             }
         }
         cx.notify();

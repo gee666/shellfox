@@ -46,9 +46,9 @@ impl Root {
         let Some(session) = self.selected_session() else {
             return;
         };
-        let epoch = self.navigation.epoch();
+        let epoch = self.workspace.navigation.epoch();
         let choices: Vec<_> = self
-            .profiles
+            .workspace.profiles
             .iter()
             .map(|profile| Choice {
                 label: profile.label.clone(),
@@ -58,7 +58,7 @@ impl Root {
                 focus: cx.focus_handle(),
             })
             .collect();
-        let previous_focus = match self.profile_menu.take() {
+        let previous_focus = match self.tabs.profile_menu.take() {
             Some(previous) => previous.previous_focus,
             None => window.focused(cx),
         };
@@ -68,7 +68,7 @@ impl Root {
             .find(|choice| choice.available)
             .map_or(&focus, |choice| &choice.focus)
             .focus(window);
-        self.profile_menu = Some(ProfileMenu {
+        self.tabs.profile_menu = Some(ProfileMenu {
             position,
             session,
             epoch,
@@ -77,13 +77,13 @@ impl Root {
             previous_focus,
             keyboard_selection: None,
         });
-        self.session_menu = None;
-        self.tab_menu = None;
+        self.sidebar.session_menu = None;
+        self.tabs.menu = None;
         cx.notify();
     }
 
     fn dismiss_profile_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(menu) = self.profile_menu.take() {
+        if let Some(menu) = self.tabs.profile_menu.take() {
             if menu.focus.contains_focused(window, cx)
                 && let Some(focus) = menu.previous_focus
             {
@@ -99,7 +99,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(menu) = self.profile_menu.as_ref() else {
+        let Some(menu) = self.tabs.profile_menu.as_ref() else {
             return;
         };
         let Some(choice) = menu.choices.get(index) else {
@@ -107,12 +107,12 @@ impl Root {
         };
         if !choice.available
             || !self
-                .profiles
+                .workspace.profiles
                 .iter()
                 .any(|profile| profile.id == choice.id && profile.available)
-            || self.user_action_pending
-            || self.navigation.epoch() != menu.epoch
-            || self.closing_window
+            || self.dialogs.user_action_pending
+            || self.workspace.navigation.epoch() != menu.epoch
+            || self.close.closing
         {
             return;
         }
@@ -152,7 +152,7 @@ impl Root {
                 }
             }
         } else if matches!(key, "up" | "down" | "home" | "end" | "enter" | "space") {
-            let Some(menu) = &mut self.profile_menu else {
+            let Some(menu) = &mut self.tabs.profile_menu else {
                 return;
             };
             let enabled: Vec<_> = menu
@@ -160,7 +160,7 @@ impl Root {
                 .iter()
                 .enumerate()
                 .filter_map(|(index, choice)| {
-                    (choice.available && !self.user_action_pending).then_some(index)
+                    (choice.available && !self.dialogs.user_action_pending).then_some(index)
                 })
                 .collect();
             if let Some(&first) = enabled.first() {
@@ -197,7 +197,7 @@ impl Root {
         window: &Window,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let Some(menu) = &self.profile_menu else {
+        let Some(menu) = &self.tabs.profile_menu else {
             return div().into_any_element();
         };
         let viewport = window.viewport_size();
@@ -253,7 +253,7 @@ impl Root {
             }));
 
         for (index, choice) in menu.choices.iter().enumerate() {
-            let enabled = choice.available && !self.user_action_pending;
+            let enabled = choice.available && !self.dialogs.user_action_pending;
             let row = div()
                 .id(("profile-choice", index))
                 .relative()

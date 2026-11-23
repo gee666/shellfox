@@ -32,22 +32,22 @@ impl Root {
     }
 
     fn layout_shortcuts_blocked(&self, cx: &App) -> bool {
-        let dialog_blocks = match &self.dialog {
-            Some(crate::root::Dialog::RenameTab { title, .. }) => title.read(cx).is_composing(),
+        let dialog_blocks = match &self.dialogs.current {
+            Some(crate::dialogs::Dialog::RenameTab { title, .. }) => title.read(cx).is_composing(),
             None => false,
             Some(_) => true,
         };
-        self.closing_window
+        self.close.closing
             || dialog_blocks
-            || self.session_menu.is_some()
-            || self.sidebar_ui.menu_open()
+            || self.sidebar.session_menu.is_some()
+            || self.sidebar.menu_open()
             || self
-                .settings_panel
+                .settings.panel
                 .as_ref()
-                .is_some_and(|panel| self.settings && panel.read(cx).blocks_layout_shortcuts())
-            || self.profile_menu.is_some()
-            || self.tab_menu.is_some()
-            || self.files.as_ref().is_some_and(|files| {
+                .is_some_and(|panel| self.settings.open && panel.read(cx).blocks_layout_shortcuts())
+            || self.tabs.profile_menu.is_some()
+            || self.tabs.menu.is_some()
+            || self.files.panel.as_ref().is_some_and(|files| {
                 files.visible
                     && (files.pending_file_action.is_some()
                         || (files.browser
@@ -79,7 +79,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings || !self.files_shortcut_available(cx) {
+        if self.settings.open || !self.files_shortcut_available(cx) {
             cx.propagate();
             return;
         }
@@ -93,9 +93,9 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings
+        if self.settings.open
             || !self.files_shortcut_available(cx)
-            || self.files.as_ref().is_none_or(|files| !files.visible)
+            || self.files.panel.as_ref().is_none_or(|files| !files.visible)
             || !self.files_source_current()
         {
             cx.propagate();
@@ -106,25 +106,25 @@ impl Root {
     }
 
     pub(crate) fn toggle_sessions_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let restore = self.sidebar
-            && (self.sidebar_ui.region.contains_focused(window, cx)
-                || self.sidebar_ui.resizer.is_focused(window));
-        self.sidebar = !self.sidebar;
-        self.resizing_sidebar = false;
-        self.sidebar_ui.resize_origin = None;
+        let restore = self.sidebar.visible
+            && (self.sidebar.region.contains_focused(window, cx)
+                || self.sidebar.resizer.is_focused(window));
+        self.sidebar.visible = !self.sidebar.visible;
+        self.sidebar.resizing = false;
+        self.sidebar.resize_origin = None;
         if restore {
-            self.sidebar_ui.toggle.focus(window);
+            self.sidebar.toggle.focus(window);
         }
         cx.notify();
     }
 
     pub(crate) fn toggle_files_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let restore = self
-            .files
+            .files.panel
             .as_ref()
             .is_some_and(|files| files.visible && files.panel_focus.contains_focused(window, cx));
         self.toggle_files(cx);
-        if restore && self.files.as_ref().is_none_or(|files| !files.visible) {
+        if restore && self.files.panel.as_ref().is_none_or(|files| !files.visible) {
             if self.is_local_source() && self.selected_tab().is_none() {
                 self.focus_files_toggle(window, cx);
             } else {
@@ -135,7 +135,7 @@ impl Root {
 
     fn layout_terminal(&self) -> Option<&gpui::Entity<crate::terminal::TerminalView>> {
         if self.is_local_source() {
-            return self.selected_tab().and_then(|tab| self.views.get(&tab));
+            return self.selected_tab().and_then(|tab| self.tabs.views.get(&tab));
         }
         self.peers.selected_peer().and_then(|(peer, state)| {
             self.peer_ui

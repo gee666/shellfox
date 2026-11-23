@@ -81,8 +81,8 @@ accesskit_macos = "=0.27.2"
 flate2 = "1"
 block2 = "=0.6.2"
 objc2 = "=0.6.5"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSNotification", "NSOperation", "NSString", "NSURL", "block2"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "NSWorkspace", "block2", "objc2-core-foundation"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSDictionary", "NSNotification", "NSOperation", "NSString", "NSURL", "NSValue", "block2"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSGraphics", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSScreen", "NSView", "NSWindow", "NSWorkspace", "block2", "objc2-core-foundation"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit_unix = "=0.24.1"

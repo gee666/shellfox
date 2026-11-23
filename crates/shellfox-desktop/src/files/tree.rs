@@ -75,7 +75,7 @@ impl Tree {
 
 impl Root {
     pub(crate) fn toggle_file_branch(&mut self, path: String, cx: &mut Context<Self>) {
-        let Some(files) = &mut self.files else { return };
+        let Some(files) = &mut self.files.panel else { return };
         if files.tree.branches.contains_key(&path) {
             files.tree.collapse(&path);
             cx.notify();
@@ -88,7 +88,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files else { return };
+        let Some(files) = &mut self.files.panel else { return };
         let request = files.tree.load(path.clone());
         let epoch = files.source_epoch;
         let backend = files.backend.clone();
@@ -104,7 +104,7 @@ impl Root {
                     return;
                 }
                 let Some((id, branch)) = root
-                    .files
+                    .files.panel
                     .as_mut()
                     .and_then(|files| files.tree.branches.get_mut(&path))
                 else {

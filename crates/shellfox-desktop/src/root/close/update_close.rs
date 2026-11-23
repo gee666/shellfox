@@ -19,13 +19,13 @@ impl OtherWindows {
             .map(|handle| {
                 let root = handle.read(cx)?;
                 ensure!(
-                    !root.closing_window
-                        && !root.close_check_pending
-                        && !matches!(root.dialog, Some(Dialog::Quit)),
+                    !root.close.closing
+                        && !root.close.check_pending
+                        && !matches!(root.dialogs.current, Some(Dialog::Quit)),
                     "Wait for the other Shellfox window to finish closing."
                 );
                 let id = root
-                    .window_id
+                    .close.window_id
                     .context("Wait for the other Shellfox window to open.")?;
                 root.sync_app_guard(cx)?;
                 Ok(Participant {
@@ -51,13 +51,13 @@ impl OtherWindows {
         let mut ready = true;
         for peer in &mut self.0 {
             ready &= peer.handle.update(cx, |root, window, cx| {
-                ensure!(root.window_id == Some(peer.id), "Shellfox window changed during quit.");
+                ensure!(root.close.window_id == Some(peer.id), "Shellfox window changed during quit.");
                 if !peer.frozen {
-                    ensure!(!root.closing_window && !root.close_check_pending && !root.block_close(cx),
+                    ensure!(!root.close.closing && !root.close.check_pending && !root.block_close(cx),
                         "Save/discard files and await pending operations in the other windows before closing.");
                 }
                 let frozen = root.freeze_inputs(true, window, cx);
-                peer.frozen = root.closing_window;
+                peer.frozen = root.close.closing;
                 Ok(frozen && root.drain_views(cx))
             })??;
         }
@@ -101,19 +101,19 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> bool {
         if self
-            .window_id
+            .close.window_id
             .is_some_and(|id| !closed.windows.contains(&id))
         {
             return false;
         }
-        for view in self.views.values() {
+        for view in self.tabs.views.values() {
             view.update(cx, |view, _| view.confirm_window_detach());
         }
         self.retire_all_peer_views(cx);
         self.host = None;
-        self.window_id = None;
-        self.app_host = None;
-        self.closing_window = false;
+        self.close.window_id = None;
+        self.close.app_host = None;
+        self.close.closing = false;
         if self.block_close(cx) {
             return false;
         }
@@ -127,14 +127,14 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.close_failed = true;
+        self.close.failed = true;
         if withdrawing {
             self.retire_all_peer_views(cx);
         }
         if !retained {
             self.freeze_inputs(false, window, cx);
-            self.views.retain(|_, view| !view.read(cx).is_closed());
-            for view in self.views.values() {
+            self.tabs.views.retain(|_, view| !view.read(cx).is_closed());
+            for view in self.tabs.views.values() {
                 view.update(cx, |view, _| view.resume_after_window_close());
             }
         }

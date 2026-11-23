@@ -2,7 +2,8 @@ use super::{close::CloseButton, menu::TabMenu};
 use crate::{
     accessibility::{Role, SemanticNode},
     assets::tooltip,
-    root::{Dialog, Root},
+    dialogs::Dialog,
+    root::Root,
     workspace::tabs::activity::status_dot,
     theme::Palette,
 };
@@ -34,7 +35,7 @@ impl Root {
                 .position(|tab| *tab == id)
                 .map(|index| (id, index))
         });
-        let semantic_frame = self.semantic_context.frame();
+        let semantic_frame = self.semantics.context.frame();
         let tab_list_id = match semantic_frame.id_for("workspace/terminal-tabs") {
             Ok(id) => Some(id),
             Err(error) => {
@@ -44,9 +45,9 @@ impl Root {
         };
         let reorder = self.tab_reorder_scope(cx);
         let mut tabs = self
-            .tab_scroll
+            .tabs.scroll
             .viewport(session.id, selected_index, Rc::clone(&visible), reorder);
-        self.tab_scroll.retain_focus_handles(
+        self.tabs.scroll.retain_focus_handles(
             &session
                 .tabs
                 .iter()
@@ -55,7 +56,7 @@ impl Root {
             &visible.iter().filter_map(|&tab| self.tab_close_identity(tab)).collect(),
         );
         let close_locked =
-            self.user_action_pending || matches!(self.dialog, Some(Dialog::RenameTab { .. }));
+            self.dialogs.user_action_pending || matches!(self.dialogs.current, Some(Dialog::RenameTab { .. }));
         for (index, tab) in visible_tabs.iter().copied().enumerate() {
             let id = tab.id;
             let active = selected == Some(id);
@@ -65,7 +66,7 @@ impl Root {
             let close_target = self.tab_close_identity(id);
             let (visible_title, title_width) =
                 tab_label_text(window, title.clone(), administrator, close_target.is_some());
-            let focus = self.tab_scroll.focus_handle(id, cx).tab_stop(active);
+            let focus = self.tabs.scroll.focus_handle(id, cx).tab_stop(active);
             let click_focus = focus.clone();
             let context_focus = focus.clone();
             let mut label = div()
@@ -94,7 +95,7 @@ impl Root {
                     }
                 }))
                 .when(
-                    self.tab_menu.is_none() && self.profile_menu.is_none(),
+                    self.tabs.menu.is_none() && self.tabs.profile_menu.is_none(),
                     |label| {
                         label.tooltip(tooltip(
                     format!("{title}. Double-click or F2 to rename. Drag or Alt+Arrow to reorder."),
@@ -149,7 +150,7 @@ impl Root {
             } else {
                 label.into_any_element()
             };
-            let label = if let Some(Dialog::RenameTab { id: draft, title, .. }) = &self.dialog
+            let label = if let Some(Dialog::RenameTab { id: draft, title, .. }) = &self.dialogs.current
                 && *draft == id
             {
                 self.tab_title_editor(title.clone(), cx)
@@ -256,8 +257,8 @@ impl Root {
     }
 
     pub(crate) fn focus_tab_label(&self, id: TabId, window: &mut Window, cx: &mut Context<Self>) {
-        self.tab_scroll.reveal_on_paint(id);
-        self.tab_scroll.focus_handle(id, cx).focus(window);
+        self.tabs.scroll.reveal_on_paint(id);
+        self.tabs.scroll.focus_handle(id, cx).focus(window);
         cx.notify();
     }
 
@@ -285,7 +286,7 @@ impl Root {
                 .and_then(|session| {
                     session.tabs.iter().find_map(|tab| {
                         let key = format!("workspace/terminal-tab/{}", tab.id);
-                        (self.semantic_context.frame().id_for(&key).ok() == Some(action.target))
+                        (self.semantics.context.frame().id_for(&key).ok() == Some(action.target))
                             .then_some(tab.id)
                     })
                 })

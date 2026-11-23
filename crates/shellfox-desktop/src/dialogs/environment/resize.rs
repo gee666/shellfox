@@ -59,18 +59,18 @@ impl Root {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|root, event: &gpui::MouseDownEvent, window, cx| {
-                    let state = &mut root.sidebar_ui.environment_resize;
+                    let state = &mut root.sidebar.environment_resize;
                     state.drag = Some((f32::from(event.position.y), state.height(window)));
                     cx.stop_propagation();
                 }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|root, _, _, _| root.sidebar_ui.environment_resize.drag = None),
+                cx.listener(|root, _, _, _| root.sidebar.environment_resize.drag = None),
             )
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|root, _, _, _| root.sidebar_ui.environment_resize.drag = None),
+                cx.listener(|root, _, _, _| root.sidebar.environment_resize.drag = None),
             )
             .into_any_element()
     }
@@ -81,11 +81,11 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let state = &mut self.sidebar_ui.environment_resize;
+        let state = &mut self.sidebar.environment_resize;
         let Some((y, height)) = state.drag else {
             return false;
         };
-        if event.pressed_button != Some(MouseButton::Left) || self.dialog.is_none() {
+        if event.pressed_button != Some(MouseButton::Left) || self.dialogs.current.is_none() {
             state.drag = None;
             return false;
         }

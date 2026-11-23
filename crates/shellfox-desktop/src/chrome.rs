@@ -27,12 +27,28 @@ pub(crate) fn button(
         .child(label.into())
 }
 
+impl Root {
+    pub(crate) fn palette(&self, cx: &gpui::App) -> Palette {
+        self.snapshot
+            .as_ref()
+            .map(|s| Palette::new(&s.preferences.accent_color, &s.preferences.background_color))
+            .or_else(|| cx.try_global::<crate::startup_chrome::StartupPalette>().map(|colors| colors.palette))
+            .unwrap_or_else(|| Palette::new("#ec4899", "#111016"))
+    }
+
+    /// Whether menus, dialogs or Settings cover the Files pane, so its native HTML preview must hide.
+    pub(crate) fn files_covered(&self) -> bool {
+        self.close.closing || self.settings.open || self.dialogs.current.is_some() || self.sidebar.new_session_menu_open()
+            || self.sidebar.session_menu.is_some() || self.tabs.profile_menu.is_some() || self.tabs.menu.is_some()
+            || self.files.panel.as_ref().is_some_and(|files| files.pending_file_action.is_some())
+    }
+}
+
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_file_source(cx);
         cx.defer_in(window, |root, window, cx| root.after_render(window, cx));
-        self.sidebar_ui.list.begin_frame();
-        self.html_preview.begin_frame();
+        self.files.html_preview.begin_frame();
         let resize_root = cx.entity();
         let motion = gpui::canvas(
             |_, _, _| (),
@@ -47,12 +63,7 @@ impl Render for Root {
         )
         .absolute()
         .inset_0();
-        let palette = self
-            .snapshot
-            .as_ref()
-            .map(|s| Palette::new(&s.preferences.accent_color, &s.preferences.background_color))
-            .or_else(|| cx.try_global::<crate::startup_chrome::StartupPalette>().map(|colors| colors.palette))
-            .unwrap_or_else(|| Palette::new("#ec4899", "#111016"));
+        let palette = self.palette(cx);
         self.sync_field_palette(palette, cx);
         self.sync_dialog_edit_state(cx);
         self.sync_semantic_children(cx);
@@ -76,8 +87,12 @@ impl Render for Root {
             .on_action(cx.listener(Self::on_toggle_files))
             .on_action(cx.listener(Self::on_toggle_folders))
             .child(motion);
-        let body = if self.files.as_ref().is_some_and(|files| files.visible && files.maximized) {
-            self.files_panel(palette, window, cx)
+        let maximized = self.files.panel.as_ref().is_some_and(|files| files.visible && files.maximized);
+        if !self.sidebar.visible || maximized {
+            self.sidebar.list.begin_frame();
+        }
+        let body = if maximized {
+            self.files_region(palette, window, cx)
         } else {
             self.layout_body(palette, window, cx)
         };
@@ -90,13 +105,13 @@ impl Render for Root {
             None => body,
         };
         content = content.child(body);
-        if self.closing_window && !matches!(self.dialog, Some(crate::root::Dialog::Quit)) {
+        if self.close.closing && !matches!(self.dialogs.current, Some(crate::dialogs::Dialog::Quit)) {
             content = content.child(
                 div()
                     .absolute()
                     .inset_0()
                     .occlude()
-                    .track_focus(&self.modal_focus)
+                    .track_focus(&self.dialogs.modal_focus)
                     .on_key_down(cx.listener(|_, _, _, cx| cx.stop_propagation()))
                     .on_mouse_down(
                         gpui::MouseButton::Left,
@@ -105,23 +120,19 @@ impl Render for Root {
             );
         }
         let new_session_menu = self.render_new_session_menu(palette, window, cx);
-        self.html_preview.end_frame(
-            self.closing_window || self.settings || self.dialog.is_some() || new_session_menu.is_some()
-                || self.session_menu.is_some() || self.profile_menu.is_some() || self.tab_menu.is_some()
-                || self.files.as_ref().is_some_and(|files| files.pending_file_action.is_some()),
-        );
+        self.files.html_preview.end_frame();
         content = content.children(new_session_menu);
-        if self.session_menu.is_some() {
+        if self.sidebar.session_menu.is_some() {
             content = content.child(self.render_session_menu(palette, window, cx));
         }
-        if self.profile_menu.is_some() {
+        if self.tabs.profile_menu.is_some() {
             content = content.child(self.render_profile_menu(palette, window, cx));
         }
-        if self.tab_menu.is_some() {
+        if self.tabs.menu.is_some() {
             content = content.child(self.render_tab_menu(palette, window, cx));
         }
-        if self.dialog.is_some()
-            && !matches!(self.dialog, Some(crate::root::Dialog::RenameTab { .. } | crate::root::Dialog::CloseTab(_)))
+        if self.dialogs.current.is_some()
+            && !matches!(self.dialogs.current, Some(crate::dialogs::Dialog::RenameTab { .. } | crate::dialogs::Dialog::CloseTab(_)))
         {
             content = content.child(self.render_dialog(palette, window, cx));
         }

@@ -98,7 +98,6 @@ fn options_to_real_frontend_composition_keeps_default_and_explicit_ui_outside_ho
         let mut frontend = prepare(&options).unwrap();
         let colors = crate::device_prefs::prepare(&options, &mut frontend).unwrap();
         let editor_enabled = editor_if_reviewed(&mut frontend);
-        frontend.revalidate().unwrap();
         colors
             .save(crate::settings::api::ColorKind::Accent, "#123456")
             .unwrap();
@@ -140,16 +139,14 @@ fn multiple_missing_prefixes_and_for_window_keep_siblings_and_independent_issuer
     colors
         .save(crate::settings::api::ColorKind::Accent, "#123456")
         .unwrap();
-    first.revalidate().unwrap();
     assert!(!another.run_dir.exists());
-    let _preserved = first.preserve();
-    // A completed preparation must not revoke this independent derived scope.
+    drop(first);
+    // Dropping the first window's directories keeps the store it opened usable.
     assert_eq!(colors.read().unwrap().accent, ["#123456"]);
     let mut second = FrontendDirectories::plan(&another).unwrap();
     second.prepare().unwrap();
     let reopened = crate::device_prefs::prepare(&another, &mut second).unwrap();
     assert_eq!(reopened.read().unwrap().accent, ["#123456"]);
-    second.revalidate().unwrap();
     assert!(options.run_dir.is_dir());
     assert!(another.run_dir.is_dir());
     assert_eq!(options.desktop_dir, another.desktop_dir);
@@ -159,7 +156,6 @@ fn multiple_missing_prefixes_and_for_window_keep_siblings_and_independent_issuer
         !host.exists(),
         "Frontend composition must never create the Host root"
     );
-    let _preserved_second = second.preserve();
 }
 #[test]
 fn options_rejects_ui_roots_inside_equal_to_or_ancestors_of_host_or_device() {

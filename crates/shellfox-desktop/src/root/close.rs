@@ -18,17 +18,48 @@ mod tests;
 mod update_close;
 use update_close::OtherWindows;
 
+/// Window close and app quit: the AppHost registration, the pending decision and the Quit dialog.
+pub(crate) struct CloseState {
+    pub(crate) app_host: Option<AppHost>,
+    pub(crate) window_id: Option<WindowId>,
+    pub(crate) confirmation: Option<CloseConfirmation>,
+    pub(crate) quit_focus: QuitFocus,
+    pub(crate) ticket: Option<CloseTicket>,
+    /// The Quit dialog restarts into a downloaded update.
+    pub(crate) update_restart: bool,
+    pub(crate) check_pending: bool,
+    pub(crate) failed: bool,
+    /// The window is closing; input is blocked until it closes or the close fails.
+    pub(crate) closing: bool,
+}
+
+impl CloseState {
+    pub(crate) fn new(cx: &mut Context<Root>) -> Self {
+        Self {
+            app_host: None,
+            window_id: None,
+            confirmation: None,
+            quit_focus: QuitFocus::new(cx),
+            ticket: None,
+            update_restart: false,
+            check_pending: false,
+            failed: false,
+            closing: false,
+        }
+    }
+}
+
 impl Root {
     fn window_guard(&self, cx: &gpui::App) -> WindowCloseGuard {
         match self.file_close_guard(cx) {
             crate::files::CloseGuard::Dirty => WindowCloseGuard::DirtyFile,
             crate::files::CloseGuard::Pending => WindowCloseGuard::FileOperation,
             crate::files::CloseGuard::Ready => host_operation_guard(
-                self.user_action_pending
+                self.dialogs.user_action_pending
                     || self.power.blocks_close()
-                    || !self.attaching.is_empty()
+                    || !self.tabs.attaching.is_empty()
                     || self
-                        .settings_panel
+                        .settings.panel
                         .as_ref()
                         .is_some_and(|panel| panel.read(cx).pending_operations()),
                 self.peer_pending_operations(cx),
@@ -36,8 +67,8 @@ impl Root {
         }
     }
     pub(super) fn sync_app_guard(&self, cx: &gpui::App) -> anyhow::Result<()> {
-        if !self.closing_window
-            && let (Some(host), Some(id)) = (&self.app_host, self.window_id)
+        if !self.close.closing
+            && let (Some(host), Some(id)) = (&self.close.app_host, self.close.window_id)
         {
             host.set_guard(id, self.window_guard(cx))?;
         }
@@ -50,7 +81,7 @@ impl Root {
         }
         if guard == WindowCloseGuard::DirtyFile {
             self.reveal_dirty_file_on_close(cx);
-        } else if let Some(files) = &mut self.files {
+        } else if let Some(files) = &mut self.files.panel {
             files.visible = true;
         }
         self.error = Some(
@@ -67,7 +98,7 @@ impl Root {
         true
     }
     fn freeze_inputs(&mut self, frozen: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if let Some(panel) = &self.settings_panel {
+        if let Some(panel) = &self.settings.panel {
             if frozen && !panel.update(cx, |panel, cx| panel.try_freeze_for_close(cx)) {
                 self.error = Some("Wait for settings operations to finish before closing.".into());
                 cx.notify();
@@ -77,11 +108,11 @@ impl Root {
                 panel.update(cx, |panel, cx| panel.resume_after_close_cancelled(cx));
             }
         }
-        self.closing_window = frozen;
+        self.close.closing = frozen;
         if frozen {
-            self.modal_focus.focus(window);
+            self.dialogs.modal_focus.focus(window);
         }
-        if let Some(editor) = self.files.as_ref().and_then(|files| files.editor.as_ref()) {
+        if let Some(editor) = self.files.panel.as_ref().and_then(|files| files.editor.as_ref()) {
             editor
                 .text
                 .update(cx, |field, cx| field.set_read_only(frozen, cx));
@@ -92,23 +123,23 @@ impl Root {
     }
     fn drain_views(&self, cx: &mut Context<Self>) -> bool {
         let mut done = true;
-        for view in self.views.values().chain(self.fixture.iter()) {
+        for view in self.tabs.views.values().chain(self.fixture.iter()) {
             done &= view.update(cx, |view, _| view.drain_for_window_close());
         }
         done
     }
     pub(crate) fn begin_shutdown(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.close_check_pending
-            || (self.closing_window && !self.close_failed)
+        if self.close.check_pending
+            || (self.close.closing && !self.close.failed)
             || self.block_close(cx)
         {
             return;
         }
-        let Some(host) = self.app_host.clone() else {
+        let Some(host) = self.close.app_host.clone() else {
             window.remove_window();
             return;
         };
-        let mut others = if self.update_restart || self.system_end_requested() {
+        let mut others = if self.close.update_restart || self.system_end_requested() {
             match OtherWindows::inspect(window.window_handle(), cx) {
                 Ok(windows) => windows,
                 Err(error) => {
@@ -121,26 +152,26 @@ impl Root {
         } else {
             OtherWindows::default()
         };
-        let Some(ticket) = self.close_confirmation.clone().map(|confirmation| confirmation.approve())
-            .or_else(|| self.close_ticket.clone()) else { return; };
+        let Some(ticket) = self.close.confirmation.clone().map(|confirmation| confirmation.approve())
+            .or_else(|| self.close.ticket.clone()) else { return; };
         // The prompt stays locked until the host reserves cleanup. Only then
         // can draining/detaching start, and failures use the cleanup error path.
-        let prompted = matches!(self.dialog, Some(Dialog::Quit));
-        self.close_failed = false;
-        self.quit_focus.error = None;
+        let prompted = matches!(self.dialogs.current, Some(Dialog::Quit));
+        self.close.failed = false;
+        self.close.quit_focus.error = None;
         if !prompted {
-            self.dialog = None;
-            self.close_ticket = None;
+            self.dialogs.current = None;
+            self.close.ticket = None;
         }
         let freeze_ready = self.freeze_inputs(true, window, cx);
-        if !freeze_ready && !self.closing_window {
-            if !prompted && !self.update_restart {
-                self.close_ticket = Some(ticket);
+        if !freeze_ready && !self.close.closing {
+            if !prompted && !self.close.update_restart {
+                self.close.ticket = Some(ticket);
             }
             return;
         }
-        let own_id = self.window_id;
-        let restart = self.update_restart;
+        let own_id = self.close.window_id;
+        let restart = self.close.update_restart;
         let restart_request = self.update_ui.restart_request.take();
         let updater = cx
             .try_global::<crate::update::view::Updates>()
@@ -160,10 +191,10 @@ impl Root {
                 let targets = host.begin_close(&ticket).await?;
                 admitted = true;
                 let _ = root.update_in(cx, |root, _, cx| {
-                    root.dialog = None;
-                    root.close_confirmation = None;
-                    root.close_ticket = None;
-                    root.update_restart = false;
+                    root.dialogs.current = None;
+                    root.close.confirmation = None;
+                    root.close.ticket = None;
+                    root.close.update_restart = false;
                     cx.notify();
                 });
                 let drained = async {

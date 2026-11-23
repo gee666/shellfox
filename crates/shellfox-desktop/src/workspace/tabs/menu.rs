@@ -42,13 +42,13 @@ impl Root {
         if self.tab_reorder_scope(cx) != Some(menu.strip) {
             return;
         }
-        menu.previous_focus = if let Some(previous) = self.tab_menu.take() {
+        menu.previous_focus = if let Some(previous) = self.tabs.menu.take() {
             previous.previous_focus
         } else {
             window.focused(cx)
         };
-        self.modal_focus.focus(window);
-        self.tab_menu = Some(menu);
+        self.dialogs.modal_focus.focus(window);
+        self.tabs.menu = Some(menu);
         cx.notify();
     }
 
@@ -58,7 +58,7 @@ impl Root {
         window: &Window,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let Some(menu) = self.tab_menu.as_ref() else {
+        let Some(menu) = self.tabs.menu.as_ref() else {
             return div().into_any_element();
         };
         let enabled = self.tab_menu_actions(menu, cx);
@@ -67,7 +67,7 @@ impl Root {
         let y = f32::from(menu.position.y).clamp(4., (f32::from(viewport.height) - 98.).max(4.));
         let mut panel = div()
             .id("terminal-context-menu")
-            .track_focus(&self.modal_focus)
+            .track_focus(&self.dialogs.modal_focus)
             .absolute()
             .occlude()
             .left(px(x))
@@ -96,7 +96,7 @@ impl Root {
                             root.move_strip_focus(event.keystroke.modifiers.shift, window, cx);
                         }
                         "enter" | "space" => {
-                            if let Some(index) = root.tab_menu.as_ref().map(|menu| menu.selected) {
+                            if let Some(index) = root.tabs.menu.as_ref().map(|menu| menu.selected) {
                                 root.run_tab_menu_action(index, window, cx);
                             }
                         }
@@ -106,14 +106,14 @@ impl Root {
                             } else {
                                 enabled.iter().rposition(|item| *item)
                             };
-                            if let (Some(menu), Some(index)) = (&mut root.tab_menu, index) {
+                            if let (Some(menu), Some(index)) = (&mut root.tabs.menu, index) {
                                 menu.selected = index;
                                 menu.keyboard = true;
                                 cx.notify();
                             }
                         }
                         key @ ("up" | "down") => {
-                            let Some(menu) = &mut root.tab_menu else {
+                            let Some(menu) = &mut root.tabs.menu else {
                                 return;
                             };
                             menu.keyboard = true;
@@ -183,8 +183,8 @@ impl Root {
     }
 
     fn dismiss_tab_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(menu) = self.tab_menu.take() {
-            if self.modal_focus.is_focused(window)
+        if let Some(menu) = self.tabs.menu.take() {
+            if self.dialogs.modal_focus.is_focused(window)
                 && let Some(focus) = menu.previous_focus
             {
                 focus.focus(window);
@@ -194,7 +194,7 @@ impl Root {
     }
 
     fn run_tab_menu_action(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(menu) = &self.tab_menu else {
+        let Some(menu) = &self.tabs.menu else {
             return;
         };
         if !self.tab_menu_actions(menu, cx)[index] {

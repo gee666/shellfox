@@ -18,26 +18,26 @@ pub(crate) struct TabActivity {
 
 impl Root {
     pub(crate) fn watch_tab_activity(&mut self, client: HostClient, window: &Window, cx: &mut Context<Self>) {
-        self.tab_activity.task = Some(cx.spawn_in(window, async move |root, cx| {
+        self.tabs.activity.task = Some(cx.spawn_in(window, async move |root, cx| {
             let mut changes = client.tab_activity_changes();
             while let Ok(states) = changes.next().await {
                 let states = states.iter().map(|state| (state.tab, state.clone())).collect();
                 if root.update_in(cx, |root, window, cx| {
                     root.accept_tab_activity(states, window, cx);
-                    !root.closing_window
+                    !root.close.closing
                 }).ok() != Some(true) { return; }
             }
             let _ = root.update_in(cx, |root, _, cx| {
-                root.tab_activity.states.clear();
+                root.tabs.activity.states.clear();
                 cx.notify();
             });
         }));
     }
 
     fn accept_tab_activity(&mut self, states: HashMap<TabId, NativeTabActivity>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tab_activity.states == states { return; }
+        if self.tabs.activity.states == states { return; }
         let previous = self.selected_tab();
-        self.tab_activity.states = states;
+        self.tabs.activity.states = states;
         if previous.is_some() && previous != self.selected_tab() {
             self.ensure_terminal(window, cx);
         }
@@ -45,12 +45,12 @@ impl Root {
     }
 
     pub(crate) fn local_tab_viewable(&self, tab: &Tab) -> bool {
-        tab_is_viewable(tab.state, tab.profile_id.as_str(), self.tab_activity.states.get(&tab.id))
+        tab_is_viewable(tab.state, tab.profile_id.as_str(), self.tabs.activity.states.get(&tab.id))
     }
 
     pub(crate) fn display_tab_title<'a>(&'a self, tab: &'a Tab) -> &'a str {
         if tab.use_process_title
-            && let Some(title) = self.tab_activity.states.get(&tab.id).and_then(|state| state.process_title.as_deref())
+            && let Some(title) = self.tabs.activity.states.get(&tab.id).and_then(|state| state.process_title.as_deref())
         {
             return title;
         }
@@ -58,12 +58,12 @@ impl Root {
     }
 
     pub(crate) fn tab_agent_state(&self, tab: &Tab, cx: &gpui::App) -> AgentState {
-        let view_failed = self.failures.contains_key(&tab.id)
+        let view_failed = self.tabs.failures.contains_key(&tab.id)
             || self
-                .views
+                .tabs.views
                 .get(&tab.id)
                 .is_some_and(|view| view.read(cx).is_failed());
-        local_dot(self.tab_activity.states.get(&tab.id), view_failed)
+        local_dot(self.tabs.activity.states.get(&tab.id), view_failed)
     }
 
     pub(crate) fn tab_status_label(&self, id: TabId, state: AgentState) -> String {
@@ -78,7 +78,7 @@ impl Root {
     }
 
     pub(crate) fn tab_has_agents(&self, id: TabId) -> bool {
-        self.tab_activity
+        self.tabs.activity
             .states
             .get(&id)
             .is_some_and(|state| state.has_agents)
@@ -87,7 +87,7 @@ impl Root {
     pub(crate) fn tab_close_identity(&self, id: TabId) -> Option<TerminalIdentity> {
         self.host.as_ref()?;
         let activity = self
-            .tab_activity
+            .tabs.activity
             .states
             .get(&id)
             .filter(|activity| !activity.closed)?;
@@ -109,12 +109,12 @@ impl Root {
     }
 
     fn local_tab_error_text(&self, id: TabId) -> Option<&str> {
-        let host = self.tab_activity.states.get(&id);
+        let host = self.tabs.activity.states.get(&id);
         host.and_then(|state| state.error.as_deref()).or_else(|| {
             if active_agent(host) {
                 return None;
             }
-            self.failures.get(&id).map(|error| error.message.as_str())
+            self.tabs.failures.get(&id).map(|error| error.message.as_str())
         })
     }
 
@@ -138,7 +138,7 @@ impl Root {
             .filter(|tab| {
                 tab.state != TabState::Archived
                     && !self
-                        .tab_activity
+                        .tabs.activity
                         .states
                         .get(&tab.id)
                         .is_some_and(|state| state.closed)

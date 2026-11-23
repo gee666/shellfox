@@ -26,9 +26,9 @@ impl LinkOrigin {
 
 impl Root {
     pub(crate) fn link_is_current(&self, origin: LinkOrigin) -> bool {
-        if self.settings { return false; }
+        if self.settings.open { return false; }
         match origin {
-            LinkOrigin::Local(epoch) => self.is_local_source() && self.navigation.epoch() == epoch,
+            LinkOrigin::Local(epoch) => self.is_local_source() && self.workspace.navigation.epoch() == epoch,
             LinkOrigin::Peer { .. } => self.peers.selected_peer().is_some_and(|(peer, state)| {
                 origin.matches_peer(self.source_selection_epoch(), state.selected_tab,
                     self.peer_ui.navigation.get(peer).copied())
@@ -43,13 +43,13 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings || !self.is_local_source() || self.selected_tab() != Some(id) {
+        if self.settings.open || !self.is_local_source() || self.selected_tab() != Some(id) {
             return;
         }
         let Some((backend, stored_directory)) = self.selected_document_backend(cx) else {
             return;
         };
-        let live_directory = self.views.get(&id).and_then(|view| view.read(cx).working_directory());
+        let live_directory = self.tabs.views.get(&id).and_then(|view| view.read(cx).working_directory());
         let path = if let Some(scope) = backend.wsl_scope() {
             match scope.guest_from(&target.path, live_directory.as_deref()) {
                 Ok(path) => path,
@@ -82,7 +82,7 @@ impl Root {
         });
         self.navigate_files(
             path,
-            super::list::Navigation::TerminalLink(LinkOrigin::Local(self.navigation.epoch()), position),
+            super::list::Navigation::TerminalLink(LinkOrigin::Local(self.workspace.navigation.epoch()), position),
             cx,
         );
     }

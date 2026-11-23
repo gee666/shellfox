@@ -1,9 +1,11 @@
 pub(crate) mod directory;
 pub(crate) mod environment;
+mod state;
+pub(crate) use state::{Dialog, DialogState};
 use crate::{
     assets::icon_button,
     field::Field,
-    root::{Dialog, Root},
+    root::Root,
     theme::Palette,
     workspace::AfterAction,
 };
@@ -48,7 +50,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.user_action_pending || self.closing_window {
+        if self.dialogs.user_action_pending || self.close.closing {
             return;
         }
         if let Some(session) = self
@@ -58,7 +60,7 @@ impl Root {
         {
             let title = Field::session_title(session.title.clone(), cx);
             title.read(cx).focus(window);
-            self.dialog = Some(Dialog::RenameSession { id, title });
+            self.dialogs.current = Some(Dialog::RenameSession { id, title });
         }
         cx.notify();
     }
@@ -74,7 +76,7 @@ impl Root {
             .mt(px(2.))
             .child(title.clone())
             .on_mouse_down_out(cx.listener(|root, _, window, cx| {
-                if matches!(root.dialog, Some(Dialog::RenameTab { .. })) {
+                if matches!(root.dialogs.current, Some(Dialog::RenameTab { .. })) {
                     root.confirm_dialog(window, cx);
                 }
             }))
@@ -102,7 +104,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.user_action_pending || self.closing_window {
+        if self.dialogs.user_action_pending || self.close.closing {
             return;
         }
         if let Some(tab) = self.snapshot.as_ref().and_then(|snapshot| {
@@ -115,12 +117,12 @@ impl Root {
             let title = Field::tab_title(self.display_tab_title(tab).to_owned(), cx);
             let field = title.entity_id();
             let blur = cx.on_blur(&title.read(cx).edit_focus(), window, move |root, window, cx| {
-                if matches!(&root.dialog, Some(Dialog::RenameTab { title, .. }) if title.entity_id() == field) {
+                if matches!(&root.dialogs.current, Some(Dialog::RenameTab { title, .. }) if title.entity_id() == field) {
                     root.confirm_dialog(window, cx);
                 }
             });
             title.read(cx).focus(window);
-            self.dialog = Some(Dialog::RenameTab { id, title, _blur: blur });
+            self.dialogs.current = Some(Dialog::RenameTab { id, title, _blur: blur });
         }
         cx.notify();
     }
@@ -133,17 +135,17 @@ impl Root {
     ) -> AnyElement {
         let black: gpui::Hsla = gpui::rgb(0).into();
         let title = title.into();
-        let quitting = matches!(self.dialog, Some(Dialog::Quit));
-        let (width, radius) = match &self.dialog {
+        let quitting = matches!(self.dialogs.current, Some(Dialog::Quit));
+        let (width, radius) = match &self.dialogs.current {
             _ if self.peer_environment_is_open() => (480., 8.),
             Some(Dialog::Quit) => (360., 4.),
             Some(Dialog::SessionEnvironment { .. }) => (480., 8.),
             _ => (540., 4.),
         };
         let close = icon_button("close-dialog", "close", palette)
-            .when_some(match &self.dialog {
+            .when_some(match &self.dialogs.current {
                 Some(Dialog::Create(draft)) => Some(&draft.close),
-                Some(Dialog::Quit) => Some(&self.quit_focus.header),
+                Some(Dialog::Quit) => Some(&self.close.quit_focus.header),
                 _ => None,
             }, |button, focus| {
                 button.track_focus(focus).focus(|style| style.border_1().border_color(palette.accent))
@@ -172,27 +174,27 @@ impl Root {
                     crate::accessibility::Role::Dialog,
                     title.to_string(),
                     div()
-                        .when(!quitting || self.dialog_locked(), |card| card.track_focus(&self.modal_focus))
+                        .when(!quitting || self.dialog_locked(), |card| card.track_focus(&self.dialogs.modal_focus))
                         .capture_key_up(cx.listener(Self::directory_key_up))
                         .on_key_down(cx.listener(|root, event: &gpui::KeyDownEvent, window, cx| {
-                            if matches!(root.dialog, Some(Dialog::Create(_))) {
+                            if matches!(root.dialogs.current, Some(Dialog::Create(_))) {
                                 root.directory_key(event, window, cx);
                                 return;
                             }
                             if root.dialog_locked() {
-                                if matches!(root.dialog, Some(Dialog::Quit)) {
+                                if matches!(root.dialogs.current, Some(Dialog::Quit)) {
                                     window.prevent_default();
                                     cx.stop_propagation();
                                 }
                                 return;
                             }
-                            if matches!(root.dialog, Some(Dialog::Quit)) {
+                            if matches!(root.dialogs.current, Some(Dialog::Quit)) {
                                 root.quit_dialog_key(event, window, cx);
                                 return;
                             }
                             match event.keystroke.key.as_str() {
                                 "escape" => root.dismiss_dialog(window, cx),
-                                "enter" if matches!(root.dialog, Some(Dialog::SessionEnvironment { .. })) || root.peer_environment_is_open() => {
+                                "enter" if matches!(root.dialogs.current, Some(Dialog::SessionEnvironment { .. })) || root.peer_environment_is_open() => {
                                     if !event.keystroke.modifiers.control { return; }
                                     root.confirm_dialog(window, cx);
                                 }
@@ -232,20 +234,20 @@ impl Root {
                                 .border_b_1()
                                 .border_color(palette.border)
                                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .when(matches!(self.dialog, Some(Dialog::Create(_) | Dialog::SessionEnvironment { .. })) || self.peer_environment_is_open(), |label| label.relative().top(px(2.)))
+                                    .when(matches!(self.dialogs.current, Some(Dialog::Create(_) | Dialog::SessionEnvironment { .. })) || self.peer_environment_is_open(), |label| label.relative().top(px(2.)))
                                     .child(title))
                                 .child(close),
                         )
                         .child(content),
                 ),
             );
-        self.semantic_context
+        self.semantics.context
             .frame()
             .overlay_subtree(dialog)
             .into_any_element()
     }
     fn dismiss_active_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if matches!(self.dialog, Some(Dialog::Create(_))) {
+        if matches!(self.dialogs.current, Some(Dialog::Create(_))) {
             self.dismiss_directory(window, cx);
         } else {
             self.dismiss_dialog(window, cx);
@@ -253,7 +255,7 @@ impl Root {
     }
 
     pub(crate) fn render_dialog(&self, palette: Palette, window: &Window, cx: &Context<Self>) -> AnyElement {
-        match &self.dialog {
+        match &self.dialogs.current {
             Some(Dialog::Create(draft)) => self.render_directory(draft, palette, window, cx),
             Some(Dialog::Quit) => self.render_quit_dialog(palette, window, cx),
             Some(Dialog::SessionEnvironment { id, text }) => self.session_environment_dialog(*id, text, palette, window, cx),
@@ -263,10 +265,10 @@ impl Root {
     }
 
     pub(crate) fn confirm_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.user_action_pending {
+        if self.dialogs.user_action_pending {
             return;
         }
-        let Some(dialog) = &self.dialog else {
+        let Some(dialog) = &self.dialogs.current else {
             return;
         };
         let sidebar = matches!(dialog, Dialog::RenameSession { .. } | Dialog::SessionEnvironment { .. } | Dialog::DeleteSession(_));

@@ -11,7 +11,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.closing_window || self.user_action_pending {
+        if self.close.closing || self.dialogs.user_action_pending {
             return;
         }
         self.submit_native(action, after, window, cx);

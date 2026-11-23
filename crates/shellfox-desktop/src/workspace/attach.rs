@@ -59,14 +59,14 @@ impl Root {
     }
 
     fn local_attach_due(&self) -> Option<TabId> {
-        if self.closing_window || self.fixture.is_some() || self.host.is_none() {
+        if self.close.closing || self.fixture.is_some() || self.host.is_none() {
             return None;
         }
         let id = self.selected_tab()?;
         attach_due(
-            self.views.contains_key(&id),
-            self.attaching.contains(&id),
-            self.failures.get(&id).map(|failure| failure.generation),
+            self.tabs.views.contains_key(&id),
+            self.tabs.attaching.contains(&id),
+            self.tabs.failures.get(&id).map(|failure| failure.generation),
             self.terminal_generation(id),
         )
         .then_some(id)
@@ -77,11 +77,11 @@ impl Root {
     }
 
     pub(crate) fn attach_local_view(&mut self, id: TabId, recovery: Option<TerminalRecovery>, window: &mut Window, cx: &mut Context<Self>) {
-        if recovery.is_none() && self.views.contains_key(&id) {
+        if recovery.is_none() && self.tabs.views.contains_key(&id) {
             self.focus_selected(window, cx);
             return;
         }
-        if self.attaching.contains(&id) {
+        if self.tabs.attaching.contains(&id) {
             return;
         }
         let Some(client) = self.host.clone() else {
@@ -97,9 +97,9 @@ impl Root {
             return;
         }
         let focus_before = window.focused(cx);
-        self.attaching.insert(id);
+        self.tabs.attaching.insert(id);
         if recovery != Some(TerminalRecovery::TakeControl) {
-            self.failures.remove(&id);
+            self.tabs.failures.remove(&id);
         }
         cx.spawn_in(window, async move |root, cx| {
             let attached = if read_only {
@@ -113,7 +113,7 @@ impl Root {
                 client.attach(id, takeover).await.map(NativeViewAttachment::Controller)
             };
             let _ = root.update_in(cx, |root, window, cx| {
-                root.attaching.remove(&id);
+                root.tabs.attaching.remove(&id);
                 match attached {
                     Ok(attachment) => {
                         let facts = LandingFacts {
@@ -121,8 +121,8 @@ impl Root {
                                 snapshot.sessions.iter().any(|session| session.tabs.iter().any(|tab| tab.id == id))
                             }),
                             selected: root.selected_tab() == Some(id),
-                            settings: root.settings,
-                            dialog: root.dialog.is_some(),
+                            settings: root.settings.open,
+                            dialog: root.dialogs.current.is_some(),
                             focus_moved: window.focused(cx) != focus_before,
                         };
                         match landing(facts) {
@@ -133,7 +133,7 @@ impl Root {
                     Err(error) => {
                         let mut failure = StartupError::from(error);
                         failure.generation = root.terminal_generation(id);
-                        root.failures.insert(id, failure);
+                        root.tabs.failures.insert(id, failure);
                     }
                 }
                 cx.notify();
@@ -154,7 +154,7 @@ impl Root {
                 detach(client, id, attachment, cx);
                 self.error = Some(error.message.clone());
                 error.generation = self.terminal_generation(id);
-                self.failures.insert(id, error);
+                self.tabs.failures.insert(id, error);
                 return;
             }
         };
@@ -167,21 +167,22 @@ impl Root {
             return;
         };
         view.update(cx, |view, cx| view.set_captured_settlement(marker, cx));
+        cx.subscribe(&view, |_, _, _: &crate::terminal::TerminalStatusChanged, cx| cx.notify()).detach();
         cx.subscribe_in(&view, window, move |root, emitter, event: &TerminalRecovery, window, cx| {
-            if root.selected_tab() == Some(id) && root.views.get(&id) == Some(&emitter) {
+            if root.selected_tab() == Some(id) && root.tabs.views.get(&id) == Some(emitter) {
                 root.attach_local_view(id, Some(*event), window, cx);
             }
         }).detach();
         if matches!(cx.try_global::<crate::editor_composition::EditorOutcome>(), Some(crate::editor_composition::EditorOutcome::Ready(_))) {
             view.update(cx, |view, _| view.enable_file_links());
             cx.subscribe_in(&view, window, move |root, emitter, event: &crate::terminal::TerminalFileLink, window, cx| {
-                if root.views.get(&id) == Some(&emitter) {
+                if root.tabs.views.get(&id) == Some(emitter) {
                     root.open_terminal_file_link(id, event, window, cx);
                 }
             }).detach();
         }
-        self.failures.remove(&id);
-        self.views.insert(id, view);
+        self.tabs.failures.remove(&id);
+        self.tabs.views.insert(id, view);
         self.apply_terminal_preferences(window, cx);
         if focus {
             self.focus_selected(window, cx);

@@ -38,36 +38,6 @@ impl PeerActivations {
     }
 }
 
-#[cfg(test)]
-mod activation_tests {
-    use super::*;
-
-    #[test]
-    fn a_pending_row_deduplicates_only_itself_and_cannot_publish_after_a_switch() {
-        let mut opening = PeerActivations::default();
-        let cycle = source::PeerCycle {
-            peer: AuthenticatedPeerId::new("owned-fixture").unwrap(),
-            generation: 1,
-        };
-        let row = SessionId::new;
-        let a = (cycle.clone(), row());
-        let b = (cycle, row());
-        let first = ActivationFence { source: 1, navigation: 1 };
-        let second = ActivationFence { source: 1, navigation: 2 };
-        assert!(opening.begin(a.clone(), first));
-        assert!(!opening.begin(a.clone(), first));
-        assert!(opening.begin(b.clone(), second));
-        assert!(opening.finish(&b, Some(second)));
-        assert!(!opening.finish(&a, None));
-
-        assert!(opening.begin(a.clone(), first));
-        let returned = ActivationFence { source: 1, navigation: 3 };
-        assert!(!opening.finish(&a, Some(returned)));
-        assert!(opening.begin(a.clone(), returned));
-        assert!(opening.finish(&a, Some(returned)));
-    }
-}
-
 impl Root {
     pub(crate) fn peer_session(&self, cycle: &source::PeerCycle, id: SessionId) -> Option<&wire::SessionDto> {
         if !self.peers.current(cycle) {
@@ -162,11 +132,11 @@ impl Root {
         self.hide_settings(cx);
         self.peer_ui.pending_create = None;
         let key = (cycle.clone(), id);
-        if let Some(current) = self.peer_activation_fence(&key) {
-            if self.peer_ui.opening.0.get(&key) == Some(&current) {
-                cx.notify();
-                return;
-            }
+        if let Some(current) = self.peer_activation_fence(&key)
+            && self.peer_ui.opening.0.get(&key) == Some(&current)
+        {
+            cx.notify();
+            return;
         }
         self.select_peer_session(cycle, id, None, window, cx);
         if !external || !has_tabs {
@@ -184,7 +154,7 @@ impl Root {
     }
 
     fn request_peer_activation(&mut self, key: ActivationKey, window: &Window, cx: &mut Context<Self>) {
-        if self.closing_window {
+        if self.close.closing {
             return;
         }
         let Some(fence) = self.peer_activation_fence(&key) else { return };
@@ -202,7 +172,7 @@ impl Root {
             };
             let _ = root.update_in(cx, |root, window, cx| {
                 let current = root.peer_activation_fence(&key);
-                if !root.peer_ui.opening.finish(&key, current) || root.closing_window {
+                if !root.peer_ui.opening.finish(&key, current) || root.close.closing {
                     return;
                 }
                 let (cycle, id) = key;
@@ -227,7 +197,7 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        if self.closing_window
+        if self.close.closing
             || self.peer_ui.pending.contains(&cycle.peer)
             || self.peer_session(&cycle, id).is_none()
         {
@@ -300,5 +270,35 @@ impl Root {
         })
         .detach();
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod activation_tests {
+    use super::*;
+
+    #[test]
+    fn a_pending_row_deduplicates_only_itself_and_cannot_publish_after_a_switch() {
+        let mut opening = PeerActivations::default();
+        let cycle = source::PeerCycle {
+            peer: AuthenticatedPeerId::new("owned-fixture").unwrap(),
+            generation: 1,
+        };
+        let row = SessionId::new;
+        let a = (cycle.clone(), row());
+        let b = (cycle, row());
+        let first = ActivationFence { source: 1, navigation: 1 };
+        let second = ActivationFence { source: 1, navigation: 2 };
+        assert!(opening.begin(a.clone(), first));
+        assert!(!opening.begin(a.clone(), first));
+        assert!(opening.begin(b.clone(), second));
+        assert!(opening.finish(&b, Some(second)));
+        assert!(!opening.finish(&a, None));
+
+        assert!(opening.begin(a.clone(), first));
+        let returned = ActivationFence { source: 1, navigation: 3 };
+        assert!(!opening.finish(&a, Some(returned)));
+        assert!(opening.begin(a.clone(), returned));
+        assert!(opening.finish(&a, Some(returned)));
     }
 }

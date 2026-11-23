@@ -8,7 +8,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if matches!(self.dialog, Some(Dialog::Create(_)))
+        if matches!(self.dialogs.current, Some(Dialog::Create(_)))
             && matches!(event.keystroke.key.as_str(), "enter" | "space")
         {
             // The key-down can move focus to Keep editing before key-up.
@@ -24,10 +24,10 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+        let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return;
         };
-        if draft.busy.is_some() || self.user_action_pending || draft.path.read(cx).is_composing() {
+        if draft.busy.is_some() || self.dialogs.user_action_pending || draft.path.read(cx).is_composing() {
             return;
         }
         let input = draft.path.read(cx).edit_focus().is_focused(window);
@@ -133,10 +133,10 @@ impl Root {
     }
 
     pub(crate) fn dismiss_directory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+        let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return;
         };
-        if self.user_action_pending || draft.busy.is_some() {
+        if self.dialogs.user_action_pending || draft.busy.is_some() {
             return;
         }
         if draft.missing.take().is_some() {
@@ -145,7 +145,7 @@ impl Root {
             cx.notify();
         } else {
             let prior = draft.prior.clone();
-            self.dialog = None;
+            self.dialogs.current = None;
             if let Some(prior) = prior {
                 prior.focus(window);
             } else {

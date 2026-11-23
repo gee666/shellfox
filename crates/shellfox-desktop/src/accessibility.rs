@@ -1,9 +1,9 @@
 //! Desktop-only native accessibility. Semantics never participate in layout or styling.
-//! Semantic views stay uncached. Each paint collects current measured nodes; the outer
-//! finish boundary publishes only after deferred overlays have painted. Child entities
-//! retain the window's shared collector and exact-key ID registry, not old node snapshots.
-//! See docs/gpui-accessibility.md for lifecycle and platform acceptance requirements.
+//! Each paint collects the measured nodes; cached panes replay the nodes of the paint GPUI
+//! reuses. The outer finish boundary publishes only after deferred overlays have painted.
+//! Child entities retain the window's shared collector and exact-key ID registry.
 mod bridge;
+mod cached;
 mod context;
 mod element;
 mod frame;
@@ -16,6 +16,7 @@ mod tree;
 
 pub use accesskit::{Action, Node, NodeId as SemanticId, Role, TextSelection};
 pub use bridge::{SemanticAction, SemanticActionKind};
+pub use cached::SemanticCache;
 pub use context::WindowSemanticContext;
 pub use element::SemanticElement;
 pub use frame::{SemanticFrame, SemanticNode};

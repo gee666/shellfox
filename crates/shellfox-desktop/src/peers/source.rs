@@ -161,8 +161,6 @@ impl PeerSources {
         state.phase = phase;
         state.error = error;
         state.pending = false;
-        if phase != Phase::Connected {
-        }
         if matches!(phase, Phase::Disconnected | Phase::Rejected) {
             state.snapshot = None;
             state.catalog_cycle = None;

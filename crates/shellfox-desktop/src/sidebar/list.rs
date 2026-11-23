@@ -134,9 +134,9 @@ impl Root {
         let mut entries = Vec::new();
         if self.snapshot.is_some() {
             entries.push(Entry::LocalHeader);
-            if self.local_expanded {
+            if self.sidebar.local_expanded {
                 let rows = self.sidebar_rows(cx);
-                let shown = rows.len().min(self.session_pages.saturating_mul(self.history_page_size));
+                let shown = rows.len().min(self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size));
                 entries.extend(rows[..shown].iter().map(|(session, _)| Entry::Local(session.id)));
                 if shown < rows.len() {
                     entries.push(Entry::LocalMore);
@@ -150,7 +150,7 @@ impl Root {
             }
         }
         self.peer_entries(&mut entries, window, cx);
-        let list = &self.sidebar_ui.list;
+        let list = &self.sidebar.list;
         list.palette.set(Some(palette));
         list.sync(entries, |entry| self.entry_focus(entry));
         gpui::list(
@@ -161,7 +161,7 @@ impl Root {
 
     fn entry_focus(&self, entry: &Entry) -> Option<FocusHandle> {
         match entry {
-            Entry::Local(id) => self.sidebar_ui.row_focus.get(id).map(|focus| focus.row.clone()),
+            Entry::Local(id) => self.sidebar.row_focus.get(id).map(|focus| focus.row.clone()),
             Entry::Peer(peer, id) => self.peer_row_focus(peer, *id),
             _ => None,
         }
@@ -173,7 +173,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let list = &self.sidebar_ui.list;
+        let list = &self.sidebar.list;
         let (Some(entry), Some(palette)) = (list.entry(index), list.palette.get()) else {
             return div().into_any_element();
         };
@@ -206,7 +206,7 @@ impl Root {
             "Local sessions",
             div()
                 .id("local-section")
-                .track_focus(&self.sidebar_ui.group)
+                .track_focus(&self.sidebar.group)
                 .h(px(28.))
                 .flex()
                 .items_center()
@@ -218,7 +218,7 @@ impl Root {
                 .cursor_pointer()
                 .hover(|style| style.bg(palette.hover))
                 .child(div().flex_shrink_0().child(icon_sized(
-                    if self.local_expanded { "down" } else { "chevron" },
+                    if self.sidebar.local_expanded { "down" } else { "chevron" },
                     12.,
                 )))
                 .child(
@@ -242,7 +242,7 @@ impl Root {
             .child(
                 div()
                     .id("more-sessions")
-                    .track_focus(&self.sidebar_ui.more)
+                    .track_focus(&self.sidebar.more)
                     .p(px(4.))
                     .text_size(px(12.))
                     .line_height(px(16.))
@@ -262,17 +262,17 @@ impl Root {
         window: &mut Window,
         cx: &gpui::App,
     ) {
-        use crate::root::Dialog;
-        let Some(focus) = self.sidebar_ui.row_focus.get(&id) else {
+        use crate::dialogs::Dialog;
+        let Some(focus) = self.sidebar.row_focus.get(&id) else {
             return;
         };
         let focus_copy = |target: SessionId, window: &mut Window| {
-            if let Some(Dialog::RenameSession { id, title }) = &self.dialog
+            if let Some(Dialog::RenameSession { id, title }) = &self.dialogs.current
                 && *id == target
             {
                 title.read(cx).focus(window);
             } else {
-                self.sidebar_ui.focus_row(target, window);
+                self.sidebar.focus_row(target, window);
             }
         };
         let on_settle = focus.settle.is_focused(window);
@@ -280,14 +280,14 @@ impl Root {
             focus_copy(id, window);
             return;
         }
-        if !on_settle && !shift && !self.user_action_pending {
+        if !on_settle && !shift && !self.dialogs.user_action_pending {
             focus.settle.focus(window);
             return;
         }
         let rows = self.sidebar_rows(cx);
         let shown = rows
             .len()
-            .min(self.session_pages.saturating_mul(self.history_page_size));
+            .min(self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size));
         let Some(index) = rows[..shown]
             .iter()
             .position(|(session, _)| session.id == id)
@@ -302,27 +302,27 @@ impl Root {
         if let Some(next) = next {
             let target = rows[next].0.id;
             if shift
-                && !self.user_action_pending
-                && let Some(focus) = self.sidebar_ui.row_focus.get(&target)
+                && !self.dialogs.user_action_pending
+                && let Some(focus) = self.sidebar.row_focus.get(&target)
             {
                 focus.settle.focus(window);
             } else {
                 focus_copy(target, window);
             }
-            self.sidebar_ui.list.reveal(&Entry::Local(target));
+            self.sidebar.list.reveal(&Entry::Local(target));
         } else if shift {
-            self.sidebar_ui.group.focus(window);
+            self.sidebar.group.focus(window);
         } else if shown < rows.len() {
-            self.sidebar_ui.more.focus(window);
-            self.sidebar_ui.list.reveal(&Entry::LocalMore);
+            self.sidebar.more.focus(window);
+            self.sidebar.list.reveal(&Entry::LocalMore);
         } else {
             window.focus_next();
         }
     }
 
     pub(crate) fn reveal_sidebar_session(&self, id: SessionId, _: &gpui::App) {
-        if self.sidebar && self.local_expanded {
-            self.sidebar_ui.list.reveal(&Entry::Local(id));
+        if self.sidebar.visible && self.sidebar.local_expanded {
+            self.sidebar.list.reveal(&Entry::Local(id));
         }
     }
 }

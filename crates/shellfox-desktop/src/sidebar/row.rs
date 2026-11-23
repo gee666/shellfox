@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     assets::{ellipsis, inline_ellipsis},
-    root::Dialog,
+    dialogs::Dialog,
     workspace::tabs::activity::status_dot,
 };
 use gpui::{KeyDownEvent, MouseButton, Window};
@@ -75,7 +75,7 @@ impl Root {
         cx: &Context<Self>,
     ) -> AnyElement {
         let id = session.id;
-        let Some(row_focus) = self.sidebar_ui.row_focus.get(&id) else {
+        let Some(row_focus) = self.sidebar.row_focus.get(&id) else {
             return div().into_any_element();
         };
         let (focus, settle_focus) = (&row_focus.copy, &row_focus.settle);
@@ -91,7 +91,7 @@ impl Root {
             .flex()
             .flex_col()
             .line_height(px(14.));
-        match &self.dialog {
+        match &self.dialogs.current {
             Some(Dialog::RenameSession { id: editing, title }) if *editing == id => {
                 copy = copy.child(title.clone());
             }
@@ -100,7 +100,7 @@ impl Root {
                     .track_focus(focus)
                     .cursor_pointer()
                     .when(
-                        self.sidebar_ui.keyboard_focus && focus.is_focused(window),
+                        self.sidebar.keyboard_focus && focus.is_focused(window),
                         |copy| copy.child(focus_ring(palette)),
                     )
                     .on_click(
@@ -163,7 +163,7 @@ impl Root {
             if settled { "unsettle" } else { "settle" },
             palette,
         )
-        .when(!self.user_action_pending, |button| {
+        .when(!self.dialogs.user_action_pending, |button| {
             button.track_focus(settle_focus)
         })
         .w(px(20.))
@@ -173,9 +173,9 @@ impl Root {
             if settled { "Unsettle" } else { "Settle" },
             palette,
         ))
-        .when(self.user_action_pending, |button| button.opacity(0.4))
+        .when(self.dialogs.user_action_pending, |button| button.opacity(0.4))
         .on_click(cx.listener(move |root, _, window, cx| {
-            if !root.user_action_pending {
+            if !root.dialogs.user_action_pending {
                 root.toggle_session_settled(id, !settled, window, cx);
             }
         }));
@@ -214,8 +214,8 @@ impl Root {
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |root, event: &gpui::MouseDownEvent, window, cx| {
-                    root.sidebar_ui.keyboard_focus = false;
-                    if !matches!(root.dialog, Some(Dialog::RenameSession { id: editing, .. }) if editing == id) { menu_focus.focus(window); }
+                    root.sidebar.keyboard_focus = false;
+                    if !matches!(root.dialogs.current, Some(Dialog::RenameSession { id: editing, .. }) if editing == id) { menu_focus.focus(window); }
                     root.open_session_menu(id, event.position, false, window, cx);
                 }),
             )
@@ -235,7 +235,7 @@ impl Root {
         let key = event.keystroke.key.as_str();
         let mods = event.keystroke.modifiers;
         if matches!(key, "contextmenu" | "context-menu" | "menu") || key == "f10" && mods.shift {
-            if let Some(bounds) = self.sidebar_ui.list.bounds(&super::list::Entry::Local(id)) {
+            if let Some(bounds) = self.sidebar.list.bounds(&super::list::Entry::Local(id)) {
                 self.open_session_menu(
                     id,
                     gpui::point(bounds.left(), bounds.bottom()),
@@ -245,13 +245,13 @@ impl Root {
                 );
             }
         } else if key == "tab" && !mods.control && !mods.alt && !mods.platform {
-            if matches!(&self.dialog, Some(Dialog::RenameSession { id: editing, title }) if *editing == id && title.read(cx).is_composing())
+            if matches!(&self.dialogs.current, Some(Dialog::RenameSession { id: editing, title }) if *editing == id && title.read(cx).is_composing())
             {
                 return;
             }
             self.sidebar_focus_tab(id, mods.shift, window, cx);
             cx.notify();
-        } else if let Some(Dialog::RenameSession { id: editing, title }) = &self.dialog
+        } else if let Some(Dialog::RenameSession { id: editing, title }) = &self.dialogs.current
             && *editing == id
             && title.read(cx).edit_focus().is_focused(window)
         {
@@ -260,9 +260,9 @@ impl Root {
             }
             match key {
                 "enter" => self.confirm_dialog(window, cx),
-                "escape" if !self.user_action_pending => {
-                    self.dialog = None;
-                    self.sidebar_ui.focus_row(id, window);
+                "escape" if !self.dialogs.user_action_pending => {
+                    self.dialogs.current = None;
+                    self.sidebar.focus_row(id, window);
                     cx.notify();
                 }
                 _ => return,
@@ -273,7 +273,7 @@ impl Root {
             let rows = self.sidebar_rows(cx);
             let len = rows
                 .len()
-                .min(self.session_pages.saturating_mul(self.history_page_size));
+                .min(self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size));
             let Some(index) = rows.iter().position(|(session, _)| session.id == id) else {
                 return;
             };
@@ -285,8 +285,8 @@ impl Root {
                 _ => return,
             };
             if let Some((target, _)) = rows.get(next) {
-                self.sidebar_ui.focus_row(target.id, window);
-                self.sidebar_ui.list.reveal(&super::list::Entry::Local(target.id));
+                self.sidebar.focus_row(target.id, window);
+                self.sidebar.list.reveal(&super::list::Entry::Local(target.id));
                 cx.notify();
             }
         } else {

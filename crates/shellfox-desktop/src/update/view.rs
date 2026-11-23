@@ -248,8 +248,8 @@ impl Root {
                 ),
                 Notice::Ready => {
                     let available = self.host.is_some()
-                        && !self.closing_window
-                        && !self.close_check_pending
+                        && !self.close.closing
+                        && !self.close.check_pending
                         && !updater.install_pending();
                     pane.child(
                         row()

@@ -11,7 +11,7 @@ use std::{
 };
 use winreg::{RegKey, enums::HKEY_CURRENT_USER};
 
-/// The shipping Squirrel package ID. Isolated test identities (ShellfoxLaneI…)
+/// The shipping Squirrel package ID. Isolated test identities (ShellfoxTest…)
 /// install beside it and must never touch the shared PATH or Explorer verbs.
 const PACKAGE_ID: &str = "shellfox";
 const EXE: &str = "Shellfox.exe";

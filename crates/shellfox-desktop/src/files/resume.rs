@@ -57,7 +57,7 @@ impl Root {
     }
 
     pub(crate) fn can_resume_file_draft(&self, cx: &Context<Self>) -> bool {
-        self.files.as_ref().is_some_and(|files| {
+        self.files.panel.as_ref().is_some_and(|files| {
             files.resume_conflict && files.dirty(cx) && self.may_revalidate(files, true)
         })
     }
@@ -76,7 +76,7 @@ impl Root {
             && (explicit
                 || (!files.resume_conflict
                     && files.resume_retry.is_none_or(|due| due <= Instant::now())))
-            && !self.closing_window
+            && !self.close.closing
             && !self.peer_ui.frozen
             && matches!(&files.source, Source::Peer(_))
             && files.source == self.peers.selected
@@ -89,13 +89,13 @@ impl Root {
     }
 
     fn revalidate_peer_files(&mut self, explicit: bool, cx: &mut Context<Self>) {
-        let Some(files) = &self.files else { return };
+        let Some(files) = &self.files.panel else { return };
         let cached = self.files_source_current();
         let (fresh, preferred) = if cached {
             if !files.check_cached_revision
                 || !files.visible
                 || files.busy
-                || self.closing_window
+                || self.close.closing
                 || self.peer_ui.frozen
                 || files.unconfirmed_save()
                 || files.resume_retry.is_some_and(|due| due > Instant::now())
@@ -116,7 +116,7 @@ impl Root {
             return;
         }
         let epoch = files.source_epoch;
-        let Some(files) = &mut self.files else { return };
+        let Some(files) = &mut self.files.panel else { return };
         let path = files.opened_revision().map(|file| file.path().to_owned());
         let previous = files.backend.clone();
         files.request += 1;
@@ -139,13 +139,13 @@ impl Root {
             let _ = root.update(cx, |root, cx| {
                 let current = root.source_selection_epoch() == epoch
                     && root
-                        .files
+                        .files.panel
                         .as_ref()
                         .is_some_and(|files| files.source == root.peers.selected)
-                    && !root.closing_window
+                    && !root.close.closing
                     && !root.peer_ui.frozen
                     && root.active_file_tab(&fresh);
-                let Some(files) = &mut root.files else { return };
+                let Some(files) = &mut root.files.panel else { return };
                 if files.request != request || !files.backend.same_origin(&previous) {
                     return;
                 }

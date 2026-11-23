@@ -14,6 +14,7 @@ impl Root {
                 return false;
             }
             self.peer_ui.frozen = false;
+            self.peer_ui.stream_wake.notify_waiters();
             for view in self.peer_ui.v1_views.values() {
                 view.update(cx, |view, _| view.freeze_peer(false));
             }

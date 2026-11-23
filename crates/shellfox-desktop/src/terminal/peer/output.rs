@@ -68,10 +68,9 @@ impl Peer {
                     ..
                 },
             ) = (&self.state, event)
+                && *current == generation
             {
-                if *current == generation {
-                    self.state = State::Offline;
-                }
+                self.state = State::Offline;
             }
             return Ok(false);
         };

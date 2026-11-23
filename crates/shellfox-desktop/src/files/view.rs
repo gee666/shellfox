@@ -97,7 +97,7 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let shown = self
-            .files
+            .files.panel
             .as_ref()
             .is_some_and(|f| f.visible && f.source == self.peers.selected);
         div()
@@ -116,13 +116,48 @@ impl Root {
             .into_any_element()
     }
 
+    /// The Files pane as a cached view sized like the panel it renders.
+    pub(crate) fn files_region(&self, palette: Palette, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(files) = self.files.panel.as_ref().filter(|files| files.visible && self.files_source_current()) else {
+            return self.files_panel(palette, window, cx);
+        };
+        self.files.html_preview.place();
+        div()
+            .w(px(self.files_width(files, window)))
+            .h_full()
+            .min_w_0()
+            .min_h_0()
+            .flex_shrink_0()
+            .child(self.pane(crate::root::panes::PaneKind::Files, cx))
+            .into_any_element()
+    }
+
+    /// Renders inside the cached Files pane, so it settles the HTML preview itself.
+    pub(crate) fn files_pane(&self, palette: Palette, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.files.html_preview.begin_render();
+        let panel = self.files_panel(palette, window, cx);
+        self.files.html_preview.end_render(self.files_covered());
+        panel
+    }
+
+    fn files_width(&self, files: &crate::files::Files, window: &Window) -> f32 {
+        let max = (self.workspace_width(window) - 200.).max(0.);
+        if files.maximized {
+            f32::from(window.viewport_size().width)
+        } else if self.files_narrow(window) {
+            self.workspace_width(window)
+        } else {
+            files.width.clamp(300f32.min(max), max)
+        }
+    }
+
     pub(crate) fn files_panel(
         &self,
         palette: Palette,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(files) = self.files.as_ref().filter(|files| files.visible) else {
+        let Some(files) = self.files.panel.as_ref().filter(|files| files.visible) else {
             return div().into_any_element();
         };
         if !self.files_source_current() {
@@ -140,14 +175,7 @@ impl Root {
                 .into_any_element();
         }
         let narrow = self.files_narrow(window);
-        let max = (self.workspace_width(window) - 200.).max(0.);
-        let width = if files.maximized {
-            f32::from(window.viewport_size().width)
-        } else if narrow {
-            self.workspace_width(window)
-        } else {
-            files.width.clamp(300f32.min(max), max)
-        };
+        let width = self.files_width(files, window);
         let mut panel = div()
             .relative()
             .track_focus(&files.panel_focus)

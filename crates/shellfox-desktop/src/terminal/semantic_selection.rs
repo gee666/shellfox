@@ -78,10 +78,7 @@ impl TerminalView {
                 return Err(error);
             }
         };
-        let next = self
-            .cursor_reset_epoch
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("View cursor reset epoch exhausted"))?;
+        let next = self.cursor_reset_epoch.wrapping_add(1);
         anyhow::ensure!(
             self.submit(
                 Command::Presentation {

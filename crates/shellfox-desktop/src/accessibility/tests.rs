@@ -2,6 +2,7 @@ use super::*;
 use accesskit::{ActionData, ActionHandler, ActionRequest, ActivationHandler, Rect, TreeId};
 use std::time::{Duration, Instant};
 
+mod cached_tests;
 mod deferred_tests;
 mod frame_tests;
 mod terminal_selection_tests;

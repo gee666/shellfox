@@ -46,7 +46,7 @@ impl FileCompletion {
         let id = field.entity_id();
         let on_focus = cx.on_focus(&focus, window, move |root, _, cx| {
             if let Some(files) = root
-                .files
+                .files.panel
                 .as_mut()
                 .filter(|files| files.location.entity_id() == id)
             {
@@ -56,7 +56,7 @@ impl FileCompletion {
         });
         let on_blur = cx.on_blur(&focus, window, move |root, _, cx| {
             if let Some(files) = root
-                .files
+                .files.panel
                 .as_mut()
                 .filter(|files| files.location.entity_id() == id)
             {
@@ -70,7 +70,7 @@ impl FileCompletion {
 
 impl Root {
     pub(super) fn file_location_changed(&mut self, field: Entity<Field>, cx: &mut Context<Self>) {
-        let Some(files) = &mut self.files else {
+        let Some(files) = &mut self.files.panel else {
             return;
         };
         if files.location != field {
@@ -98,7 +98,7 @@ impl Root {
     }
 
     pub(crate) fn reopen_file_completion(&mut self, cx: &mut Context<Self>) {
-        let Some(files) = &mut self.files else { return };
+        let Some(files) = &mut self.files.panel else { return };
         if files.completion.state.reopen() {
             files.completion.state.reset();
             self.query_file_matches(false, cx);
@@ -112,7 +112,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(files) = &mut self.files else {
+        let Some(files) = &mut self.files.panel else {
             return false;
         };
         if files.busy
@@ -163,7 +163,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(files) = self.files.as_mut().filter(|files| !files.busy) else {
+        let Some(files) = self.files.panel.as_mut().filter(|files| !files.busy) else {
             return;
         };
         let input = &files.location.read(cx).text;
@@ -178,7 +178,7 @@ impl Root {
         if !self.files_source_current() {
             return;
         }
-        let Some(files) = &mut self.files else {
+        let Some(files) = &mut self.files.panel else {
             return;
         };
         if !files.visible
@@ -204,7 +204,7 @@ impl Root {
             // A rejected partial prefix must never be sent to the peer after a later edit or Go.
             let matches_current = |root: &Root, cx: &gpui::App| {
                 root.files_result_current(epoch, &backend)
-                    && root.files.as_ref().is_some_and(|files| {
+                    && root.files.panel.as_ref().is_some_and(|files| {
                         files.visible
                             && files.browser
                             && !files.busy
@@ -227,7 +227,7 @@ impl Root {
                 if !matches_current(root, cx) {
                     return;
                 }
-                let Some(files) = &mut root.files else {
+                let Some(files) = &mut root.files.panel else {
                     return;
                 };
                 match result {
@@ -277,7 +277,7 @@ pub(crate) fn completion_list(
     cx: &mut Context<Root>,
 ) -> impl IntoElement {
     use crate::accessibility::{Role, SemanticNode};
-    let frame = root.semantic_context.frame();
+    let frame = root.semantics.context.frame();
     let active = files.completion.state.active();
     let max_height = (f32::from(window.viewport_size().height) * 0.35).min(240.);
     div()

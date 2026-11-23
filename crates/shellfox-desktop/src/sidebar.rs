@@ -36,6 +36,14 @@ impl RowFocus {
 }
 
 pub(crate) struct SidebarUi {
+    pub(crate) visible: bool,
+    pub(crate) width: f32,
+    pub(crate) resizing: bool,
+    pub(crate) local_expanded: bool,
+    pub(crate) history_page_size: usize,
+    /// Pages of local session history shown.
+    pub(crate) session_pages: usize,
+    pub(crate) session_menu: Option<session_menu::SessionMenu>,
     pub(crate) visibility: crate::workspace::visibility::SessionVisibility,
     row_focus: HashMap<SessionId, RowFocus>,
     pub(crate) list: list::SidebarList,
@@ -56,8 +64,19 @@ pub(crate) struct SidebarUi {
 }
 
 impl SidebarUi {
+    pub(crate) fn new_session_menu_open(&self) -> bool {
+        self.target_menu.is_some()
+    }
+
     pub(crate) fn new(cx: &mut gpui::App) -> Self {
         Self {
+            visible: true,
+            width: 220.,
+            resizing: false,
+            local_expanded: true,
+            history_page_size: 10,
+            session_pages: 1,
+            session_menu: None,
             visibility: Default::default(),
             row_focus: HashMap::new(),
             list: Default::default(),
@@ -147,39 +166,40 @@ impl Root {
         window: &gpui::Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.sidebar.list.begin_frame();
         let list = self
             .sidebar_list(palette, window, cx)
             .flex_1()
             .min_w_0()
             .min_h_0()
             .py(px(4.));
-        let state = self.sidebar_ui.list.state().clone();
+        let state = self.sidebar.list.state().clone();
         let scrolling = state.max_offset_for_scrollbar().height > px(0.);
         let weak = cx.weak_entity();
         let list = div().relative().flex_1().min_h_0().flex()
             .child(list.when(scrolling, |list| list.mr(px(10.))))
-            .when(scrolling, |frame| frame.child(self.sidebar_ui.scrollbar.thin(&state, palette)))
-            .child(self.sidebar_ui.list.painted_marker())
+            .when(scrolling, |frame| frame.child(self.sidebar.scrollbar.thin(&state, palette)))
+            .child(self.sidebar.list.painted_marker())
             .child(gpui::canvas(|_, _, _| (), move |_, (), window, cx| {
                 if scrolling != (state.max_offset_for_scrollbar().height > px(0.)) {
                     window.defer(cx, move |_, cx| { let _ = weak.update(cx, |_, cx| cx.notify()); });
                 }
             }).absolute().inset_0());
-        let width = clamp_width(self.sidebar_width, f32::from(window.viewport_size().width));
+        let width = clamp_width(self.sidebar.width, f32::from(window.viewport_size().width));
         let mut sidebar = div()
             .relative()
-            .track_focus(&self.sidebar_ui.region)
+            .track_focus(&self.sidebar.region)
             .capture_key_down(cx.listener(|root, _: &gpui::KeyDownEvent, _, cx| {
-                if !root.sidebar_ui.keyboard_focus {
-                    root.sidebar_ui.keyboard_focus = true;
+                if !root.sidebar.keyboard_focus {
+                    root.sidebar.keyboard_focus = true;
                     cx.notify();
                 }
             }))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(|root, _, _, cx| {
-                    if root.sidebar_ui.keyboard_focus {
-                        root.sidebar_ui.keyboard_focus = false;
+                    if root.sidebar.keyboard_focus {
+                        root.sidebar.keyboard_focus = false;
                         cx.notify();
                     }
                 }),
@@ -193,7 +213,7 @@ impl Root {
             .child(self.sidebar_toolbar(palette, cx))
             .child(list)
             .children(self.update_notice(palette, cx));
-        if let Some(crate::root::Dialog::DeleteSession(id)) = self.dialog
+        if let Some(crate::dialogs::Dialog::DeleteSession(id)) = self.dialogs.current
             && let Some(session) = self
                 .snapshot
                 .as_ref()
@@ -208,11 +228,11 @@ impl Root {
     }
 
     pub(crate) fn apply_history_page_size(&mut self, size: usize) -> bool {
-        if self.history_page_size == size {
+        if self.sidebar.history_page_size == size {
             return false;
         }
-        self.history_page_size = size;
-        self.session_pages = 1;
+        self.sidebar.history_page_size = size;
+        self.sidebar.session_pages = 1;
         self.peer_ui.pages.clear();
         true
     }
@@ -221,23 +241,23 @@ impl Root {
         if !self.is_local_source() {
             self.select_local_source(_window, cx);
         }
-        self.local_expanded = !self.local_expanded;
+        self.sidebar.local_expanded = !self.sidebar.local_expanded;
         self.hide_settings(cx);
         cx.notify();
     }
 
     fn show_more_sessions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let old_end = self.session_pages.saturating_mul(self.history_page_size);
-        self.session_pages = self.session_pages.saturating_add(1);
+        let old_end = self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size);
+        self.sidebar.session_pages = self.sidebar.session_pages.saturating_add(1);
         let rows = self.sidebar_rows(cx);
-        let end = self.session_pages.saturating_mul(self.history_page_size);
+        let end = self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size);
         if end >= rows.len()
             && old_end < rows.len()
-            && self.sidebar_ui.more.is_focused(window)
+            && self.sidebar.more.is_focused(window)
             && let Some((last, _)) = rows.last()
         {
-            self.sidebar_ui.focus_row(last.id, window);
-            self.sidebar_ui.list.reveal(&list::Entry::Local(last.id));
+            self.sidebar.focus_row(last.id, window);
+            self.sidebar.list.reveal(&list::Entry::Local(last.id));
         }
         cx.notify();
     }

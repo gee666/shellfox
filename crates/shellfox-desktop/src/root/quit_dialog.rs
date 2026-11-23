@@ -2,7 +2,8 @@ use crate::{
     accessibility::{self, Action, Role, SemanticNode},
     app_host::CloseDecision,
     dialogs::dialog_button,
-    root::{Dialog, Root},
+    dialogs::Dialog,
+    root::Root,
     theme::Palette,
 };
 use gpui::{AnyElement, App, Context, Div, FocusHandle, Stateful, Window, div, prelude::*, px};
@@ -65,11 +66,11 @@ impl QuitFocus {
 impl Root {
     pub(crate) fn open_quit_dialog(&mut self, window: &mut Window, cx: &Context<Self>) {
         window.activate_window();
-        self.quit_focus.error = None;
-        self.quit_focus.previous = window.focused(cx);
-        self.quit_focus.epoch = self.quit_focus.epoch.wrapping_add(1);
-        self.quit_focus.cancel.focus(window);
-        self.dialog = Some(Dialog::Quit);
+        self.close.quit_focus.error = None;
+        self.close.quit_focus.previous = window.focused(cx);
+        self.close.quit_focus.epoch = self.close.quit_focus.epoch.wrapping_add(1);
+        self.close.quit_focus.cancel.focus(window);
+        self.dialogs.current = Some(Dialog::Quit);
     }
 
     pub(crate) fn quit_admission_failed(
@@ -80,24 +81,24 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.close_confirmation = None;
-        self.close_ticket = None;
+        self.close.confirmation = None;
+        self.close.ticket = None;
         match decision {
-            Some(CloseDecision::Ready(ticket)) => self.close_ticket = Some(ticket),
+            Some(CloseDecision::Ready(ticket)) => self.close.ticket = Some(ticket),
             Some(CloseDecision::Confirm(confirmation)) => {
-                self.close_confirmation = Some(confirmation)
+                self.close.confirmation = Some(confirmation)
             }
             _ => {}
         }
         self.update_ui.restart_request = restart_request;
-        self.quit_focus.error = Some(error.to_string());
-        self.quit_focus.epoch = self.quit_focus.epoch.wrapping_add(1);
-        self.quit_focus.cancel.focus(window);
+        self.close.quit_focus.error = Some(error.to_string());
+        self.close.quit_focus.epoch = self.close.quit_focus.epoch.wrapping_add(1);
+        self.close.quit_focus.cancel.focus(window);
         cx.notify();
     }
 
     fn quit_has_approval(&self) -> bool {
-        self.close_confirmation.is_some() || self.close_ticket.is_some()
+        self.close.confirmation.is_some() || self.close.ticket.is_some()
     }
 
     pub(crate) fn quit_dialog_key(
@@ -106,7 +107,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let focus = &self.quit_focus;
+        let focus = &self.close.quit_focus;
         let order = QuitControl::ORDER.map(|control| focus.handle(control));
         let order = &order[..if self.quit_has_approval() { 3 } else { 2 }];
         let index = order
@@ -142,9 +143,9 @@ impl Root {
         name: &'static str,
         child: Stateful<Div>,
     ) -> AnyElement {
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         let ids = frame
-            .id_for(&control.key(self.quit_focus.epoch))
+            .id_for(&control.key(self.close.quit_focus.epoch))
             .and_then(|id| frame.id_for("root/dialog").map(|parent| (id, parent)));
         match ids {
             Ok((id, parent)) => {
@@ -155,7 +156,7 @@ impl Root {
                     node.data.set_disabled();
                 } else {
                     node.data.add_action(Action::Click);
-                    node.focus = Some(self.quit_focus.handle(control).clone());
+                    node.focus = Some(self.close.quit_focus.handle(control).clone());
                 }
                 frame.wrap(node, child).into_any_element()
             }
@@ -173,21 +174,21 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> bool {
         use accessibility::SemanticActionKind;
-        if !matches!(self.dialog, Some(Dialog::Quit)) || self.dialog_locked() {
+        if !matches!(self.dialogs.current, Some(Dialog::Quit)) || self.dialog_locked() {
             return false;
         }
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         if frame.focus_handle(action.target).is_none() {
             return false;
         }
         let Some(control) = QuitControl::ORDER.into_iter().find(|control| {
-            frame.id_for(&control.key(self.quit_focus.epoch)).ok() == Some(action.target)
+            frame.id_for(&control.key(self.close.quit_focus.epoch)).ok() == Some(action.target)
         }) else {
             return false;
         };
         match action.kind {
             SemanticActionKind::Focus => {
-                self.quit_focus.handle(control).focus(window);
+                self.close.quit_focus.handle(control).focus(window);
                 cx.notify();
             }
             SemanticActionKind::Click => match control {
@@ -206,10 +207,10 @@ impl Root {
         cx: &Context<Self>,
     ) -> AnyElement {
         let count = self
-            .close_confirmation
+            .close.confirmation
             .as_ref()
             .map_or(0, |confirmation| confirmation.terminal_count);
-        let update = self.update_restart;
+        let update = self.close.update_restart;
         let question = match (count, update) {
             (0, true) => "Install the update and restart Shellfox?".into(),
             (0, false) => "Close shells and quit?".into(),
@@ -225,10 +226,10 @@ impl Root {
             "Close shells and quit"
         };
         let cancel = dialog_button("dialog-cancel", "Cancel", palette)
-            .track_focus(&self.quit_focus.cancel)
+            .track_focus(&self.close.quit_focus.cancel)
             .on_click(cx.listener(|root, _, window, cx| root.dismiss_dialog(window, cx)));
         let confirm = dialog_button("dialog-confirm", confirm_label, palette)
-            .track_focus(&self.quit_focus.confirm)
+            .track_focus(&self.close.quit_focus.confirm)
             .on_click(cx.listener(|root, _, window, cx| root.confirm_dialog(window, cx)));
         let locked = self.dialog_locked();
         let active = window.is_window_active() && !locked;
@@ -241,7 +242,7 @@ impl Root {
                 div().text_size(px(11.)).line_height(px(16.)).text_color(palette.muted)
                     .child("Running commands will stop. Shells restart fresh next time. External terminals stay open.")
             ))
-            .when_some(self.quit_focus.error.as_ref(), |content, message| {
+            .when_some(self.close.quit_focus.error.as_ref(), |content, message| {
                 content.child(self.semantic_region("root/dialog/quit-error", Role::Alert, message.clone(),
                     div().text_size(px(11.)).text_color(palette.status_color(0xfc8397)).child(message.clone())))
             })

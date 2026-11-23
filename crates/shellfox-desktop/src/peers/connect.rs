@@ -29,7 +29,7 @@ impl Root {
         let Some(host) = self.host.clone() else {
             return;
         };
-        if self.peer_ui.frozen || self.closing_window {
+        if self.peer_ui.frozen || self.close.closing {
             return;
         }
         let binding = match self.legacy_peer_binding(&peer) {
@@ -77,7 +77,7 @@ impl Root {
                 phase = source::Phase::Rejected;
             }
             let _ = root.update_in(cx, |root, window, cx| {
-                if !root.peers.current(&cycle) || root.closing_window {
+                if !root.peers.current(&cycle) || root.close.closing {
                     return;
                 }
                 root.peer_ui.paused.remove(&cycle.peer);

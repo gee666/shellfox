@@ -66,10 +66,7 @@ impl TerminalView {
                     error.downcast_ref::<NativeAdmissionError>(),
                     Some(NativeAdmissionError::Full(_))
                 ) => return true,
-            Err(error)
-                if error
-                    .downcast_ref::<shellfox_runtime::RuntimeError>()
-                    .is_some_and(|error| error.code == ErrorCode::ControlRequired) =>
+            Err(error) if super::control_required(&error) =>
             {
                 self.block_control();
                 cx.notify();

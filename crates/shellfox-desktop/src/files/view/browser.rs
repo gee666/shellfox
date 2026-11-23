@@ -20,7 +20,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(files) = &self.files else {
+        let Some(files) = &self.files.panel else {
             return div().into_any_element();
         };
         let height = ResizeAxis::Height.clamp(self, window, files.browser_height);
@@ -114,7 +114,7 @@ impl Root {
                     .tooltip(crate::assets::tooltip("Refresh files", palette))
                     .when(!busy, |button| {
                         button.on_click(cx.listener(|root, _, _, cx| {
-                            if let Some(path) = root.files.as_ref().and_then(|files| {
+                            if let Some(path) = root.files.panel.as_ref().and_then(|files| {
                                 files
                                     .listing_error
                                     .as_ref()
@@ -219,7 +219,7 @@ impl Root {
 
 fn set_keyboard_focus(root: &mut Root, visible: bool, cx: &mut Context<Root>) {
     if let Some(files) = root
-        .files
+        .files.panel
         .as_mut()
         .filter(|files| files.tree.keyboard_focus != visible)
     {
@@ -304,7 +304,7 @@ fn missing_folder(
 }
 
 fn keep_editing(root: &mut Root, window: &mut Window, cx: &mut Context<Root>) {
-    if let Some(files) = &mut root.files {
+    if let Some(files) = &mut root.files.panel {
         files.missing_folder = None;
         files.location.read(cx).focus(window);
         cx.notify();

@@ -72,5 +72,5 @@ fn production_composition_saves_with_revision_checks_and_no_host_writes() {
     drop(session);
     drop(same);
     drop(backend);
-    drop(frontend.preserve());
+    drop(frontend);
 }

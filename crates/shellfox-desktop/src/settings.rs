@@ -98,6 +98,13 @@ pub enum SettingsEvent {
     CloseRequested,
     BackgroundSaveFailed(anyhow::Error),
 }
+/// Settings in a window: whether the page is shown, and its panel once created.
+#[derive(Default)]
+pub(crate) struct SettingsSlot {
+    pub(crate) open: bool,
+    pub(crate) panel: Option<Entity<SettingsPanel>>,
+}
+
 pub struct SettingsPanel {
     client: HostClient,
     operations: operations::Operations,

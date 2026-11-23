@@ -16,12 +16,12 @@ impl Root {
     pub(crate) fn request_file_action(&mut self, action: FileAction, cx: &mut Context<Self>) {
         let closing_retired_wsl = matches!(action, FileAction::Hide)
             && self
-                .files
+                .files.panel
                 .as_ref()
                 .is_some_and(|f| f.backend.is_wsl() && self.is_local_source());
         if (!closing_retired_wsl && !self.require_files_source(cx))
             || self
-                .files
+                .files.panel
                 .as_ref()
                 .is_some_and(|f| f.pending_file_action.is_some())
         {
@@ -31,12 +31,12 @@ impl Root {
             if !self.link_is_current(*origin) {
                 return;
             }
-            let reuse = self.files_dirty(cx) || self.files.as_ref().is_some_and(super::Files::saving);
+            let reuse = self.files_dirty(cx) || self.files.panel.as_ref().is_some_and(super::Files::saving);
             if reuse && self.reveal_open_file(path, *position, cx) {
                 return;
             }
         }
-        if self.files.as_ref().is_some_and(|f| {
+        if self.files.panel.as_ref().is_some_and(|f| {
             f.operation.is_some()
                 || f.image_editor
                     .as_ref()
@@ -45,7 +45,7 @@ impl Root {
             return;
         }
         if self.files_dirty(cx) {
-            if let Some(files) = &mut self.files {
+            if let Some(files) = &mut self.files.panel {
                 files.pending_file_action = Some(action);
             }
             cx.notify();
@@ -55,7 +55,7 @@ impl Root {
     }
 
     pub(crate) fn dismiss_file_action(&mut self, cx: &mut Context<Self>) {
-        if let Some(files) = &mut self.files
+        if let Some(files) = &mut self.files.panel
             && files.operation.is_none()
         {
             files.pending_file_action = None;
@@ -64,7 +64,7 @@ impl Root {
     }
 
     pub(crate) fn discard_and_continue_file_action(&mut self, cx: &mut Context<Self>) {
-        let Some(files) = self.files.as_mut().filter(|files| !files.busy) else {
+        let Some(files) = self.files.panel.as_mut().filter(|files| !files.busy) else {
             return;
         };
         let Some(action) = files.pending_file_action.take() else {
@@ -86,7 +86,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files else { return };
+        let Some(files) = &mut self.files.panel else { return };
         if !files.busy
             && files.pending_file_action.is_some()
             && files
@@ -109,7 +109,7 @@ impl Root {
             }
             FileAction::ImageEditing(editing) => self.set_image_editing(editing, cx),
             FileAction::Hide => {
-                if let Some(files) = &mut self.files {
+                if let Some(files) = &mut self.files.panel {
                     files.confirm_focus.end_panel(cx);
                     files.visible = false;
                     if files.backend.wsl_tab().is_some() {

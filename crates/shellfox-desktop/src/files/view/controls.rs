@@ -63,7 +63,7 @@ impl Control {
         focus: Option<&FocusHandle>,
         element: E,
     ) -> AnyElement {
-        let frame = root.semantic_context.frame();
+        let frame = root.semantics.context.frame();
         match (frame.id_for(self.key()), frame.id_for("root/files")) {
             (Ok(id), Ok(parent)) => {
                 let mut node = SemanticNode::new(id, Some(parent), Role::Button, name);
@@ -91,20 +91,20 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> bool {
         if !matches!(action.kind, SemanticActionKind::Click)
-            || self.settings
-            || self.dialog.is_some()
+            || self.settings.open
+            || self.dialogs.current.is_some()
             || !self.files_source_current()
         {
             return false;
         }
         let Some(files) = self
-            .files
+            .files.panel
             .as_ref()
             .filter(|files| files.visible && files.pending_file_action.is_none())
         else {
             return false;
         };
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         let Some(control) = Control::ALL
             .into_iter()
             .find(|control| frame.id_for(control.key()).ok() == Some(action.target))

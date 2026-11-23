@@ -22,7 +22,7 @@ impl<'a> Rows<'a> {
     pub fn new(root: &Root, files: &'a Files, palette: Palette) -> Self {
         Self {
             files,
-            frame: root.semantic_context.frame(),
+            frame: root.semantics.context.frame(),
             palette,
             elements: Vec::new(),
             keyboard: Vec::new(),
@@ -235,11 +235,11 @@ fn row_semantics<E: IntoElement>(
 
 impl Root {
     pub(crate) fn handle_files_row(&mut self, action: &SemanticAction, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if !matches!(action.kind, SemanticActionKind::Click) || self.settings || self.dialog.is_some()
+        if !matches!(action.kind, SemanticActionKind::Click) || self.settings.open || self.dialogs.current.is_some()
             || !self.files_source_current()
         { return false; }
-        let Some(files) = self.files.as_ref().filter(|files| files.visible && files.browser && !files.busy && files.pending_file_action.is_none()) else { return false; };
-        let frame = self.semantic_context.frame();
+        let Some(files) = self.files.panel.as_ref().filter(|files| files.visible && files.browser && !files.busy && files.pending_file_action.is_none()) else { return false; };
+        let frame = self.semantics.context.frame();
         let targets = files.listing.iter().chain(files.tree.branches.values().filter_map(|(_, branch)| {
             match branch { Branch::Ready(list) => Some(list), _ => None }
         }));

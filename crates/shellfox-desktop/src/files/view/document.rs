@@ -1,6 +1,6 @@
 use super::{Control, control, text_button};
 use crate::{
-    files::{Files, Preview, pending::basename, text_preview::{image_error, render_image}},
+    files::{Files, Preview, pending::basename, text_preview::{PreviewDocument, image_error, render_image}},
     root::Root,
     theme::Palette,
 };
@@ -17,7 +17,7 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(files) = &self.files else {
+        let Some(files) = &self.files.panel else {
             return div().into_any_element();
         };
         let mut document = div()
@@ -58,7 +58,7 @@ impl Root {
             .as_ref()
             .and_then(|editor| editor.text_preview.as_ref());
         let available_preview =
-            preview.filter(|preview| preview.available(&self.html_preview, window));
+            preview.filter(|preview| preview.available(&self.files.html_preview, window));
         if let Some(path) = path {
             document = document.child(file_toolbar(self, files, path, available_preview, palette, cx));
         }
@@ -66,9 +66,11 @@ impl Root {
             if let Some(preview) = available_preview.filter(|preview| preview.showing) {
                 return document
                     .child(preview.render(
-                        &editor.file.path,
-                        &files.backend,
-                        editor.text.read(cx).snapshot_text(),
+                        PreviewDocument {
+                            path: &editor.file.path,
+                            backend: &files.backend,
+                            text: editor.text.read(cx).snapshot_text(),
+                        },
                         palette,
                         window,
                         self,
@@ -151,7 +153,7 @@ impl Root {
     }
 
     pub(super) fn set_file_preview(&mut self, show: bool, cx: &mut Context<Self>) {
-        if let Some(preview) = self.files.as_mut().and_then(|files| files.editor.as_mut())
+        if let Some(preview) = self.files.panel.as_mut().and_then(|files| files.editor.as_mut())
             .and_then(|editor| editor.text_preview.as_mut())
         {
             preview.showing = show;
@@ -161,7 +163,7 @@ impl Root {
 
     pub(super) fn copy_open_file_path(&mut self, cx: &mut Context<Self>) {
         if !self.require_files_source(cx) { return; }
-        if let Some(path) = self.files.as_ref().and_then(Files::opened_path) {
+        if let Some(path) = self.files.panel.as_ref().and_then(Files::opened_path) {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.to_owned()));
             self.notify_info(cx, "Path copied");
         }
@@ -265,7 +267,7 @@ fn file_toolbar(
                             palette,
                         ))
                         .on_click(cx.listener(|root, _, _, cx| {
-                            if let Some(files) = &mut root.files {
+                            if let Some(files) = &mut root.files.panel {
                                 files.wrap = !files.wrap;
                                 cx.notify();
                             }

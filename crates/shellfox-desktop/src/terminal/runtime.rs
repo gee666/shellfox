@@ -181,10 +181,7 @@ impl TerminalView {
                     self.notice =
                         Some("Selection view changed; requesting a fresh accessibility frame".into());
                     cx.notify();
-                } else if error
-                    .downcast_ref::<shellfox_runtime::RuntimeError>()
-                    .is_some_and(|error| error.code == ErrorCode::ControlRequired)
-                {
+                } else if control_required(&error) {
                     self.block_control();
                 } else if error
                     .downcast_ref::<shellfox_runtime::RuntimeError>()
@@ -252,3 +249,10 @@ impl TerminalView {
 }
 #[cfg(test)]
 mod tests;
+
+/// Another client controls the terminal; this one may only watch until it takes control.
+pub(crate) fn control_required(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<shellfox_runtime::RuntimeError>()
+        .is_some_and(|error| error.code == ErrorCode::ControlRequired)
+}

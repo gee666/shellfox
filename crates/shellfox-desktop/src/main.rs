@@ -20,7 +20,6 @@ mod editor_composition;
 mod field;
 mod files;
 mod frontend_composition;
-mod frontend_retention;
 mod host_client;
 mod host_lost;
 mod host_process;
@@ -57,7 +56,7 @@ use gpui::{App, Application};
 use options::{Mode, Options};
 
 fn main() -> Result<()> {
-    let mut arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     #[cfg(windows)]
     if arguments.first().is_some_and(|first| ["--version", "--smoke", "ssh"].iter().any(|flag| first == flag)) {
         attach_parent_console();
@@ -72,13 +71,15 @@ fn main() -> Result<()> {
     }
     // Squirrel invokes the app before installation is complete. Never start a host then.
     #[cfg(windows)]
-    {
+    let arguments = {
+        let mut arguments = arguments;
         if let Some(event) = arguments.first() {
             if squirrel::handle(event)? { return Ok(()); }
             if event == "--squirrel-firstrun" { arguments.remove(0); }
         }
         squirrel::set_app_user_model_id();
-    }
+        arguments
+    };
     if let Some(code) = cli_launcher::forward_ssh(&arguments)? {
         std::process::exit(code);
     }
@@ -91,7 +92,7 @@ fn main() -> Result<()> {
             frontend.prepare()?;
             smoke::run(&options.run_dir)
         }));
-        return finish_frontend(frontend.preserve(), result);
+        return finish_frontend(result);
     }
     let show_startup_error = options.mode == Mode::Shell && !options.ui_acceptance;
     let startup = app_startup::prepare(&options).inspect_err(|error| {
@@ -153,14 +154,13 @@ fn main() -> Result<()> {
         );
         run_graphics(options, owner.as_ref(), device_colors, editors, trace, updater, exit.clone())
     }));
-    let preserved = frontend.preserve();
     // A no-op when GPUI's quit hook already ran it.
     exit.finish(match &graphics {
         Ok(Ok(())) => app_exit::Outcome::Clean,
         Ok(Err(_)) => app_exit::Outcome::StartupFailed,
         Err(_) => app_exit::Outcome::Panicked,
     });
-    finish_frontend(preserved, graphics).inspect_err(|error| {
+    finish_frontend(graphics).inspect_err(|error| {
         if show_startup_error { desktop_errors::startup(error); }
     })
 }
@@ -184,17 +184,8 @@ fn attach_parent_console() {
     }
 }
 
-fn finish_frontend(
-    preserved: frontend_retention::PreservedFrontendOwner,
-    outcome: std::thread::Result<Result<()>>,
-) -> Result<()> {
-    match outcome {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(error)) => Err(anyhow::Error::new(preserved.with_error(error))),
-        Err(_) => Err(anyhow::Error::new(
-            preserved.with_error(anyhow::anyhow!("Frontend execution panicked")),
-        )),
-    }
+fn finish_frontend(outcome: std::thread::Result<Result<()>>) -> Result<()> {
+    outcome.unwrap_or_else(|_| Err(anyhow::anyhow!("Frontend execution panicked")))
 }
 
 fn trace_ui_init(enabled: bool, stage: &str) {

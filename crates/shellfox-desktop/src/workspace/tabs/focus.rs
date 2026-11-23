@@ -31,7 +31,7 @@ impl TabFocus {
 
 impl Root {
     fn files_pressed(&self) -> bool {
-        self.files_source_current() && self.files.as_ref().is_some_and(|files| files.visible)
+        self.files_source_current() && self.files.panel.as_ref().is_some_and(|files| files.visible)
     }
 
     pub(crate) fn render_files_toggle(
@@ -47,7 +47,7 @@ impl Root {
                 button.bg(gpui::rgb(0x333333))
             })
             .when(!available, |button| button.opacity(0.4));
-        let focus = available.then(|| self.tab_scroll.control_focus(key, cx).tab_stop(true));
+        let focus = available.then(|| self.tabs.scroll.control_focus(key, cx).tab_stop(true));
         self.tab_strip_control(key, "Files", button, focus, palette, cx)
     }
 
@@ -61,7 +61,7 @@ impl Root {
         cx: &Context<Self>,
     ) -> AnyElement {
         let files_control = matches!(key, TabFocus::Files);
-        let show_outline = !files_control || !self.tab_scroll.files_pointer_focus.get();
+        let show_outline = !files_control || !self.tabs.scroll.files_pointer_focus.get();
         let button = button.when_some(focus.clone(), |button, focus| {
             button
                 .track_focus(&focus)
@@ -75,7 +75,7 @@ impl Root {
                             if matches!(event.button, MouseButton::Left | MouseButton::Right)
                                 && !pointer_focus.is_focused(window)
                             {
-                                root.tab_scroll.files_pointer_focus.set(true);
+                                root.tabs.scroll.files_pointer_focus.set(true);
                                 cx.notify();
                             }
                         },
@@ -98,7 +98,7 @@ impl Root {
         let Some(key) = key.semantic_key() else {
             return button.into_any_element();
         };
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         match frame.id_for(&key) {
             Ok(id) => {
                 let mut node = SemanticNode::new(id, Some(frame.root_id()), Role::Button, name);
@@ -146,21 +146,21 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.tab_scroll.files_pointer_focus.set(false);
+        self.tabs.scroll.files_pointer_focus.set(false);
         if reverse {
             window.focus_prev();
         } else {
             window.focus_next();
         }
-        if let Some(tab) = self.tab_scroll.focused_tab(window) {
-            self.tab_scroll.reveal_on_paint(tab);
+        if let Some(tab) = self.tabs.scroll.focused_tab(window) {
+            self.tabs.scroll.reveal_on_paint(tab);
         }
         cx.notify();
     }
 
     pub(crate) fn focus_files_toggle(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.tab_scroll.files_pointer_focus.set(false);
-        self.tab_scroll
+        self.tabs.scroll.files_pointer_focus.set(false);
+        self.tabs.scroll
             .control_focus(TabFocus::Files, cx)
             .focus(window);
         cx.notify();
@@ -189,18 +189,18 @@ impl Root {
         if !matches!(
             action.kind,
             SemanticActionKind::Click | SemanticActionKind::Focus
-        ) || self.settings
-            || self.dialog.is_some()
-            || self.tab_menu.is_some()
-            || self.profile_menu.is_some()
+        ) || self.settings.open
+            || self.dialogs.current.is_some()
+            || self.tabs.menu.is_some()
+            || self.tabs.profile_menu.is_some()
         {
             return false;
         }
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         if frame.focus_handle(action.target).is_none() {
             return false;
         }
-        let key = self.tab_scroll.controls().into_iter().find(|control| {
+        let key = self.tabs.scroll.controls().into_iter().find(|control| {
             control
                 .semantic_key()
                 .and_then(|key| frame.id_for(&key).ok())

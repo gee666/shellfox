@@ -1,5 +1,5 @@
 use super::SemanticError;
-use gpui::{Bounds, Pixels, WindowBounds, WindowOptions};
+use gpui::{WindowBounds, WindowOptions};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowPresentation {
@@ -11,7 +11,9 @@ pub enum WindowPresentation {
 /// This does not create or show a window. Root owns the returned options and plan.
 pub struct HiddenWindowPresentation {
     pub(super) mode: WindowPresentation,
-    pub(super) bounds: Option<Bounds<Pixels>>,
+    /// Windows places a nonactivating window itself, at its creation bounds.
+    #[cfg(windows)]
+    pub(super) bounds: Option<gpui::Bounds<gpui::Pixels>>,
 }
 
 impl HiddenWindowPresentation {
@@ -50,7 +52,16 @@ impl HiddenWindowPresentation {
         };
         options.show = false;
         options.focus = false;
-        Ok((options, Self { mode, bounds }))
+        #[cfg(not(windows))]
+        let _ = bounds;
+        Ok((
+            options,
+            Self {
+                mode,
+                #[cfg(windows)]
+                bounds,
+            },
+        ))
     }
 }
 

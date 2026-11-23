@@ -18,7 +18,7 @@ impl Root {
         menu: &ProfileMenu,
         items: Stateful<Div>,
     ) -> AnyElement {
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         match frame.id_for(&menu.key()) {
             Ok(id) => frame
                 .wrap(
@@ -40,7 +40,7 @@ impl Root {
         row: Stateful<Div>,
         enabled: bool,
     ) -> AnyElement {
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         let ids = frame
             .id_for(&menu.key())
             .and_then(|parent| frame.id_for(&menu.choice_key(index)).map(|id| (parent, id)));
@@ -71,13 +71,13 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(menu) = &mut self.profile_menu else {
+        let Some(menu) = &mut self.tabs.profile_menu else {
             return false;
         };
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         if frame.focus_handle(action.target).is_none()
-            || self.user_action_pending
-            || self.closing_window
+            || self.dialogs.user_action_pending
+            || self.close.closing
         {
             return false;
         }

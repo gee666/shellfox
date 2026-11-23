@@ -34,7 +34,7 @@ impl ResizeAxis {
         size.clamp(min.min(max), max)
     }
     fn value(self, root: &Root) -> f32 {
-        root.files
+        root.files.panel
             .as_ref()
             .map_or(self.default_size(), |files| match self {
                 Self::Width => files.width,
@@ -49,7 +49,7 @@ impl ResizeAxis {
     }
     fn set(self, root: &mut Root, window: &Window, size: f32) {
         let size = self.clamp(root, window, size);
-        if let Some(files) = &mut root.files {
+        if let Some(files) = &mut root.files.panel {
             match self {
                 Self::Width => files.width = size,
                 Self::Height => files.browser_height = size,
@@ -65,7 +65,7 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(drag) = self.files.as_ref().and_then(|files| files.resize.as_ref()) else {
+        let Some(drag) = self.files.panel.as_ref().and_then(|files| files.resize.as_ref()) else {
             return false;
         };
         if event.pressed_button == Some(MouseButton::Left) {
@@ -82,7 +82,7 @@ impl Root {
 }
 
 fn stop(root: &mut Root, cx: &mut Context<Root>) {
-    if let Some(files) = &mut root.files
+    if let Some(files) = &mut root.files.panel
         && files.resize.take().is_some()
     {
         persist(files, cx);
@@ -147,7 +147,7 @@ pub(crate) fn files_resizer(
                     _ => return,
                 };
                 axis.set(root, window, next);
-                if let Some(files) = &root.files {
+                if let Some(files) = &root.files.panel {
                     persist(files, cx);
                 }
                 window.prevent_default();
@@ -161,13 +161,13 @@ pub(crate) fn files_resizer(
                 window.focus(&focus);
                 if event.click_count == 2 {
                     axis.set(root, window, axis.default_size());
-                    if let Some(files) = &mut root.files {
+                    if let Some(files) = &mut root.files.panel {
                         files.resize = None;
                         persist(files, cx);
                     }
                 } else {
                     let value = axis.clamp(root, window, axis.value(root));
-                    if let Some(files) = &mut root.files {
+                    if let Some(files) = &mut root.files.panel {
                         files.resize = Some(FileResize {
                             axis,
                             start: axis.coordinate(event.position),

@@ -20,7 +20,6 @@ this adapter does not also encode the same plain keydown. Modified keys and
 special keys take the terminal encoder route.
 
 These API checks do not prove native IME, AltGr, Option composition or physical
-printable-key metadata parity. Those limits are listed in
-`docs/gpui-terminal-experiment.md` at the repository root. Dependency-wide
+printable-key metadata parity. Dependency-wide
 license and security review is not complete, and this experiment is not wired
 into a release packager.

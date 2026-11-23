@@ -159,7 +159,7 @@ impl Root {
             let rows = self.peer_rows(peer, state);
             let pages = self.peer_ui.pages.get(peer).copied().unwrap_or(1);
             let shown = if expanded {
-                rows.len().min(pages.saturating_mul(self.history_page_size))
+                rows.len().min(pages.saturating_mul(self.sidebar.history_page_size))
             } else {
                 0
             };

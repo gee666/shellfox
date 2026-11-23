@@ -79,7 +79,7 @@ impl Draft {
 impl Root {
     pub(crate) fn toggle_image_editor(&mut self, cx: &mut Context<Self>) {
         let edit = self
-            .files
+            .files.panel
             .as_ref()
             .is_some_and(|files| files.image_editor.is_none());
         self.request_file_action(FileAction::ImageEditing(edit), cx);
@@ -89,7 +89,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files else {
+        let Some(files) = &mut self.files.panel else {
             return;
         };
         if !edit {
@@ -118,7 +118,7 @@ impl Root {
         cx.spawn(async move |root, cx| {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
-                let target = root.files.iter_mut().chain(&mut root.retained_files).find(|files| {
+                let target = root.files.panel.iter_mut().chain(&mut root.files.retained).find(|files| {
                     matches!(&files.image_editor, Some(ImageEditor::Loading(id)) if Rc::ptr_eq(id, &load))
                         && same_image(&files.preview, &origin)
                 });
@@ -135,7 +135,7 @@ impl Root {
     }
 
     pub(crate) fn image_draft(&mut self) -> Option<&mut Draft> {
-        let files = self.files.as_mut()?;
+        let files = self.files.panel.as_mut()?;
         if files.busy {
             return None;
         }
@@ -157,7 +157,7 @@ impl Root {
         if !self.files_source_current() {
             return;
         }
-        let Some(files) = &mut self.files else {
+        let Some(files) = &mut self.files.panel else {
             return;
         };
         let Some(draft) = files.image_editor.as_mut().and_then(ImageEditor::ready_mut) else {
@@ -183,7 +183,7 @@ impl Root {
         cx.spawn(async move |root, cx| {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
-                let target = root.files.iter_mut().chain(&mut root.retained_files)
+                let target = root.files.panel.iter_mut().chain(&mut root.files.retained)
                     .filter_map(|files| files.image_editor.as_mut().and_then(ImageEditor::ready_mut))
                     .find(|draft| draft.working && Rc::ptr_eq(&draft.bounds, &draft_id)
                         && Arc::ptr_eq(&draft.current, &current));
@@ -210,7 +210,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files else {
+        let Some(files) = &mut self.files.panel else {
             return;
         };
         let Some(draft) = files.image_editor.as_mut().and_then(ImageEditor::ready_mut) else {

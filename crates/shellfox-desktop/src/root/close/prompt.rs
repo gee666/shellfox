@@ -4,7 +4,7 @@ impl Root {
     pub(super) fn system_end_requested(&self) -> bool {
         crate::system_end::requested()
             || self
-                .native_accessibility
+                .semantics.native
                 .as_ref()
                 .is_some_and(|native| native.system_end_requested())
     }
@@ -20,20 +20,20 @@ impl Root {
         restart: bool,
     ) -> bool {
         let system_end = self.system_end_requested();
-        if self.close_check_pending
-            || !system_end && matches!(self.dialog, Some(Dialog::Quit))
-            || (self.closing_window && !self.close_failed)
+        if self.close.check_pending
+            || !system_end && matches!(self.dialogs.current, Some(Dialog::Quit))
+            || (self.close.closing && !self.close.failed)
         {
             return false;
         }
         if self.block_close(cx) {
             return false;
         }
-        let Some(host) = self.app_host.clone() else {
+        let Some(host) = self.close.app_host.clone() else {
             return true;
         };
         // A failed additional window never owns another registered window's client.
-        if self.window_id.is_none() && host.window_count().is_ok_and(|count| count != 0) {
+        if self.close.window_id.is_none() && host.window_count().is_ok_and(|count| count != 0) {
             return true;
         }
         if let Err(error) = self.sync_app_guard(cx) {
@@ -41,10 +41,10 @@ impl Root {
             cx.notify();
             return false;
         }
-        if system_end && matches!(self.dialog, Some(Dialog::Quit)) {
-            self.dialog = None;
-            self.close_confirmation = None;
-            self.close_ticket = None;
+        if system_end && matches!(self.dialogs.current, Some(Dialog::Quit)) {
+            self.dialogs.current = None;
+            self.close.confirmation = None;
+            self.close.ticket = None;
             self.update_ui.restart_request = None;
         }
         let restart = restart && !system_end;
@@ -59,7 +59,7 @@ impl Root {
         } else {
             None
         };
-        self.close_check_pending = true;
+        self.close.check_pending = true;
         if restart {
             cx.notify();
         }
@@ -68,7 +68,7 @@ impl Root {
             if let Some(write) = placement { write.finish().await; }
             let count = if system_end { Ok(0) } else { host.owned_terminal_count().await };
             let _ = root.update_in(cx, |root, window, cx| {
-                root.close_check_pending = false;
+                root.close.check_pending = false;
                 let system_end = system_end || root.system_end_requested();
                 let count = match count {
                     _ if system_end => 0,
@@ -94,13 +94,13 @@ impl Root {
                     }
                     CloseTarget::Quit
                 } else {
-                    root.window_id.map(CloseTarget::Window).unwrap_or(CloseTarget::Quit)
+                    root.close.window_id.map(CloseTarget::Window).unwrap_or(CloseTarget::Quit)
                 };
                 match host.request_close(target, count) {
                     Ok(CloseDecision::Ready(ticket)) => {
-                        root.update_restart = restart;
+                        root.close.update_restart = restart;
                         root.update_ui.restart_request = restart_request.filter(|_| restart);
-                        root.close_ticket = Some(ticket);
+                        root.close.ticket = Some(ticket);
                         if restart {
                             root.open_quit_dialog(window, cx);
                         } else {
@@ -108,9 +108,9 @@ impl Root {
                         }
                     }
                     Ok(CloseDecision::Confirm(confirmation)) => {
-                        root.update_restart = restart;
+                        root.close.update_restart = restart;
                         root.update_ui.restart_request = restart_request;
-                        root.close_confirmation = Some(confirmation);
+                        root.close.confirmation = Some(confirmation);
                         root.open_quit_dialog(window, cx);
                     }
                     Ok(CloseDecision::Blocked(_)) => root.error = Some("Save/discard files and await pending operations before closing.".into()),

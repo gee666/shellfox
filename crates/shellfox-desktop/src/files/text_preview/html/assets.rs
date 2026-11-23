@@ -4,7 +4,7 @@ use gpui::BackgroundExecutor;
 use shellfox_files::EditorCancellation;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tokio::sync::watch;
 
@@ -75,9 +75,14 @@ impl Page {
             .detach();
     }
 
+    /// The cache holds only counters and finished assets, so a panic elsewhere leaves it usable.
+    fn loaded(&self) -> MutexGuard<'_, Loaded> {
+        self.loaded.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     async fn load(&self, path: String) -> Response {
         let cached = {
-            let mut loaded = self.loaded.lock().expect("preview assets");
+            let mut loaded = self.loaded();
             match loaded.assets.get(&path) {
                 Some(asset) => Some(asset.clone()),
                 None if loaded.assets.len() + loaded.pending >= MAX_ASSETS => {
@@ -128,7 +133,7 @@ impl Page {
             Ok(_) => Err("Invalid preview asset type.".to_owned()),
             Err(error) => Err(error.to_string()),
         };
-        let mut loaded = self.loaded.lock().expect("preview assets");
+        let mut loaded = self.loaded();
         loaded.pending -= 1;
         // Another request for the same path may have finished first.
         if let Some(existing) = loaded.assets.get(path) {

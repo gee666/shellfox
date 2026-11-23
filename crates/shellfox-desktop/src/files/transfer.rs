@@ -78,7 +78,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files else {
+        let Some(files) = &mut self.files.panel else {
             return;
         };
         if files.backend.is_local() || files.transfer.is_some() {
@@ -196,7 +196,7 @@ impl Root {
                 if !root
                     .update(cx, |root, cx| {
                         let active = root
-                            .files
+                            .files.panel
                             .as_ref()
                             .and_then(|files| files.transfer.as_ref())
                             .is_some_and(|transfer| std::ptr::eq(Arc::as_ptr(transfer), state.as_ptr()));
@@ -204,7 +204,7 @@ impl Root {
                             cx.notify();
                         }
                         active
-                            || root.retained_files.iter().any(|files| {
+                            || root.files.retained.iter().any(|files| {
                                 files
                                     .transfer
                                     .as_ref()
@@ -223,7 +223,7 @@ impl Root {
 
     pub(crate) fn cancel_file_transfer(&mut self, cx: &mut Context<Self>) {
         if let Some(transfer) = self
-            .files
+            .files.panel
             .as_ref()
             .and_then(|files| files.transfer.as_ref())
         {
@@ -240,13 +240,13 @@ impl Root {
     ) {
         let current = self.files_source_current()
             && self
-                .files
+                .files.panel
                 .as_ref()
                 .is_some_and(|f| f.backend.same_origin(&call.backend));
         let Some(files) = self
-            .files
+            .files.panel
             .iter_mut()
-            .chain(self.retained_files.iter_mut())
+            .chain(self.files.retained.iter_mut())
             .find(|files| {
                 files
                     .transfer

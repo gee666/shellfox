@@ -171,19 +171,19 @@ impl Root {
                 root.peer_ui.pending.remove(&cycle.peer);
                 let current = root.source_selection_epoch() == source_epoch;
                 let same_dialog =
-                    matches!(&root.dialog, Some(Dialog::Create(draft)) if draft.id == id);
+                    matches!(&root.dialogs.current, Some(Dialog::Create(draft)) if draft.id == id);
                 match result {
                     Ok((session, snapshot, tab_error)) => {
                         if let Some(error) = tab_error { root.error = Some(error); }
                         if let Err(error) = root.peers.catalog(&cycle, snapshot) {
                             root.error = Some(error.to_string());
                         } else if current && same_dialog {
-                            root.dialog = None;
+                            root.dialogs.current = None;
                             root.select_peer_session(cycle.clone(), session, None, _window, cx);
                         }
                     }
                     Err(error) => {
-                        if let Some(Dialog::Create(draft)) = &mut root.dialog
+                        if let Some(Dialog::Create(draft)) = &mut root.dialogs.current
                             && draft.id == id
                         {
                             draft.busy = None;

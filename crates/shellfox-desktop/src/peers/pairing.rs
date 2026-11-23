@@ -43,7 +43,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.peer_ui.frozen || self.closing_window {
+        if self.peer_ui.frozen || self.close.closing {
             return;
         }
         let Some(state) = self.peers.peers.get(&peer) else {
@@ -81,7 +81,7 @@ impl Root {
                 }))
                 .await;
             let _ = root.update_in(cx, |root, window, cx| {
-                if !root.peers.current(&cycle) || root.closing_window {
+                if !root.peers.current(&cycle) || root.close.closing {
                     return;
                 }
                 root.peers.phase(&cycle, source::Phase::Disconnected, None);
@@ -113,7 +113,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.peer_ui.frozen || self.closing_window {
+        if self.peer_ui.frozen || self.close.closing {
             return;
         }
         let Some(state) = self.peers.peers.get_mut(&peer) else {
@@ -228,7 +228,7 @@ impl Root {
                         root.update_in(cx, |root, _, _| {
                             (permit.active_at(Instant::now())
                                 && !root.peer_ui.frozen
-                                && !root.closing_window
+                                && !root.close.closing
                                 && root.peers.current(&cycle)
                                 && root.peers.peers[&cycle.peer].owner_pair_attempt == Some(id)
                                 && !root.peers.peers[&cycle.peer].pending)
@@ -250,15 +250,14 @@ impl Root {
                     return;
                 }
                 root.peer_ui.pair_watches.remove(&cycle.peer);
-                if result.is_err() {
-                    if let Some(state) = root
+                if result.is_err()
+                    && let Some(state) = root
                         .peers
                         .peers
                         .get_mut(&cycle.peer)
                         .filter(|state| state.owner_pair_attempt == Some(id))
-                    {
-                        state.stopped_pair_attempt = Some(id);
-                    }
+                {
+                    state.stopped_pair_attempt = Some(id);
                 }
                 root.poll_peer_inventory(window, cx);
                 cx.notify();

@@ -20,7 +20,7 @@ impl SemanticFrame {
     }
 
     /// Reset before root paint; publish at the end of the effect cycle, after ALL overlays.
-    /// Semantic views must stay uncached. Deferred/prompt/tooltip children paint later.
+    /// Cached views go through `cached`. Deferred/prompt/tooltip children paint later.
     pub fn finish<E: IntoElement>(
         &self,
         child: E,

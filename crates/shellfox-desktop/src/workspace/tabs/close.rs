@@ -1,5 +1,6 @@
 use crate::{
-    root::{Dialog, Root},
+    dialogs::Dialog,
+    root::Root,
     theme::Palette,
     workspace::AfterAction,
 };
@@ -31,7 +32,7 @@ impl Root {
             button.opacity(0.).group_hover("terminal-tab", |style| style.opacity(1.))
         })
         .when(state.locked, |button| button.cursor(gpui::CursorStyle::Arrow));
-        let focus = (!state.locked).then(|| self.tab_scroll.control_focus(key, cx).tab_stop(true));
+        let focus = (!state.locked).then(|| self.tabs.scroll.control_focus(key, cx).tab_stop(true));
         self.tab_strip_control(key, format!("Close terminal {title}"), button, focus, palette, cx)
     }
 
@@ -41,9 +42,9 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.closing_window
-            || self.user_action_pending
-            || self.dialog.is_some()
+        if self.close.closing
+            || self.dialogs.user_action_pending
+            || self.dialogs.current.is_some()
         {
             return;
         }
@@ -58,8 +59,8 @@ impl Root {
             return;
         }
         if self.tab_has_agents(target.tab_id) {
-            self.dialog = Some(Dialog::CloseTab(target));
-            self.modal_focus.focus(window);
+            self.dialogs.current = Some(Dialog::CloseTab(target));
+            self.dialogs.modal_focus.focus(window);
             cx.notify();
         } else {
             self.submit_native(
@@ -76,7 +77,7 @@ impl Root {
         palette: Palette,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let Some(Dialog::CloseTab(target)) = self.dialog else {
+        let Some(Dialog::CloseTab(target)) = self.dialogs.current else {
             return div().into_any_element();
         };
         let title = self
@@ -93,7 +94,7 @@ impl Root {
                 || "Close terminal?".to_owned(),
                 |tab| format!("Close terminal {}?", self.display_tab_title(tab)),
             );
-        let pending = self.user_action_pending;
+        let pending = self.dialogs.user_action_pending;
         let card = div()
             .id("confirm-close-terminal")
             .absolute()
@@ -135,7 +136,7 @@ impl Root {
                     .gap(px(4.))
                     .child(
                         crate::dialogs::dialog_button("close-terminal", "Close", palette)
-                            .track_focus(&self.modal_focus)
+                            .track_focus(&self.dialogs.modal_focus)
                             .tab_index(0)
                             .focus(|style| style.border_color(palette.accent))
                             .when(pending, |button| button.opacity(0.4))
@@ -176,7 +177,7 @@ impl Root {
                             )),
                     ),
             );
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         match frame.id_for("workspace/close-terminal") {
             Ok(node) => frame
                 .wrap(

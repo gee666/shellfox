@@ -14,6 +14,7 @@ pub(crate) struct Surface {
     // Own only the preview shown in this window. Retained editors don't own native children.
     inner: Rc<RefCell<State>>,
     used: Cell<bool>,
+    placed: Cell<bool>,
     #[cfg(windows)]
     profile_parent: std::path::PathBuf,
 }
@@ -55,6 +56,7 @@ impl Surface {
         Self {
             inner: Rc::default(),
             used: Cell::default(),
+            placed: Cell::default(),
             #[cfg(windows)]
             profile_parent: run_dir.to_owned(),
         }
@@ -66,16 +68,36 @@ impl Surface {
                 .is_ok_and(|handle| supports_embedding(handle.as_raw()))
     }
 
+    /// Root render: the Files pane is placed again below, or its preview goes away.
     pub fn begin_frame(&self) {
+        self.placed.set(false);
+    }
+
+    pub fn place(&self) {
+        self.placed.set(true);
+    }
+
+    pub fn end_frame(&self) {
+        if !self.placed.get() {
+            self.remove();
+        }
+    }
+
+    /// Files pane render. A cached pane keeps its preview until it renders again.
+    pub fn begin_render(&self) {
         self.used.set(false);
     }
 
-    pub fn end_frame(&self, covered: bool) {
+    pub fn end_render(&self, covered: bool) {
         if covered || !self.used.get() {
-            let mut state = self.inner.borrow_mut();
-            state.requested = None;
-            state.remove_view();
+            self.remove();
         }
+    }
+
+    fn remove(&self) {
+        let mut state = self.inner.borrow_mut();
+        state.requested = None;
+        state.remove_view();
     }
 
     pub(super) fn element(&self, page: Arc<Page>) -> impl IntoElement {

@@ -42,7 +42,7 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
     if options.mode != Mode::Shell {
         return Ok(Startup::Graphical(None));
     }
-    let _frontend_proofs = crate::frontend_composition::inspect(options)?;
+    crate::frontend_composition::inspect(options)?;
     let config = options
         .endpoint
         .clone()
@@ -148,7 +148,7 @@ fn handoff(runtime: &tokio::runtime::Runtime, client: &LocalClient, options: &Op
 }
 
 pub(crate) enum Ready {
-    Attach(Option<crate::startup_chrome::StartupChrome>),
+    Attach(Option<Box<crate::startup_chrome::StartupChrome>>),
     /// A concurrent launch's UI owns the host it started.
     Forwarded,
 }
@@ -178,7 +178,7 @@ pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Optio
     let chrome = runtime.block_on(async {
         anyhow::Ok(crate::startup_chrome::StartupChrome::read(host.chrome_client().await?).await)
     });
-    Ok(Ready::Attach(chrome.inspect_err(|error| eprintln!("Startup chrome unavailable: {error:#}")).ok()))
+    Ok(Ready::Attach(chrome.inspect_err(|error| eprintln!("Startup chrome unavailable: {error:#}")).ok().map(Box::new)))
 }
 impl Prestarted {
     /// Called once as the app ends (app_exit.rs), including after a GPU failure.

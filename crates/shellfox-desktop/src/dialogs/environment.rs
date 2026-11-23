@@ -1,7 +1,8 @@
 use crate::{
     dialogs::dialog_button,
     field::{Field, FieldOptions},
-    root::{Dialog, Root},
+    dialogs::Dialog,
+    root::Root,
     settings::environment_data,
     theme::Palette,
 };
@@ -37,8 +38,8 @@ impl Root {
         });
         cx.observe(&text, |_, _, cx| cx.notify()).detach();
         text.read(cx).focus(window);
-        self.sidebar_ui.environment_resize = Default::default();
-        self.dialog = Some(Dialog::SessionEnvironment { id, text });
+        self.sidebar.environment_resize = Default::default();
+        self.dialogs.current = Some(Dialog::SessionEnvironment { id, text });
         cx.notify();
     }
 
@@ -108,7 +109,7 @@ impl Root {
             .child(
                 div()
                     .relative()
-                    .h(px(self.sidebar_ui.environment_resize.height(window)))
+                    .h(px(self.sidebar.environment_resize.height(window)))
                     .border_1()
                     .rounded(px(4.))
                     .bg(palette.input_bg)

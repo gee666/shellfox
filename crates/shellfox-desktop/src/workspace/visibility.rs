@@ -44,27 +44,27 @@ pub(crate) fn intersects(bounds: Bounds<Pixels>, clip: Bounds<Pixels>) -> bool {
 
 impl Root {
     pub(crate) fn poll_session_visibility(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.closing_window {
+        if self.close.closing {
             return;
         }
         let mut local = Vec::new();
         let mut peers: HashMap<AuthenticatedPeerId, Vec<SessionId>> = HashMap::new();
         if window_visible(window) {
-            for target in self.sidebar_ui.list.visible_sessions() {
+            for target in self.sidebar.list.visible_sessions() {
                 match target {
                     PollingTarget::Local(id) => local.push(id),
                     PollingTarget::Peer(peer, id) => peers.entry(peer).or_default().push(id),
                 }
             }
-            if !self.settings
+            if !self.settings.open
                 && !self
-                    .files
+                    .files.panel
                     .as_ref()
                     .is_some_and(|files| files.visible && files.maximized)
             {
                 if let Some(session) = self.selected_session()
                     && self.selected_tab().is_some_and(|id| {
-                        self.views.get(&id).is_some_and(|view| {
+                        self.tabs.views.get(&id).is_some_and(|view| {
                             view.read(cx)
                                 .runtime_phase()
                                 .is_some_and(|phase| phase != shellfox_runtime::Phase::Starting)
@@ -96,13 +96,15 @@ impl Root {
             }
         }
         if let Some(host) = self.host.clone()
-            && let Some(report) = self.sidebar_ui.visibility.local.admit(local)
+            && let Some(report) = self.sidebar.visibility.local.admit(local)
         {
-            let trace = self.sidebar_ui.visibility.trace.then(|| report.session_ids.clone());
+            let trace = self.sidebar.visibility.trace.then(|| report.session_ids.clone());
             cx.spawn(async move |root, cx| {
                 let result = host.execute(NativeAction::SetVisibleSessions(report)).await;
-                if let (Some(ids), Ok(shellfox_service::native::NativeResponse::Applied)) = (trace, result) {
-                    if let Ok(json) = serde_json::to_string(&ids) { eprintln!("UI visible local sessions: {json}"); }
+                if let (Some(ids), Ok(shellfox_service::native::NativeResponse::Applied)) = (trace, result)
+                    && let Ok(json) = serde_json::to_string(&ids)
+                {
+                    eprintln!("UI visible local sessions: {json}");
                 }
                 let _ = root.update(cx, |root, _| {
                     if root
@@ -110,13 +112,13 @@ impl Root {
                         .as_ref()
                         .is_some_and(|client| client.same_window_client(&host))
                     {
-                        root.sidebar_ui.visibility.local.sending = false;
+                        root.sidebar.visibility.local.sending = false;
                     }
                 });
             })
             .detach();
         }
-        self.sidebar_ui
+        self.sidebar
             .visibility
             .peers
             .retain(|peer, (generation, _)| {
@@ -140,7 +142,7 @@ impl Root {
                 continue;
             };
             let (_, lane) = self
-                .sidebar_ui
+                .sidebar
                 .visibility
                 .peers
                 .entry(cycle.peer.clone())
@@ -154,7 +156,7 @@ impl Root {
                     .await;
                 let _ = root.update(cx, |root, _| {
                     if let Some((generation, lane)) =
-                        root.sidebar_ui.visibility.peers.get_mut(&cycle.peer)
+                        root.sidebar.visibility.peers.get_mut(&cycle.peer)
                         && *generation == cycle.generation
                     {
                         lane.sending = false;

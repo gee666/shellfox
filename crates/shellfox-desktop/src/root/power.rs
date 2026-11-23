@@ -7,11 +7,11 @@ pub(crate) use state::PowerUi;
 const KEY: &str = "root/keep-awake";
 impl Root {
     fn power_enabled(&self) -> bool {
-        self.sidebar
+        self.sidebar.visible
             && self.host.is_some()
-            && !self.closing_window
-            && !self.close_check_pending
-            && self.dialog.is_none()
+            && !self.close.closing
+            && !self.close.check_pending
+            && self.dialogs.current.is_none()
             && !self.power.blocked()
     }
     pub(crate) fn render_power_button(
@@ -35,7 +35,7 @@ impl Root {
             button =
                 button.on_click(cx.listener(|root, _, window, cx| root.toggle_power(window, cx)));
         }
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         let Ok(id) = frame.id_for(KEY) else {
             return button.into_any_element();
         };
@@ -62,7 +62,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Ok(id) = self.semantic_context.frame().id_for(KEY) else {
+        let Ok(id) = self.semantics.context.frame().id_for(KEY) else {
             return false;
         };
         if action.target != id {
@@ -87,7 +87,7 @@ impl Root {
                     if root.power.accept(report) {
                         cx.notify();
                     }
-                    !root.closing_window
+                    !root.close.closing
                 });
                 if !matches!(current, Ok(true)) {
                     return;

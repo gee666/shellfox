@@ -189,7 +189,7 @@ impl Root {
                     .child(match draft.busy {
                         Some(Busy::Creating) => "Creating folder…",
                         Some(Busy::Checking) => "Checking folder…",
-                        None if self.user_action_pending => "Checking folder…",
+                        None if self.dialogs.user_action_pending => "Checking folder…",
                         None if peer.is_some() => {
                             "Tab complete · ↑↓ select · Enter accept/open · Remote folder"
                         }

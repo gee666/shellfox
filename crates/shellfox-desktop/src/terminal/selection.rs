@@ -165,12 +165,8 @@ impl TerminalView {
         match result {
             Ok(()) => {
                 // Only an accepted, known local selection gesture resets this
-                // view's clock. This is not output/authority/frame revision.
-                if let Some(epoch) = self.cursor_reset_epoch.checked_add(1) {
-                    self.cursor_reset_epoch = epoch;
-                } else {
-                    self.fail("View cursor reset epoch exhausted");
-                }
+                // view's cursor blink. Only inequality matters, so it wraps.
+                self.cursor_reset_epoch = self.cursor_reset_epoch.wrapping_add(1);
             }
             Err(error) => self.status = format!("Selection rejected: {error}"),
         }

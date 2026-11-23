@@ -39,7 +39,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.dialog.is_some() {
+        if self.dialogs.current.is_some() {
             return;
         }
         let Some(session) = self.peer_session(&cycle, id) else {
@@ -76,17 +76,17 @@ impl Root {
         if let Some(field) = dialog.field() {
             field.read(cx).focus(window);
         } else {
-            self.modal_focus.focus(window);
+            self.dialogs.modal_focus.focus(window);
         }
         if matches!(&dialog.editor, Editor::Environment(_)) {
-            self.sidebar_ui.environment_resize = Default::default();
+            self.sidebar.environment_resize = Default::default();
         }
-        self.dialog = Some(Dialog::PeerSession(dialog));
+        self.dialogs.current = Some(Dialog::PeerSession(dialog));
         cx.notify();
     }
 
     pub(crate) fn confirm_peer_session_dialog(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let Some(Dialog::PeerSession(dialog)) = &self.dialog else {
+        let Some(Dialog::PeerSession(dialog)) = &self.dialogs.current else {
             return;
         };
         let action = match &dialog.editor {
@@ -121,7 +121,7 @@ impl Root {
     }
 
     pub(crate) fn peer_environment_is_open(&self) -> bool {
-        matches!(&self.dialog, Some(Dialog::PeerSession(dialog)) if matches!(dialog.editor, Editor::Environment(_)))
+        matches!(&self.dialogs.current, Some(Dialog::PeerSession(dialog)) if matches!(dialog.editor, Editor::Environment(_)))
     }
 
     pub(crate) fn render_peer_session_environment(
@@ -152,7 +152,7 @@ impl Root {
         palette: Palette,
         cx: &Context<Self>,
     ) -> Option<AnyElement> {
-        let Some(Dialog::PeerSession(dialog)) = &self.dialog else {
+        let Some(Dialog::PeerSession(dialog)) = &self.dialogs.current else {
             return None;
         };
         if !matches!(dialog.editor, Editor::Delete) {
@@ -171,7 +171,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(Dialog::PeerSession(dialog)) = self.dialog.take() {
+        if let Some(Dialog::PeerSession(dialog)) = self.dialogs.current.take() {
             if let Some(prior) = dialog.prior {
                 prior.focus(window);
             } else {
@@ -188,7 +188,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if matches!(&self.dialog, Some(Dialog::PeerSession(dialog)) if dialog.cycle == *cycle && dialog.id == id)
+        if matches!(&self.dialogs.current, Some(Dialog::PeerSession(dialog)) if dialog.cycle == *cycle && dialog.id == id)
         {
             self.dismiss_peer_session_dialog(window, cx);
         }

@@ -98,7 +98,7 @@ impl Root {
             "f2" if reorder.is_some() => self.rename_tab_dialog(id, window, cx),
             "contextmenu" | "menu" | "f10" if key != "f10" || mods.shift => {
                 if let Some(scope) = reorder
-                    && let Some(bounds) = self.tab_scroll.item_bounds(index)
+                    && let Some(bounds) = self.tabs.scroll.item_bounds(index)
                 {
                     self.open_tab_menu(
                         TabMenu::new(
@@ -139,19 +139,19 @@ impl Root {
 
     pub(super) fn tab_reorder_scope(&self, cx: &Context<Self>) -> Option<TabStrip> {
         if self.host.is_none()
-            || self.closing_window
-            || self.user_action_pending
-            || self.settings
-            || self.dialog.is_some()
-            || self.session_menu.is_some()
-            || self.profile_menu.is_some()
+            || self.close.closing
+            || self.dialogs.user_action_pending
+            || self.settings.open
+            || self.dialogs.current.is_some()
+            || self.sidebar.session_menu.is_some()
+            || self.tabs.profile_menu.is_some()
         {
             return None;
         }
         Some(TabStrip {
             window_root: cx.entity_id(),
             session: self.selected_session()?,
-            selection_epoch: self.navigation.epoch(),
+            selection_epoch: self.workspace.navigation.epoch(),
             source_epoch: self.source_selection_epoch(),
         })
     }

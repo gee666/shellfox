@@ -1,4 +1,5 @@
 use super::scroll::TabFocus;
+use crate::root::panes::PaneKind;
 use crate::{
     assets::{icon_button, tooltip},
     chrome::button,
@@ -17,72 +18,13 @@ impl Root {
         if !self.is_local_source() {
             return self.peer_workspace(palette, window, cx);
         }
-        let session = self.snapshot.as_ref().and_then(|snapshot| {
-            snapshot
-                .sessions
-                .iter()
-                .find(|session| Some(session.id) == self.selected_session())
-        });
-        let mut strip = div()
-            .h(px(30.))
-            .min_w_0()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .on_key_down(cx.listener(Self::tab_traversal))
-            .bg(palette.sidebar)
-            .border_b_1()
-            .border_color(palette.border);
-        if let Some(session) = session {
-            strip = strip.child(self.render_terminal_tabs(session, window, palette, cx));
-            let accepts_tabs = self.host.is_some()
-                && !self.user_action_pending
-                && !session.tabs.iter().any(|tab| tab.profile_id.as_str() == shellfox_service::AUTOMATION_PROFILE_ID);
-            let can_open_menu = accepts_tabs && !self.profiles.is_empty();
-            let can_add = accepts_tabs && self.profiles.iter().any(|profile| profile.available);
-            let key = TabFocus::NewTerminal;
-            let new_tab = icon_button("new-tab", "plus", palette)
-                .mx(px(4.))
-                .tooltip(tooltip("New terminal. Right-click to choose a shell.", palette))
-                .when(!can_add, |button| button.opacity(0.4).cursor(gpui::CursorStyle::Arrow))
-                .on_mouse_down(
-                    gpui::MouseButton::Right,
-                    cx.listener(move |root, event: &gpui::MouseDownEvent, window, cx| {
-                        if can_open_menu { root.open_profile_menu(event.position, window, cx); }
-                        cx.stop_propagation();
-                    }),
-                );
-            let focus = can_add.then(|| self.tab_scroll.control_focus(key, cx).tab_stop(true));
-            strip = strip.child(self.tab_strip_control(key, "New terminal", new_tab, focus, palette, cx));
-        }
-        let files_available = matches!(
-            cx.try_global::<crate::editor_composition::EditorOutcome>(),
-            Some(crate::editor_composition::EditorOutcome::Ready(_))
-        );
-        if files_available || session.is_none() {
-            strip = strip.child(div().flex_1())
-                .child(self.render_files_toggle(files_available, palette, cx));
-        }
-        if files_available && session.is_some() {
-            let folder_available = self.selected_tab().is_some_and(|id| {
-                self.views.get(&id).is_some_and(|view| {
-                    view.read(cx).runtime_phase() == Some(shellfox_runtime::Phase::Active)
-                })
-            }) && !self.files.as_ref().is_some_and(|files| files.busy);
-            let key = TabFocus::Folder;
-            let button = icon_button("open-terminal-folder", "folder-terminal", palette)
-                .tooltip(tooltip("Open terminal folder", palette))
-                .when(!folder_available, |button| button.opacity(0.4));
-            let focus = folder_available.then(|| self.tab_scroll.control_focus(key, cx).tab_stop(true));
-            strip = strip.child(self.tab_strip_control(key, "Open terminal folder", button, focus, palette, cx));
-        }
         let mut area = div().relative().flex_1().min_h_0().min_w_0().flex().flex_col();
         if let Some(id) = self.selected_tab() {
-            if let Some(view) = self.views.get(&id) {
+            if let Some(view) = self.tabs.views.get(&id) {
                 area = area.child(view.clone());
-            } else if let Some(error) = self.failures.get(&id) {
+            } else if let Some(error) = self.tabs.failures.get(&id) {
                 if error.control_required {
-                    let taking = self.attaching.contains(&id);
+                    let taking = self.tabs.attaching.contains(&id);
                     area = area.child(div().size_full().flex().flex_col().items_center().justify_center()
                         .gap(px(8.)).text_size(px(12.)).text_color(palette.muted)
                         .child("Another client is controlling this terminal")
@@ -114,25 +56,92 @@ impl Root {
             .flex()
             .flex_col()
             .relative()
-            .child(strip)
+            .child(div().h(px(30.)).min_w_0().flex_shrink_0().child(self.pane(PaneKind::TabStrip, cx)))
             .child(area)
             .when(
-                matches!(self.dialog, Some(crate::root::Dialog::CloseTab(_))),
+                matches!(self.dialogs.current, Some(crate::dialogs::Dialog::CloseTab(_))),
                 |workspace| workspace.child(self.render_tab_close_confirmation(palette, cx)),
             );
         let mut region = div().relative().flex().size_full().child(terminal);
-        if self.files.as_ref().is_some_and(|files| files.visible) {
+        if self.files.panel.as_ref().is_some_and(|files| files.visible) {
             if self.files_narrow(window) {
                 region = region.child(
                     div()
                         .absolute()
                         .inset_0()
-                        .child(self.files_panel(palette, window, cx)),
+                        .child(self.files_region(palette, window, cx)),
                 );
             } else {
-                region = region.child(self.files_panel(palette, window, cx));
+                region = region.child(self.files_region(palette, window, cx));
             }
         }
         region.into_any_element()
+    }
+
+    /// The tab strip pane: terminal tabs, New terminal, and the Files and folder buttons.
+    pub(crate) fn tab_strip(
+        &self,
+        palette: Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let session = self.snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .sessions
+                .iter()
+                .find(|session| Some(session.id) == self.selected_session())
+        });
+        let mut strip = div()
+            .size_full()
+            .flex()
+            .items_center()
+            .on_key_down(cx.listener(Self::tab_traversal))
+            .bg(palette.sidebar)
+            .border_b_1()
+            .border_color(palette.border);
+        if let Some(session) = session {
+            strip = strip.child(self.render_terminal_tabs(session, window, palette, cx));
+            let accepts_tabs = self.host.is_some()
+                && !self.dialogs.user_action_pending
+                && !session.tabs.iter().any(|tab| tab.profile_id.as_str() == shellfox_service::AUTOMATION_PROFILE_ID);
+            let can_open_menu = accepts_tabs && !self.workspace.profiles.is_empty();
+            let can_add = accepts_tabs && self.workspace.profiles.iter().any(|profile| profile.available);
+            let key = TabFocus::NewTerminal;
+            let new_tab = icon_button("new-tab", "plus", palette)
+                .mx(px(4.))
+                .tooltip(tooltip("New terminal. Right-click to choose a shell.", palette))
+                .when(!can_add, |button| button.opacity(0.4).cursor(gpui::CursorStyle::Arrow))
+                .on_mouse_down(
+                    gpui::MouseButton::Right,
+                    cx.listener(move |root, event: &gpui::MouseDownEvent, window, cx| {
+                        if can_open_menu { root.open_profile_menu(event.position, window, cx); }
+                        cx.stop_propagation();
+                    }),
+                );
+            let focus = can_add.then(|| self.tabs.scroll.control_focus(key, cx).tab_stop(true));
+            strip = strip.child(self.tab_strip_control(key, "New terminal", new_tab, focus, palette, cx));
+        }
+        let files_available = matches!(
+            cx.try_global::<crate::editor_composition::EditorOutcome>(),
+            Some(crate::editor_composition::EditorOutcome::Ready(_))
+        );
+        if files_available || session.is_none() {
+            strip = strip.child(div().flex_1())
+                .child(self.render_files_toggle(files_available, palette, cx));
+        }
+        if files_available && session.is_some() {
+            let folder_available = self.selected_tab().is_some_and(|id| {
+                self.tabs.views.get(&id).is_some_and(|view| {
+                    view.read(cx).runtime_phase() == Some(shellfox_runtime::Phase::Active)
+                })
+            }) && !self.files.panel.as_ref().is_some_and(|files| files.busy);
+            let key = TabFocus::Folder;
+            let button = icon_button("open-terminal-folder", "folder-terminal", palette)
+                .tooltip(tooltip("Open terminal folder", palette))
+                .when(!folder_available, |button| button.opacity(0.4));
+            let focus = folder_available.then(|| self.tabs.scroll.control_focus(key, cx).tab_stop(true));
+            strip = strip.child(self.tab_strip_control(key, "Open terminal folder", button, focus, palette, cx));
+        }
+        strip.into_any_element()
     }
 }

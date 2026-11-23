@@ -8,7 +8,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(menu) = &self.session_menu else {
+        let Some(menu) = &self.sidebar.session_menu else {
             return;
         };
         let items = self
@@ -19,7 +19,7 @@ impl Root {
         if matches!(key, "escape" | "tab") {
             self.dismiss_session_menu(window, cx);
         } else if !items.is_empty()
-            && let Some(menu) = self.session_menu.as_mut()
+            && let Some(menu) = self.sidebar.session_menu.as_mut()
         {
             match key {
                 "up" | "down" | "home" | "end" => {
@@ -49,14 +49,14 @@ impl Root {
         if !matches!(event.keystroke.key.as_str(), "enter" | "space") {
             return;
         }
-        let Some(menu) = &self.session_menu else {
+        let Some(menu) = &self.sidebar.session_menu else {
             return;
         };
         let Some(info) = self.menu_session(&menu.target, cx) else {
             return;
         };
         if let Some((item, _)) = info.items().get(menu.selected) {
-            self.sidebar_ui.keyboard_focus = true;
+            self.sidebar.keyboard_focus = true;
             self.run_session_item(*item, window, cx);
             window.prevent_default();
             cx.stop_propagation();

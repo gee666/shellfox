@@ -1,6 +1,7 @@
 use crate::{
     field::Field,
-    root::{Dialog, Root},
+    dialogs::Dialog,
+    root::Root,
 };
 use gpui::{Context, Entity, FocusHandle, ScrollHandle, Subscription, Window};
 use shellfox_host::SessionId;
@@ -63,15 +64,15 @@ impl Root {
     pub(crate) fn can_create_local_session(&self) -> bool {
         self.host.is_some()
             && self.snapshot.is_some()
-            && self.profiles.iter().any(|profile| {
+            && self.workspace.profiles.iter().any(|profile| {
                 profile.available && (cfg!(windows) || profile.id == self.default_profile())
             })
     }
 
     pub(crate) fn open_local_directory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.dialog.is_some()
-            || self.user_action_pending
-            || self.closing_window
+        if self.dialogs.current.is_some()
+            || self.dialogs.user_action_pending
+            || self.close.closing
             || !self.can_create_local_session()
         {
             return;
@@ -89,14 +90,14 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.dialog.is_some() || self.user_action_pending || self.closing_window {
+        if self.dialogs.current.is_some() || self.dialogs.user_action_pending || self.close.closing {
             return;
         }
         let path = Field::directory(cx);
         let focus = path.read(cx).edit_focus();
         let observe = cx.observe(&path, |root, _, cx| root.directory_edit(cx));
         let blur = cx.on_blur(&focus, window, |root, _, cx| {
-            if let Some(Dialog::Create(draft)) = &mut root.dialog {
+            if let Some(Dialog::Create(draft)) = &mut root.dialogs.current {
                 draft.completion.dismiss();
                 cx.notify();
             }
@@ -106,7 +107,7 @@ impl Root {
         });
         let error = (home.is_none() && target.is_none())
             .then(|| "Could not determine the home directory.".into());
-        self.dialog = Some(Dialog::Create(Draft {
+        self.dialogs.current = Some(Dialog::Create(Box::new(Draft {
             path,
             target,
             home,
@@ -124,9 +125,9 @@ impl Root {
             missing: None,
             error,
             _focus: [observe, blur, focused],
-        }));
+        })));
         self.hide_settings(cx);
-        self.session_menu = None;
+        self.sidebar.session_menu = None;
         focus.focus(window);
         // The input has not been painted yet, so its first focus event may not fire.
         self.query_directory_matches(false, cx);
@@ -134,7 +135,7 @@ impl Root {
     }
 
     fn directory_edit(&mut self, cx: &mut Context<Self>) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+        let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return;
         };
         let field = draft.path.read(cx);
@@ -151,7 +152,7 @@ impl Root {
     }
 
     pub(crate) fn reopen_directory_matches(&mut self, cx: &mut Context<Self>) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+        let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return;
         };
         if !draft.completion.reopen() {
@@ -162,7 +163,7 @@ impl Root {
     }
 
     fn query_directory_matches(&mut self, tab: bool, cx: &mut Context<Self>) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+        let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return;
         };
         if draft.busy.is_some() || draft.missing.is_some() || draft.seen.1 {
@@ -184,7 +185,7 @@ impl Root {
             }
             let current = root
                 .read_with(cx, |root, _| {
-                    matches!(&root.dialog,
+                    matches!(&root.dialogs.current,
                 Some(Dialog::Create(draft)) if draft.id == id && draft.completion.ticket == ticket)
                 })
                 .unwrap_or(false);
@@ -201,7 +202,7 @@ impl Root {
                 return;
             };
             let _ = root.update(cx, |root, cx| {
-                let Some(Dialog::Create(draft)) = &mut root.dialog else {
+                let Some(Dialog::Create(draft)) = &mut root.dialogs.current else {
                     return;
                 };
                 if draft.id != id || draft.completion.ticket != ticket {
@@ -241,7 +242,7 @@ impl Root {
         index: Option<usize>,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+        let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return false;
         };
         let Some(value) = draft.completion.choose(&draft.seen.0, index) else {

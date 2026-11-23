@@ -221,20 +221,20 @@ impl Windows {
         loop {
             let state = window
                 .read_with(&self.app, |root, _| {
-                    if root.closing_window || root.close_check_pending {
+                    if root.close.closing || root.close.check_pending {
                         return Err(LaunchError::Busy);
                     }
                     if root.host.is_none() && root.error.is_some() {
                         return Err(LaunchError::Unavailable);
                     }
-                    if root.user_action_pending || root.dialog.is_some() {
+                    if root.dialogs.user_action_pending || root.dialogs.current.is_some() {
                         return Ok(None);
                     }
                     Ok(root
                         .host
                         .as_ref()
                         .filter(|_| root.snapshot.is_some())
-                        .map(|client| (client.clone(), root.navigation.epoch())))
+                        .map(|client| (client.clone(), root.workspace.navigation.epoch())))
                 })
                 .map_err(error)??;
             if let Some(state) = state {
@@ -273,26 +273,8 @@ impl LaunchWindowTransport for Windows {
                             .app
                             .background_executor()
                             .spawn(async move {
-                                let mut issuer =
-                                    crate::frontend_composition::FrontendDirectories::plan(
-                                        &options,
-                                    )?;
-                                let outcome =
-                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                        issuer.prepare()
-                                    }));
-                                // SAME issuer/keeper survives both returned failure and panic.
-                                // Explicit disposition precedes any diagnostic/LaunchError mapping.
-                                let preserved = issuer.preserve();
-                                match outcome {
-                                    Ok(Ok(())) => Ok::<_, anyhow::Error>(options),
-                                    Ok(Err(error)) => {
-                                        Err(anyhow::Error::new(preserved.with_error(error)))
-                                    }
-                                    Err(_) => Err(anyhow::Error::new(preserved.with_error(
-                                        anyhow::anyhow!("New-window frontend preparation panicked"),
-                                    ))),
-                                }
+                                crate::frontend_composition::FrontendDirectories::plan(&options)?.prepare()?;
+                                Ok::<_, anyhow::Error>(options)
                             })
                             .await
                             .map_err(error)?;

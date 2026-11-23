@@ -86,18 +86,18 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> bool {
         if !matches!(action.kind, SemanticActionKind::Click)
-            || self.settings
-            || self.dialog.is_some()
+            || self.settings.open
+            || self.dialogs.current.is_some()
         {
             return false;
         }
-        let Some(files) = self.files.as_ref().filter(|files| {
+        let Some(files) = self.files.panel.as_ref().filter(|files| {
             files.visible && files.pending_file_action.is_some() && files.operation.is_none()
         }) else {
             return false;
         };
         let can_save = can_save(files);
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         let matches = |key| frame.id_for(key).ok() == Some(action.target);
         if matches("files/confirm/cancel") {
             self.dismiss_file_action(cx);
@@ -131,7 +131,7 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let files = self.files.as_ref()?;
+        let files = self.files.panel.as_ref()?;
         if files.pending_file_action.is_none() {
             files.confirm_focus.restore(&files.panel_focus, window, cx);
             return None;

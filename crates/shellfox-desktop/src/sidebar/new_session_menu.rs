@@ -73,14 +73,14 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.user_action_pending || self.closing_window || self.dialog.is_some() {
+        if self.dialogs.user_action_pending || self.close.closing || self.dialogs.current.is_some() {
             return;
         }
         if !self.peers.peers.values().any(|peer| peer.remembered) {
             self.open_local_directory(window, cx);
             return;
         }
-        if self.sidebar_ui.target_menu.is_some() {
+        if self.sidebar.target_menu.is_some() {
             self.close_new_session_menu(window, cx);
             return;
         }
@@ -89,17 +89,17 @@ impl Root {
             .iter()
             .position(|item| item.enabled && item.selected)
             .or_else(|| choices.iter().position(|item| item.enabled));
-        let position = self.sidebar_ui.new_session_anchor.get().map_or_else(
+        let position = self.sidebar.new_session_anchor.get().map_or_else(
             || window.mouse_position(),
             |bounds: Bounds<Pixels>| gpui::point(bounds.left(), bounds.bottom() + px(5.)),
         );
-        self.session_menu = None;
-        self.sidebar_ui.target_menu = Some(NewSessionMenu {
+        self.sidebar.session_menu = None;
+        self.sidebar.target_menu = Some(NewSessionMenu {
             position,
             active,
             show_focus: keyboard,
         });
-        self.modal_focus.focus(window);
+        self.dialogs.modal_focus.focus(window);
         cx.notify();
     }
 
@@ -109,7 +109,7 @@ impl Root {
         window: &Window,
         cx: &Context<Self>,
     ) -> Option<AnyElement> {
-        let menu = self.sidebar_ui.target_menu.as_ref()?;
+        let menu = self.sidebar.target_menu.as_ref()?;
         let choices = self.session_targets(palette);
         let viewport = window.viewport_size();
         let width = 234_f32.min((f32::from(viewport.width) - 14.).max(144.));
@@ -191,7 +191,7 @@ impl Root {
         Some(
             div()
                 .id("new-session-target-menu")
-                .track_focus(&self.modal_focus)
+                .track_focus(&self.dialogs.modal_focus)
                 .absolute()
                 .occlude()
                 .left(x)
@@ -224,7 +224,7 @@ impl Root {
                     if !matches!(e.keystroke.key.as_str(), "enter" | "space") {
                         return;
                     }
-                    let Some(menu) = &root.sidebar_ui.target_menu else {
+                    let Some(menu) = &root.sidebar.target_menu else {
                         return;
                     };
                     let choices = root.session_targets(palette);
@@ -246,7 +246,7 @@ impl Root {
         cx: &mut Context<Self>,
     ) {
         let choices = self.session_targets(palette);
-        let Some(menu) = &mut self.sidebar_ui.target_menu else {
+        let Some(menu) = &mut self.sidebar.target_menu else {
             return;
         };
         let enabled: Vec<_> = choices
@@ -270,8 +270,8 @@ impl Root {
     }
 
     fn close_new_session_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.sidebar_ui.target_menu.take().is_some() {
-            self.sidebar_ui.new_session.focus(window);
+        if self.sidebar.target_menu.take().is_some() {
+            self.sidebar.new_session.focus(window);
             cx.notify();
         }
     }

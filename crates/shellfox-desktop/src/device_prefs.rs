@@ -71,14 +71,12 @@ pub(crate) fn prepare(
     options: &Options,
     frontend: &mut crate::frontend_composition::FrontendDirectories,
 ) -> Result<Arc<DeviceColors>> {
-    frontend.revalidate()?;
     let proof = frontend.device_root()?;
     ensure!(
         proof.root_path() == Some(options.device_config_root.as_path()),
         "Device capability does not match configured root"
     );
     let store = DeviceColors::native_anchored(&options.device_config_root, proof)?;
-    frontend.revalidate()?;
     Ok(Arc::new(store))
 }
 pub(crate) fn get(cx: &App) -> Result<Arc<DeviceColors>> {

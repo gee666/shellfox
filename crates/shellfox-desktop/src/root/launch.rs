@@ -38,23 +38,23 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(), LaunchError> {
-        if self.closing_window
-            || self.close_check_pending
-            || self.user_action_pending
-            || self.dialog.is_some()
-            || self.navigation.epoch() != expected_epoch
+        if self.close.closing
+            || self.close.check_pending
+            || self.dialogs.user_action_pending
+            || self.dialogs.current.is_some()
+            || self.workspace.navigation.epoch() != expected_epoch
         {
             return Err(LaunchError::Busy);
         }
         self.accept_snapshot(snapshot, cx);
         let snapshot = self.snapshot.as_ref().ok_or(LaunchError::Unavailable)?;
-        select_target(&mut self.navigation, snapshot, target)?;
+        select_target(&mut self.workspace.navigation, snapshot, target)?;
         if activate {
             window.activate_window();
         }
         if matches!(target, LaunchTarget::Session { .. }) {
             self.hide_settings(cx);
-            self.pending_recent = None;
+            self.workspace.pending_recent = None;
             if !self.is_local_source() {
                 self.select_local_source(window, cx);
             }

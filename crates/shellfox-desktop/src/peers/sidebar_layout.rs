@@ -4,7 +4,6 @@ use crate::{
     sidebar::{RowFocus, list::Entry},
 };
 use gpui::{FocusHandle, KeyDownEvent};
-use shellfox_service::activity::AgentState;
 
 pub(crate) struct PeerSectionLayout {
     generation: u64,
@@ -27,7 +26,7 @@ impl PeerSectionLayout {
             row_focus: HashMap::new(),
         }
     }
-    fn focus(&mut self, id: SessionId, cx: &mut gpui::App) -> RowFocus {
+    pub(super) fn focus(&mut self, id: SessionId, cx: &mut gpui::App) -> RowFocus {
         self.row_focus
             .entry(id)
             .or_insert_with(|| RowFocus::new(cx))
@@ -63,7 +62,7 @@ impl Root {
         {
             // "Show more" disappeared under focus; move focus to the last row.
             let focus = layout.focus(last, cx).copy;
-            let list = self.sidebar_ui.list.clone();
+            let list = self.sidebar.list.clone();
             let entry = Entry::Peer(cycle.peer.clone(), last);
             window.on_next_frame(move |window, _| {
                 focus.focus(window);
@@ -76,30 +75,6 @@ impl Root {
     pub(crate) fn peer_row_focus(&self, peer: &AuthenticatedPeerId, id: SessionId) -> Option<FocusHandle> {
         let layouts = self.peer_ui.sidebar_layout.borrow();
         Some(layouts.get(peer)?.row_focus.get(&id)?.row.clone())
-    }
-
-    pub(super) fn render_peer_row(
-        &self,
-        cycle: &source::PeerCycle,
-        session: &shellfox_protocol::SessionDto,
-        dot: AgentState,
-        palette: Palette,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let Some(focus) = self
-            .peer_ui
-            .sidebar_layout
-            .borrow_mut()
-            .get_mut(&cycle.peer)
-            .map(|layout| layout.focus(session.id, cx))
-        else {
-            return div().into_any_element();
-        };
-        let selected = self.peers.selected_peer().is_some_and(|(peer, state)| {
-            peer == &cycle.peer && state.selected_session == Some(session.id)
-        });
-        self.peer_sidebar_row(cycle, session, dot, selected, focus, palette, window, cx)
     }
 
     pub(super) fn render_peer_more(
@@ -177,7 +152,7 @@ impl Root {
         if mods.alt || mods.control || mods.platform {
             return false;
         }
-        let editing = matches!(&self.dialog, Some(Dialog::PeerSession(dialog)) if dialog.cycle == *cycle && dialog.id == id && matches!(&dialog.editor, Editor::Rename(field) if field.read(cx).edit_focus().is_focused(window)));
+        let editing = matches!(&self.dialogs.current, Some(Dialog::PeerSession(dialog)) if dialog.cycle == *cycle && dialog.id == id && matches!(&dialog.editor, Editor::Rename(field) if field.read(cx).edit_focus().is_focused(window)));
         let mut layouts = self.peer_ui.sidebar_layout.borrow_mut();
         let Some(layout) = layouts.get_mut(&cycle.peer) else {
             return false;
@@ -192,7 +167,7 @@ impl Root {
         let on_settle = settle.is_focused(window);
         let enabled = !self.peer_ui.pending.contains(&cycle.peer);
         if key == "tab" && on_settle && mods.shift {
-            if let Some(Dialog::PeerSession(dialog)) = &self.dialog
+            if let Some(Dialog::PeerSession(dialog)) = &self.dialogs.current
                 && dialog.cycle == *cycle
                 && dialog.id == id
                 && let Editor::Rename(field) = &dialog.editor
@@ -221,7 +196,7 @@ impl Root {
             let RowFocus { copy, settle, .. } = layout.focus(target, cx);
             if key == "tab" && mods.shift && enabled {
                 settle.focus(window);
-            } else if let Some(Dialog::PeerSession(dialog)) = &self.dialog
+            } else if let Some(Dialog::PeerSession(dialog)) = &self.dialogs.current
                 && dialog.cycle == *cycle
                 && dialog.id == target
                 && let Editor::Rename(field) = &dialog.editor
@@ -230,7 +205,7 @@ impl Root {
             } else {
                 copy.focus(window);
             }
-            self.sidebar_ui.list.reveal(&Entry::Peer(cycle.peer.clone(), target));
+            self.sidebar.list.reveal(&Entry::Peer(cycle.peer.clone(), target));
             return true;
         }
         if key == "tab" && mods.shift {
@@ -239,7 +214,7 @@ impl Root {
         }
         if key == "tab" && layout.has_more {
             layout.more.focus(window);
-            self.sidebar_ui.list.reveal(&Entry::PeerMore(cycle.peer.clone()));
+            self.sidebar.list.reveal(&Entry::PeerMore(cycle.peer.clone()));
             return true;
         }
         if key == "tab" {
@@ -250,14 +225,14 @@ impl Root {
     }
 
     pub(super) fn reveal_peer_session(&self, cycle: &source::PeerCycle, id: SessionId) {
-        if !self.sidebar {
+        if !self.sidebar.visible {
             return;
         }
         if let Some(layout) = self.peer_ui.sidebar_layout.borrow().get(&cycle.peer)
             && layout.generation == cycle.generation
             && layout.ids.contains(&id)
         {
-            self.sidebar_ui.list.reveal(&Entry::Peer(cycle.peer.clone(), id));
+            self.sidebar.list.reveal(&Entry::Peer(cycle.peer.clone(), id));
         }
     }
 }

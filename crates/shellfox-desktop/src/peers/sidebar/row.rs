@@ -1,5 +1,4 @@
 use super::*;
-use crate::sidebar::RowFocus;
 use crate::{accessibility::{SemanticAction, SemanticActionKind}, assets::inline_ellipsis,
     peers::session_dialog::Editor, sidebar::session_menu::Item};
 use gpui::{Bounds, KeyDownEvent, Pixels};
@@ -13,16 +12,16 @@ impl Root {
     pub(crate) fn handle_workspace_navigation(
         &mut self, action: &SemanticAction, window: &mut Window, cx: &mut Context<Self>,
     ) -> bool {
-        if !matches!(action.kind, SemanticActionKind::Click) || self.settings || self.dialog.is_some() || self.closing_window {
+        if !matches!(action.kind, SemanticActionKind::Click) || self.settings.open || self.dialogs.current.is_some() || self.close.closing {
             return false;
         }
-        let frame = self.semantic_context.frame();
+        let frame = self.semantics.context.frame();
         let matches = |key: &str| frame.id_for(key).ok() == Some(action.target);
         if matches("workspace/peer/terminal-folder") && !self.is_local_source() {
             self.open_peer_terminal_folder(cx);
             return true;
         }
-        if matches("workspace/local/sessions") && self.sidebar && self.snapshot.is_some() {
+        if matches("workspace/local/sessions") && self.sidebar.visible && self.snapshot.is_some() {
             self.toggle_local_group(window, cx);
             return true;
         }
@@ -41,17 +40,27 @@ impl Root {
         false
     }
 
-    pub(in crate::peers) fn peer_sidebar_row(
+    pub(in crate::peers) fn render_peer_row(
         &self,
         cycle: &source::PeerCycle,
         session: &shellfox_protocol::SessionDto,
         dot: AgentState,
-        selected: bool,
-        focus: RowFocus,
         palette: Palette,
         window: &Window,
-        cx: &Context<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
+        let Some(focus) = self
+            .peer_ui
+            .sidebar_layout
+            .borrow_mut()
+            .get_mut(&cycle.peer)
+            .map(|layout| layout.focus(session.id, cx))
+        else {
+            return div().into_any_element();
+        };
+        let selected = self.peers.selected_peer().is_some_and(|(peer, state)| {
+            peer == &cycle.peer && state.selected_session == Some(session.id)
+        });
         let id = session.id;
         let menu_focus = focus.copy.clone();
         let target = cycle.clone();
@@ -65,7 +74,7 @@ impl Root {
         let background = palette.accent.opacity(0.09);
         let bounds: Rc<Cell<Option<Bounds<Pixels>>>> = Default::default();
         let measured = bounds.clone();
-        let editing = match &self.dialog {
+        let editing = match &self.dialogs.current {
             Some(Dialog::PeerSession(dialog)) if dialog.cycle == *cycle && dialog.id == id => {
                 if let Editor::Rename(field) = &dialog.editor {
                     Some(field.clone())
@@ -89,7 +98,7 @@ impl Root {
             copy = copy
                 .track_focus(&focus.copy)
                 .when(
-                    self.sidebar_ui.keyboard_focus && focus.copy.is_focused(window),
+                    self.sidebar.keyboard_focus && focus.copy.is_focused(window),
                     |copy| copy.child(crate::sidebar::row::focus_ring(palette)),
                 )
                 .cursor_pointer()
@@ -221,8 +230,8 @@ impl Root {
             .on_mouse_down(
                 gpui::MouseButton::Right,
                 cx.listener(move |root, event: &gpui::MouseDownEvent, window, cx| {
-                    root.sidebar_ui.keyboard_focus = false;
-                    if !matches!(&root.dialog, Some(Dialog::PeerSession(dialog)) if dialog.cycle == mouse_menu && dialog.id == id && matches!(&dialog.editor, Editor::Rename(_))) { menu_focus.focus(window); }
+                    root.sidebar.keyboard_focus = false;
+                    if !matches!(&root.dialogs.current, Some(Dialog::PeerSession(dialog)) if dialog.cycle == mouse_menu && dialog.id == id && matches!(&dialog.editor, Editor::Rename(_))) { menu_focus.focus(window); }
                     root.open_peer_session_menu(
                         mouse_menu.clone(),
                         id,

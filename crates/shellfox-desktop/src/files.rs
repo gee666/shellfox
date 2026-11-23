@@ -49,6 +49,20 @@ fn close_guard(dirty: bool, busy: bool) -> CloseGuard {
 fn same_ui_source(captured: u64, current: u64, backend_local: bool, selected_local: bool) -> bool {
     captured == current && backend_local == selected_local
 }
+/// The window's Files pane: the open panel, panels kept for other sources, and the one
+/// native HTML preview the window owns.
+pub(crate) struct FilesArea {
+    pub(crate) panel: Option<Files>,
+    pub(crate) retained: Vec<Files>,
+    pub(crate) html_preview: text_preview::html::Surface,
+}
+
+impl FilesArea {
+    pub(crate) fn new(run_dir: &std::path::Path) -> Self {
+        Self { panel: None, retained: Vec::new(), html_preview: text_preview::html::Surface::new(run_dir) }
+    }
+}
+
 pub struct Files {
     pub(crate) backend: DocumentBackend,
     pub(crate) source_epoch: u64,
@@ -132,7 +146,7 @@ impl Editor {
 }
 impl Root {
     pub(crate) fn file_close_guard(&self, cx: &gpui::App) -> CloseGuard {
-        let panels = self.files.iter().chain(self.retained_files.iter());
+        let panels = self.files.panel.iter().chain(self.files.retained.iter());
         close_guard(
             panels.clone().any(|files| files.dirty(cx)),
             panels
@@ -145,7 +159,7 @@ impl Root {
         )
     }
     pub(crate) fn files_source_current(&self) -> bool {
-        self.files.as_ref().is_some_and(|f| {
+        self.files.panel.as_ref().is_some_and(|f| {
             same_ui_source(
                 f.source_epoch,
                 self.source_selection_epoch(),
@@ -174,7 +188,7 @@ impl Root {
             backend.is_local(),
             self.is_local_source(),
         ) && self
-            .files
+            .files.panel
             .as_ref()
             .is_some_and(|f| f.source_epoch == epoch && f.backend.same_origin(backend))
             && self.active_file_tab(backend)
@@ -194,14 +208,14 @@ impl Root {
     }
     pub(crate) fn toggle_files(&mut self, cx: &mut Context<Self>) {
         self.sync_file_source(cx);
-        if self.files.as_ref().is_some_and(|files| {
+        if self.files.panel.as_ref().is_some_and(|files| {
             !files.visible && !self.active_file_tab(&files.backend)
         }) {
             self.show_selected_file_scope(cx);
             return;
         }
         if self.files_source_current() {
-            if let Some(files) = &mut self.files {
+            if let Some(files) = &mut self.files.panel {
                 files.check_cached_revision |= files.visible && files.dirty(cx);
                 files.visible = !files.visible;
                 if !files.visible {
@@ -218,8 +232,8 @@ impl Root {
 
     fn prepare_files(&mut self, cx: &mut Context<Self>) -> Option<String> {
         self.sync_file_source(cx);
-        if self.files.as_ref().is_some_and(|f| f.busy) {
-            if let Some(files) = &mut self.files {
+        if self.files.panel.as_ref().is_some_and(|f| f.busy) {
+            if let Some(files) = &mut self.files.panel {
                 files.visible = true;
             }
             self.cancel_file_operation(cx);
@@ -230,7 +244,7 @@ impl Root {
             return None;
         }
         if self.files_dirty(cx) {
-            if let Some(files) = &mut self.files {
+            if let Some(files) = &mut self.files.panel {
                 files.visible = true;
             }
             self.error=Some("The original draft is retained. Explicitly discard it before opening Files for another source.".into());
@@ -255,7 +269,7 @@ impl Root {
             root.file_location_changed(field, cx)
         })
         .detach();
-        self.files = Some(Files {
+        self.files.panel = Some(Files {
             backend,
             source_epoch: epoch,
             source: self.peers.selected.clone(),
@@ -300,7 +314,7 @@ impl Root {
         if self.files_source_current() {
             return;
         }
-        if self.files.as_ref().is_some_and(|f| f.busy) {
+        if self.files.panel.as_ref().is_some_and(|f| f.busy) {
             self.cancel_file_operation(cx);
             self.error = Some(
                 "Wait for the original operation to complete before discarding its draft.".into(),
@@ -309,11 +323,11 @@ impl Root {
             return;
         }
         // Explicit user discard, never source relabelling or an automatic save/replay.
-        self.files = None;
+        self.files.panel = None;
         self.toggle_files(cx);
     }
     pub(crate) fn files_dirty(&self, cx: &gpui::App) -> bool {
-        self.files.as_ref().is_some_and(|files| files.dirty(cx))
+        self.files.panel.as_ref().is_some_and(|files| files.dirty(cx))
     }
 }
 #[cfg(test)]

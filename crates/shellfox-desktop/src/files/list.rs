@@ -82,7 +82,7 @@ impl Root {
 
     pub(crate) fn confirm_missing_file_folder(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self
-            .files
+            .files.panel
             .as_ref()
             .and_then(|files| files.missing_folder.clone())
         else {
@@ -100,7 +100,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files else {
+        let Some(files) = &mut self.files.panel else {
             return;
         };
         if files.busy && !(files.tree.loading && matches!(navigation, Navigation::Terminal(_))) {
@@ -157,7 +157,7 @@ impl Root {
                     _ => None,
                 };
                 let obsolete = terminal.is_some_and(|origin| !root.link_is_current(origin));
-                let Some(files) = &mut root.files else {
+                let Some(files) = &mut root.files.panel else {
                     return;
                 };
                 if files.request != request || !files.backend.same_origin(&backend) {

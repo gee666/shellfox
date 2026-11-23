@@ -10,11 +10,11 @@ impl Root {
         let Some(id) = self.selected_tab() else {
             return;
         };
-        if !self.views.contains_key(&id) {
+        if !self.tabs.views.contains_key(&id) {
             return;
         }
         let Some(path) = self
-            .views
+            .tabs.views
             .get(&id)
             .and_then(|view| view.read(cx).working_directory())
         else {
@@ -25,14 +25,14 @@ impl Root {
         let Some((backend, _)) = self.selected_document_backend(cx) else {
             return;
         };
-        let visible = self.files.as_ref().is_some_and(|files| files.visible);
+        let visible = self.files.panel.as_ref().is_some_and(|files| files.visible);
         self.select_file_scope(backend, cx);
-        if let Some(files) = &mut self.files {
+        if let Some(files) = &mut self.files.panel {
             files.visible = visible;
         }
         self.navigate_files(
             path,
-            Navigation::Terminal(LinkOrigin::Local(self.navigation.epoch())),
+            Navigation::Terminal(LinkOrigin::Local(self.workspace.navigation.epoch())),
             cx,
         );
     }
@@ -74,7 +74,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        if let Some(files) = &mut self.files {
+        if let Some(files) = &mut self.files.panel {
             if files.browser {
                 files.completion.state.dismiss();
                 if files.browser_focus.region.contains_focused(window, cx)
@@ -94,7 +94,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        if let Some(files) = &mut self.files {
+        if let Some(files) = &mut self.files.panel {
             if files.maximized {
                 files.maximized = false;
                 files.browser = files.browser_before_maximize;
@@ -116,7 +116,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &self.files else { return };
+        let Some(files) = &self.files.panel else { return };
         if !files.backend.is_local() {
             self.error = Some(
                 "Enter a folder path on the selected peer; the local OS picker cannot browse it."
@@ -160,7 +160,7 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &self.files else {
+        let Some(files) = &self.files.panel else {
             return;
         };
         let path = if file {
@@ -219,7 +219,7 @@ impl Root {
         .detach();
     }
     pub(crate) fn reload_file(&mut self, cx: &mut Context<Self>) {
-        let path = self.files.as_ref().and_then(|files| {
+        let path = self.files.panel.as_ref().and_then(|files| {
             files
                 .opened_path()
                 .or(files.document_path.as_deref())
@@ -254,13 +254,13 @@ impl Root {
         if event.keystroke.key == "s"
             && command
             && !self
-                .files
+                .files.panel
                 .as_ref()
                 .and_then(|files| files.editor.as_ref())
                 .is_some_and(|editor| editor.text.read(cx).is_composing())
         {
             if self
-                .files
+                .files.panel
                 .as_ref()
                 .is_some_and(|files| files.image_editor.is_some())
             {
@@ -280,7 +280,7 @@ impl Root {
     ) {
         let key = event.keystroke.key.as_str();
         if self
-            .files
+            .files.panel
             .as_ref()
             .is_some_and(|files| files.location.read(cx).is_composing())
         {
@@ -295,7 +295,7 @@ impl Root {
             cx.stop_propagation();
             return;
         }
-        let Some(files) = &mut self.files else { return };
+        let Some(files) = &mut self.files.panel else { return };
         match key {
             "escape" if files.missing_folder.is_some() => {
                 files.missing_folder = None;
@@ -310,7 +310,7 @@ impl Root {
     }
 
     pub(crate) fn submit_file_path(&mut self, cx: &mut Context<Self>) {
-        let Some(files) = &self.files else { return };
+        let Some(files) = &self.files.panel else { return };
         let location = files.location.read(cx);
         if files.busy || files.missing_folder.is_some() || location.is_composing() {
             return;

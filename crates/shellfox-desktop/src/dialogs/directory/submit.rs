@@ -59,7 +59,7 @@ fn directory_profile<'a>(
 
 impl Root {
     pub(crate) fn profile_for_directory(&self, cwd: &str) -> Option<&str> {
-        directory_profile(&self.profiles, &self.default_profile(), cwd, cfg!(windows))
+        directory_profile(&self.workspace.profiles, &self.default_profile(), cwd, cfg!(windows))
     }
 
     pub(crate) fn submit_directory(
@@ -69,10 +69,10 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+        let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return;
         };
-        if draft.busy.is_some() || draft.seen.1 || self.user_action_pending {
+        if draft.busy.is_some() || draft.seen.1 || self.dialogs.user_action_pending {
             return;
         }
         let home = draft.home.clone();
@@ -120,10 +120,10 @@ impl Root {
                 }
                 Ok(cwd) => {
                     let _ = root.update_in(cx, |root, window, cx| {
-                        let Some(Dialog::Create(draft)) = &mut root.dialog else {
+                        let Some(Dialog::Create(draft)) = &mut root.dialogs.current else {
                             return;
                         };
-                        if draft.id != id || root.closing_window {
+                        if draft.id != id || root.close.closing {
                             return;
                         }
                         draft.busy = None;
@@ -134,7 +134,7 @@ impl Root {
                 }
                 Err((error, query)) => {
                     let _ = root.update_in(cx, |root, window, cx| {
-                        let Some(Dialog::Create(draft)) = &mut root.dialog else {
+                        let Some(Dialog::Create(draft)) = &mut root.dialogs.current else {
                             return;
                         };
                         if draft.id != id {
@@ -198,10 +198,10 @@ impl Root {
     }
 
     pub(crate) fn browse_directory(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+        let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return;
         };
-        if draft.busy.is_some() || self.user_action_pending || draft.target.is_some() {
+        if draft.busy.is_some() || self.dialogs.user_action_pending || draft.target.is_some() {
             return;
         }
         let id = draft.id;
@@ -212,7 +212,7 @@ impl Root {
         cx.spawn_in(window, async move |root, cx| {
             let result = prompt.await;
             let _ = root.update_in(cx, |root, window, cx| {
-                let Some(Dialog::Create(draft)) = &mut root.dialog else {
+                let Some(Dialog::Create(draft)) = &mut root.dialogs.current else {
                     return;
                 };
                 if draft.id != id {

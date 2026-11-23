@@ -1,3 +1,4 @@
+use super::panes::PaneKind;
 use crate::{root::Root, theme::Palette};
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 pub(crate) fn sessions_tooltip(expanded: bool) -> &'static str {
@@ -12,8 +13,8 @@ pub(crate) fn sessions_tooltip(expanded: bool) -> &'static str {
 impl Root {
     pub(crate) fn workspace_width(&self, window: &Window) -> f32 {
         f32::from(window.viewport_size().width)
-            - if self.sidebar {
-                crate::sidebar::clamp_width(self.sidebar_width, f32::from(window.viewport_size().width)) + 4.
+            - if self.sidebar.visible {
+                crate::sidebar::clamp_width(self.sidebar.width, f32::from(window.viewport_size().width)) + 4.
             } else {
                 28.
             }
@@ -29,13 +30,13 @@ impl Root {
     ) {
         if self.resize_session_environment(event, window, cx) { return; }
         let left = event.pressed_button == Some(gpui::MouseButton::Left);
-        let mut changed = self.resizing_sidebar;
-        if self.resizing_sidebar {
-            if left && let Some(start) = self.sidebar_ui.resize_origin {
-                self.sidebar_width = start.width(f32::from(event.position.x), f32::from(window.viewport_size().width));
+        let mut changed = self.sidebar.resizing;
+        if self.sidebar.resizing {
+            if left && let Some(start) = self.sidebar.resize_origin {
+                self.sidebar.width = start.width(f32::from(event.position.x), f32::from(window.viewport_size().width));
             } else {
-                self.resizing_sidebar = false;
-                self.sidebar_ui.resize_origin = None;
+                self.sidebar.resizing = false;
+                self.sidebar.resize_origin = None;
             }
         }
         changed |= self.resize_files(event, window, cx);
@@ -48,12 +49,12 @@ impl Root {
     fn sidebar_resize_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let step = if event.keystroke.modifiers.shift { 32. } else { 4. };
         let width = match event.keystroke.key.as_str() {
-            "left" => self.sidebar_width - step,
-            "right" => self.sidebar_width + step,
+            "left" => self.sidebar.width - step,
+            "right" => self.sidebar.width + step,
             "home" => 220.,
             _ => return,
         };
-        self.sidebar_width = crate::sidebar::clamp_width(width, f32::from(window.viewport_size().width));
+        self.sidebar.width = crate::sidebar::clamp_width(width, f32::from(window.viewport_size().width));
         window.prevent_default();
         cx.stop_propagation();
         cx.notify();
@@ -66,11 +67,12 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut content = div().flex().size_full();
-        if self.sidebar {
-            content = content.child(self.session_sidebar(palette, window, cx)).child(
+        if self.sidebar.visible {
+            let width = crate::sidebar::clamp_width(self.sidebar.width, f32::from(window.viewport_size().width));
+            content = content.child(div().w(px(width)).flex_shrink_0().h_full().child(self.pane(PaneKind::Sidebar, cx))).child(
                 div()
                     .id("sidebar-resizer")
-                    .track_focus(&self.sidebar_ui.resizer)
+                    .track_focus(&self.sidebar.resizer)
                     .on_key_down(cx.listener(Self::sidebar_resize_key))
                     .w(px(4.))
                     .h_full()
@@ -81,19 +83,19 @@ impl Root {
                     .cursor(gpui::CursorStyle::ResizeColumn)
                     .hover(|style| style.bg(palette.accent))
                     .focus(|style| style.border_1().border_color(palette.accent))
-                    .when(self.resizing_sidebar, |style| style.bg(palette.accent))
+                    .when(self.sidebar.resizing, |style| style.bg(palette.accent))
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(|root, event: &gpui::MouseDownEvent, window, cx| {
-                            root.sidebar_ui.resizer.focus(window);
+                            root.sidebar.resizer.focus(window);
                             let viewport = f32::from(window.viewport_size().width);
                             if event.click_count > 1 {
-                                root.sidebar_width = crate::sidebar::clamp_width(220., viewport);
-                                root.resizing_sidebar = false;
-                                root.sidebar_ui.resize_origin = None;
+                                root.sidebar.width = crate::sidebar::clamp_width(220., viewport);
+                                root.sidebar.resizing = false;
+                                root.sidebar.resize_origin = None;
                             } else {
-                                root.sidebar_ui.resize_origin = Some(crate::sidebar::SidebarDrag::start(f32::from(event.position.x), root.sidebar_width, viewport));
-                                root.resizing_sidebar = true;
+                                root.sidebar.resize_origin = Some(crate::sidebar::SidebarDrag::start(f32::from(event.position.x), root.sidebar.width, viewport));
+                                root.sidebar.resizing = true;
                             }
                             cx.notify();
                             cx.stop_propagation();
@@ -102,23 +104,23 @@ impl Root {
                     .on_mouse_up(
                         gpui::MouseButton::Left,
                         cx.listener(|root, _, _, cx| {
-                            root.resizing_sidebar = false;
-                            root.sidebar_ui.resize_origin = None;
+                            root.sidebar.resizing = false;
+                            root.sidebar.resize_origin = None;
                             cx.notify();
                         }),
                     )
                     .on_mouse_up_out(
                         gpui::MouseButton::Left,
                         cx.listener(|root, _, _, cx| {
-                            root.resizing_sidebar = false;
-                            root.sidebar_ui.resize_origin = None;
+                            root.sidebar.resizing = false;
+                            root.sidebar.resize_origin = None;
                             cx.notify();
                         }),
                     ),
             );
         }
         let mut workspace = div().flex().flex_col().flex_1().min_w_0().min_h_0();
-        if !self.sidebar {
+        if !self.sidebar.visible {
             content = content.child(
                 div()
                     .w(px(28.))
@@ -138,21 +140,20 @@ impl Root {
                             .child(
                                 crate::assets::icon_button("show-sessions", "chevron", palette)
                                     .w(px(24.))
-                                    .track_focus(&self.sidebar_ui.toggle)
+                                    .track_focus(&self.sidebar.toggle)
                                     .focus(|style| style.border_1().border_color(palette.accent))
                                     .tooltip(crate::assets::tooltip(sessions_tooltip(false), palette))
                                     .on_click(cx.listener(|root, _, window, cx| {
-                                        root.sidebar_ui.toggle.focus(window);
+                                        root.sidebar.toggle.focus(window);
                                         root.toggle_sessions_layout(window, cx);
                                     })),
                             ),
                     ),
             );
         }
-        workspace = workspace.child(if self.settings {
+        workspace = workspace.child(if self.settings.open {
             let child = self.settings_page(palette, cx);
-            // Settings is an uncached view. Every paint measures its current semantic nodes.
-            if self.settings_panel.is_none() {
+            if self.settings.panel.is_none() {
                 self.semantic_region(
                     "settings/panel",
                     crate::accessibility::Role::Pane,

@@ -31,13 +31,12 @@ impl Operation {
         }
         match self {
             Self::Attach { tab_id, takeover } => {
-                if let Some(generation) = takeover {
-                    if let Reply::Failure(error) = binding
+                if let Some(generation) = takeover
+                    && let Reply::Failure(error) = binding
                         .v1_reply(&TakeTerminalControl { tab_id, generation })
                         .await?
-                    {
-                        return Ok(Reply::Failure(error));
-                    }
+                {
+                    return Ok(Reply::Failure(error));
                 }
                 Ok(
                     match binding
