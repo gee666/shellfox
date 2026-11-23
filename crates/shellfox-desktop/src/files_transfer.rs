@@ -3,10 +3,7 @@ use crate::{editor_composition::EditorOutcome, root::Root};
 use anyhow::{Context as _, Result};
 use gpui::{Context, PathPromptOptions, Window};
 use shellfox_files::{EditorCancellation, EditorSession};
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 #[path = "files_transfer_io.rs"]
 mod io;
 
@@ -26,6 +23,8 @@ pub(crate) struct Transfer {
     pub direction: TransferDirection,
     pub cancel: EditorCancellation,
     progress: Mutex<TransferProgress>,
+    /// Bumped when the shown progress changes: start, and each whole percent.
+    changes: tokio::sync::watch::Sender<()>,
 }
 impl Transfer {
     fn new(direction: TransferDirection) -> Self {
@@ -33,6 +32,7 @@ impl Transfer {
             direction,
             cancel: EditorCancellation::default(),
             progress: Mutex::default(),
+            changes: tokio::sync::watch::channel(()).0,
         }
     }
     pub fn progress(&self) -> TransferProgress {
@@ -47,12 +47,17 @@ impl Transfer {
             total,
             offset: 0,
         };
+        self.changes.send_replace(());
     }
     fn advance(&self, offset: u64) {
-        self.progress
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .offset = offset;
+        let mut progress = self.progress.lock().unwrap_or_else(|e| e.into_inner());
+        let percent = |offset: u64| (offset.min(progress.total) * 100).checked_div(progress.total);
+        let moved = percent(progress.offset) != percent(offset);
+        progress.offset = offset;
+        drop(progress);
+        if moved {
+            self.changes.send_replace(());
+        }
     }
 }
 
@@ -184,18 +189,18 @@ impl Root {
                 .detach();
             }
         }
+        // Repaint when the shown progress changes; ends with the transfer.
+        let mut changes = state.changes.subscribe();
+        let state = Arc::downgrade(&state);
         cx.spawn(async move |root, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(64))
-                    .await;
+            while changes.changed().await.is_ok() {
                 if !root
                     .update(cx, |root, cx| {
                         let active = root
                             .files
                             .as_ref()
                             .and_then(|files| files.transfer.as_ref())
-                            .is_some_and(|transfer| Arc::ptr_eq(transfer, &state));
+                            .is_some_and(|transfer| std::ptr::eq(Arc::as_ptr(transfer), state.as_ptr()));
                         if active {
                             cx.notify();
                         }
@@ -204,7 +209,7 @@ impl Root {
                                 files
                                     .transfer
                                     .as_ref()
-                                    .is_some_and(|transfer| Arc::ptr_eq(transfer, &state))
+                                    .is_some_and(|transfer| std::ptr::eq(Arc::as_ptr(transfer), state.as_ptr()))
                             })
                     })
                     .unwrap_or(false)
