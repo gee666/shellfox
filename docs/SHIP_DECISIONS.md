@@ -42,6 +42,7 @@ Ship Shellfox 0.10.0 on Rust, GPUI and libghostty-vt, replacing Electron 0.9.15 
 - The color picker is a compact theme-colored popup: SV square and hue slider, preview with HEX, RGB and HSL rows, then presets and 3 saved custom colors. Small font and inputs, no eyedropper.
 - Windows keep-awake uses both SetThreadExecutionState and the 30 s mouse nudge. Don't change it.
 - The Windows new-tab profile menu lists Command Prompt.
+- Tabs get the user's own environment and run their shell profiles, as in 0.9.15. On Windows it's built fresh from the registry, like Windows Terminal, so variables exported in the prompt that started Shellfox don't reach tabs. Administrator tabs get the user's profile and environment but no Settings or session variables.
 - HTML preview: Linux always shows the Source view with its notice, and the build has no WebKitGTK or GTK dependency. Windows and macOS keep the sandboxed webview and serve local assets through a wry custom protocol. Its look doesn't change.
 
 ## Update from 0.9.15

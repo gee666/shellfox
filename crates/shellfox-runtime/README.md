@@ -8,7 +8,7 @@ One dedicated thread creates and owns `shellfox_ghostty_vt::Terminal` and `shell
 
 `Runtime::start(Identity, PtyConfig)` returns after owner-thread creation. PTY startup completes asynchronously through `Event::Started`. A failed spawn may retain resources. Keep the runtime until `phase() == Phase::Closed`, even after `Started(Err(...))`. A synchronous start error means no PTY was created.
 
-The host supplies `PtyConfig` with separate `cwd` and `isolation_root`, explicit environment policy, and a trusted absolute supervisor executable. That executable must call `shellfox_terminal::supervisor_entry()` before argument handling, GUI initialization or thread creation. This is a private local executable contract, not a remotely selectable program path.
+The host supplies a `PtyConfig::user(cwd)` (the user's own environment; tests and fixtures use `PtyConfig::isolated(root)`) and a trusted absolute supervisor executable. That executable must call `shellfox_terminal::supervisor_entry()` before argument handling, GUI initialization or thread creation. This is a private local executable contract, not a remotely selectable program path.
 
 `Runtime::try_send(Request { id, command })` uses a bounded command queue. `SubmitError::Full` returns the unsent request for caller retry. Input over 64 KiB is rejected before enqueueing. `Runtime::start` uses `GridLimits::default()`, at most 262144 cells, which covers normal high-DPI and ultrawide grids. `Runtime::start_with_limits` accepts `GridLimits::new(max_cells)` up to the hard limit of 1048576 cells. Each PTY axis is limited to 32767. Invalid resizes return validation errors before touching either parser or PTY, without closing the shell.
 
