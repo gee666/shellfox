@@ -4,6 +4,8 @@
 #![cfg(any(windows, target_os = "macos"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
+// Shared by several test binaries; this one uses only OwnedHost.
+#[allow(dead_code)]
 mod support;
 use support::OwnedHost;
 
