@@ -8,18 +8,6 @@ use std::sync::Arc;
 #[path = "remote_resources.rs"]
 mod resources;
 pub use resources::{RemoteBootResources, RemoteResources};
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RemoteUnavailableReason {
-    /// Historical availability code; the reviewed SQLite repository no longer
-    /// emits it. Retained for source-compatible availability consumers.
-    NativeApprovalStoragePending,
-}
-/// Actual local-only availability is reported by BootGuard AFTER local readiness.
-/// This setup result alone is neither Ready nor a cleanup/NoOwner proof.
-pub enum RemoteSetupOutcome {
-    RemotePrepared { control: RemoteControl },
-    LocalOnly { reason: RemoteUnavailableReason },
-}
 /// Stored by the original BootGuard BEFORE borrowed fallible initialization.
 #[must_use = "retain this envelope through confirmed shutdown and private disposition"]
 pub struct RemoteHostSetup {
@@ -74,10 +62,6 @@ impl RemoteHostSetup {
             state_attempted: false,
         }
     }
-    pub(crate) fn requires_actor(&self) -> bool {
-        // Approval persistence uses the existing actor and Host connection.
-        true
-    }
     pub(crate) fn bind_repository(
         &self,
         repository: Arc<dyn shellfox_remote::ApprovalRepository>,
@@ -100,7 +84,7 @@ impl RemoteHostSetup {
         resources: RemoteBootResources,
         control_path: &std::path::Path,
         verifier: &PermissionVerifier,
-    ) -> Result<RemoteSetupOutcome, AppError> {
+    ) -> Result<RemoteControl, AppError> {
         if self.attempted || self.lost.is_cancelled() {
             return Err(failure(
                 ErrorCode::NativeUnavailable,
@@ -204,7 +188,7 @@ impl RemoteHostSetup {
                 "Native ownership lost during remote initialization; cleanup retained.",
             ));
         }
-        Ok(RemoteSetupOutcome::RemotePrepared { control })
+        Ok(control)
     }
     pub async fn shutdown(&mut self) -> Result<(), AppError> {
         if let Some(runtime) = &mut self.runtime {
@@ -231,19 +215,3 @@ impl RemoteHostSetup {
     }
 }
 
-#[cfg(test)]
-mod outcome_layout_tests {
-    #[test]
-    fn setup_outcome_keeps_the_dispatcher_indirect_without_fabricating_one() {
-        assert!(std::mem::size_of::<super::RemoteSetupOutcome>() <= 128);
-        let outcome = super::RemoteSetupOutcome::LocalOnly {
-            reason: super::RemoteUnavailableReason::NativeApprovalStoragePending,
-        };
-        assert!(matches!(
-            outcome,
-            super::RemoteSetupOutcome::LocalOnly {
-                reason: super::RemoteUnavailableReason::NativeApprovalStoragePending
-            }
-        ));
-    }
-}

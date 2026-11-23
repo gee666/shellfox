@@ -107,7 +107,7 @@ async fn actor_start_failure_cleans_prepared_remote_before_releasing_native_owne
         let stages = stages.lock().unwrap();
         assert!(!stages.iter().any(|stage| matches!(
             stage,
-            LocalBootStatus::Ready | LocalBootStatus::ReadyLocalOnly { .. }
+            LocalBootStatus::Ready
         )));
         assert_eq!(stages.last(), Some(&LocalBootStatus::NoOwnerClean));
     }

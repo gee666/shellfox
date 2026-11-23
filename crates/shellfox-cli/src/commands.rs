@@ -21,12 +21,7 @@ pub fn serve(args: Args, runtime: &tokio::runtime::Runtime, ready: impl FnOnce()
         args.helper_sha256,
         remote,
         runtime,
-        |unavailable| {
-            if let Some(shellfox_service::remote::RemoteUnavailableReason::NativeApprovalStoragePending) = unavailable {
-                eprintln!("Local host ready. Remote unavailable: native approval storage review is pending.");
-            }
-            ready();
-        },
+        ready,
     )?;
     Ok(0)
 }

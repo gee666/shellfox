@@ -36,7 +36,6 @@ pub(super) struct BootGuard {
     install_source: Option<super::SourceFactsInstaller>,
     supervisor: Option<std::path::PathBuf>,
     observer_factory_policy: crate::NativeFactoryPolicy,
-    local_only: Option<crate::remote::RemoteUnavailableReason>,
     providers: provider_boot::NativeProviderState,
 }
 impl BootGuard {
@@ -58,7 +57,6 @@ impl BootGuard {
             install_source: None,
             supervisor: None,
             observer_factory_policy: crate::NativeFactoryPolicy::Disabled,
-            local_only: None,
             providers: provider_boot::NativeProviderState::default(),
         })
     }
@@ -226,12 +224,6 @@ impl BootGuard {
             .as_ref()
             .context("Native control owner missing")?
             .child()
-    }
-    pub fn ready_status(&self) -> LocalBootStatus {
-        match self.local_only {
-            Some(remote_unavailable) => LocalBootStatus::ReadyLocalOnly { remote_unavailable },
-            None => LocalBootStatus::Ready,
-        }
     }
     pub fn endpoint_report(&self) -> std::sync::Arc<crate::NativeEndpointReport> {
         self.endpoint.report()

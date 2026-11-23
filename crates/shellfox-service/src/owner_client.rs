@@ -46,7 +46,7 @@ impl OwnerClient {
             let Some(control) = &self.remote else {
                 // Stopped applies ONLY to this absent remote admission target.
                 // The local actor remains usable; this never authorizes replay,
-                // reacquisition or cold fallback. ReadyLocalOnly reports why.
+                // reacquisition or cold fallback.
                 return Err(NativeAdmissionError::Stopped(Box::new(
                     NativeAction::Remote(request),
                 )));

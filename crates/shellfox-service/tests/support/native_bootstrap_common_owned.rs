@@ -54,7 +54,7 @@ impl Reports {
             .position(|r| {
                 matches!(
                     r.status,
-                    LocalBootStatus::Ready | LocalBootStatus::ReadyLocalOnly { .. }
+                    LocalBootStatus::Ready
                 )
             })
             .is_some_and(|ready| {

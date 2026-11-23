@@ -6,10 +6,6 @@ pub enum LocalBootStatus {
     NoOwnerClean,
     RetainedCleanup,
     Ready,
-    /// The real local Host/IPC is ready; no remote authority/runtime was created.
-    ReadyLocalOnly {
-        remote_unavailable: crate::remote::RemoteUnavailableReason,
-    },
 }
 #[derive(Clone, Debug)]
 pub struct LocalBootReport {
@@ -127,27 +123,24 @@ impl LocalBootstrap {
     }
     /// A foreground host process: serve on this thread until Stop, then retry
     /// cleanup until it is confirmed, also after a panic. `ready` runs once, when
-    /// local clients are first admitted; it receives why remote is unavailable.
+    /// local clients are first admitted.
     pub fn serve_foreground(
         data: &Path,
         helper: &Path,
         digest: [u8; 32],
         remote: RemoteBootOptions,
         runtime: &tokio::runtime::Runtime,
-        ready: impl FnOnce(Option<crate::remote::RemoteUnavailableReason>),
+        ready: impl FnOnce(),
     ) -> Result<()> {
         let mut bootstrap = Self::plan(data, helper, digest)?;
         let clean = std::cell::Cell::new(false);
         let ready = std::cell::Cell::new(Some(ready));
         let report = |report: LocalBootReport| {
             clean.set(report.status == LocalBootStatus::NoOwnerClean);
-            let unavailable = match report.status {
-                LocalBootStatus::Ready => None,
-                LocalBootStatus::ReadyLocalOnly { remote_unavailable } => Some(remote_unavailable),
-                LocalBootStatus::NoOwnerClean | LocalBootStatus::RetainedCleanup => return,
-            };
-            if let Some(ready) = ready.take() {
-                ready(unavailable);
+            if report.status == LocalBootStatus::Ready {
+                if let Some(ready) = ready.take() {
+                    ready();
+                }
             }
         };
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

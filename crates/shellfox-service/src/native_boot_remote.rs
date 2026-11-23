@@ -21,38 +21,28 @@ impl BootGuard {
         );
         self.providers.plan = options.native_providers;
         self.supervisor = Some(options.supervisor);
-        match self
+        let control = self
             .prepare_remote_envelope(options.facts, options.resources)
-            .await?
-        {
-            crate::remote::RemoteSetupOutcome::RemotePrepared { control } => {
-                self.remote_control = Some(control);
-                self.observer_factory_policy = options.observer_factory_policy;
-                self.install_source = Some(options.install_source);
-                let actor = self
-                    .actor
-                    .as_ref()
-                    .context("Original actor missing before remote install")?;
-                self.remote
-                    .as_ref()
-                    .context("Original remote envelope missing")?
-                    .install_dispatcher(actor, &self.server.stop)
-                    .await?;
-                self.publish_activate().await
-            }
-            crate::remote::RemoteSetupOutcome::LocalOnly { reason } => {
-                // A producer-selected static blocker, never an error fallback.
-                // Same acquired guard, first/only Host, no remote factories/control.
-                self.local_only = Some(reason);
-                self.start(()).await
-            }
-        }
+            .await?;
+        self.remote_control = Some(control);
+        self.observer_factory_policy = options.observer_factory_policy;
+        self.install_source = Some(options.install_source);
+        let actor = self
+            .actor
+            .as_ref()
+            .context("Original actor missing before remote install")?;
+        self.remote
+            .as_ref()
+            .context("Original remote envelope missing")?
+            .install_dispatcher(actor, &self.server.stop)
+            .await?;
+        self.publish_activate().await
     }
     pub(super) async fn prepare_remote_envelope(
         &mut self,
         facts: std::sync::Arc<dyn crate::remote::ManagerFactsProvider>,
         resources: impl Into<crate::remote::RemoteBootResources>,
-    ) -> Result<crate::remote::RemoteSetupOutcome> {
+    ) -> Result<crate::remote::RemoteControl> {
         anyhow::ensure!(self.remote.is_none(), "Remote envelope is already retained");
         self.server.ensure_running()?;
         self.control_files()?;
@@ -73,18 +63,11 @@ impl BootGuard {
             control_child,
             &ownership,
         ));
-        // Only the available branch starts the original actor before repository RPC.
-        // The static LocalOnly path still performs zero optional remote I/O.
-        if self
-            .remote
-            .as_ref()
-            .is_some_and(|remote| remote.requires_actor())
-        {
-            self.start_actor(()).await?;
-        }
+        // Approval persistence uses the original actor before repository RPC.
+        self.start_actor(()).await?;
         // The exact envelope owns all partial resources BEFORE borrowed IO.
         let acquired = self.preparation.acquired_view()?;
-        let outcome = self
+        let control = self
             .remote
             .as_mut()
             .context("Remote envelope missing")?
@@ -97,6 +80,6 @@ impl BootGuard {
             )
             .await
             .map_err(|error| anyhow::Error::new(RemoteInitializationFailure(error)))?;
-        Ok(outcome)
+        Ok(control)
     }
 }

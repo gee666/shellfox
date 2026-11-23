@@ -72,10 +72,7 @@ fn serve(arguments: &[OsString]) -> Result<()> {
         args.helper_sha256,
         remote,
         &runtime,
-        |unavailable| {
-            if unavailable.is_some() {
-                eprintln!("Local host ready. Remote unavailable: native approval storage review is pending.");
-            }
+        || {
             let mut stdout = std::io::stdout();
             let _ = writeln!(stdout, "{}", LocalBootstrap::DESKTOP_HOST_READY);
             let _ = stdout.flush();

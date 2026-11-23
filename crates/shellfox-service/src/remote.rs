@@ -68,8 +68,7 @@ pub use host::RemoteBackend;
 #[path = "remote_setup.rs"]
 mod setup;
 pub use setup::{
-    RemoteBootResources, RemoteHostSetup, RemoteResources, RemoteSetupOutcome,
-    RemoteUnavailableReason,
+    RemoteBootResources, RemoteHostSetup, RemoteResources,
 };
 #[path = "outgoing_v2.rs"]
 pub(crate) mod outgoing;

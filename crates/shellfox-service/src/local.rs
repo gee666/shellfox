@@ -168,7 +168,7 @@ async fn serve_retained_plan<D: crate::OwnerDispatcher + 'static>(
             }
             boot.server.ensure_running()?;
             report_cb(LocalBootReport {
-                status: boot.ready_status(),
+                status: LocalBootStatus::Ready,
                 shutdown: None,
                 endpoint: Some(boot.endpoint_report()),
             });
