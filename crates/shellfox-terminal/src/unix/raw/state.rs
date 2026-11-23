@@ -1,14 +1,10 @@
-use super::input::Input;
-use crate::{raw_process::io::Output, unix::cgroup::Cgroup};
+use super::{input::Input, owner::Owner};
+use crate::raw_process::io::Output;
 use anyhow::{ensure, Context, Result};
 use std::{
-    fs::File,
     io::{Read, Write},
-    os::{
-        fd::{AsRawFd, FromRawFd},
-        unix::net::UnixStream,
-    },
-    process::{Child, ExitStatus},
+    os::unix::net::UnixStream,
+    process::Child,
     thread::JoinHandle,
     time::{Duration, Instant},
 };
@@ -19,50 +15,37 @@ pub(super) struct GuestExit {
 }
 pub(super) struct Inner {
     pub child: Child,
-    pub pidfd: Option<File>,
-    pub group: Cgroup,
+    pub owner: Owner,
     pub assigned: bool,
     pub control: Option<UnixStream>,
     pub input: Option<Input>,
     pub output: Output,
     pub readers: Vec<JoinHandle<()>>,
     pub guest: Option<GuestExit>,
-    root: Option<ExitStatus>,
+    root: bool,
     frame: Vec<u8>,
     stop_sent: bool,
     removed: bool,
 }
 impl Inner {
-    pub fn new(child: Child, group: Cgroup) -> Self {
+    pub fn new(child: Child, owner: Owner) -> Self {
         Self {
             child,
-            group,
-            pidfd: None,
+            owner,
             assigned: false,
             control: None,
             input: None,
             output: Output::default(),
             readers: vec![],
             guest: None,
-            root: None,
+            root: false,
             frame: Vec::new(),
             stop_sent: false,
             removed: false,
         }
     }
-    pub fn pin(&mut self) -> Result<()> {
-        // Original Child is held unreaped, never a later lookup by a cached PID.
-        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, self.child.id(), 0) };
-        ensure!(
-            fd >= 0,
-            "pin original raw controller: {}",
-            std::io::Error::last_os_error()
-        );
-        self.pidfd = Some(unsafe { File::from_raw_fd(i32::try_from(fd)?) });
-        Ok(())
-    }
     pub fn attach(&mut self) -> Result<()> {
-        self.group.attach(self.child.id())?;
+        self.owner.attach(&self.child)?;
         self.assigned = true;
         Ok(())
     }
@@ -107,26 +90,26 @@ impl Inner {
     }
     fn observe(&mut self) -> Result<()> {
         self.read_report()?;
-        if self.root.is_none() {
-            self.root = self.child.try_wait()?;
+        if !self.root {
+            self.root = self.owner.exited(&mut self.child)?;
         }
         // A report may arrive between the first nonblocking read and waitpid.
         // Drain again after original-root exit before declaring status unknown.
-        if self.root.is_some() {
+        if self.root {
             self.read_report()?;
         }
         Ok(())
     }
     pub fn poll(&mut self) -> Result<Option<i32>> {
         self.observe()?;
-        if self.guest.is_some() || self.root.is_some() {
+        if self.guest.is_some() || self.root {
             if let Some(input) = &self.input {
                 input.close();
             }
             if self.assigned {
-                self.group.terminate()?;
+                self.owner.terminate()?;
             }
-            if self.root.is_some() && self.group.empty()? {
+            if self.root && self.owner.empty()? {
                 // Controller SIGKILL is cleanup, never the guest's exit code.
                 return self
                     .guest
@@ -138,7 +121,7 @@ impl Inner {
     }
     pub fn stop(&mut self) -> Result<bool> {
         self.observe()?;
-        if self.guest.is_some() || self.root.is_some() || self.stop_sent {
+        if self.guest.is_some() || self.root || self.stop_sent {
             return Ok(false);
         }
         if let Some(control) = &mut self.control {
@@ -160,35 +143,22 @@ impl Inner {
         }
         if self.assigned && self.control.is_some() {
             if self.stop().is_err() {
-                self.group.terminate()?;
+                self.owner.terminate()?;
             }
         } else if self.assigned {
-            self.group.terminate()?;
-        } else if let Some(fd) = &self.pidfd {
-            // Only the trusted unreleased controller exists before GO.
-            let ok = unsafe {
-                libc::syscall(
-                    libc::SYS_pidfd_send_signal,
-                    fd.as_raw_fd(),
-                    libc::SIGKILL,
-                    std::ptr::null::<libc::siginfo_t>(),
-                    0,
-                )
-            };
-            ensure!(
-                ok == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH),
-                "stop unreleased raw controller"
-            );
+            self.owner.terminate()?;
+        } else {
+            self.owner.stop_unreleased(&mut self.child)?;
         }
         let deadline = Instant::now() + Duration::from_secs(7);
         loop {
             self.observe()?;
-            if self.assigned && (self.guest.is_some() || self.root.is_some()) {
-                self.group.terminate()?;
+            if self.assigned && (self.guest.is_some() || self.root) {
+                self.owner.terminate()?;
             }
             let input_done = self.input.as_mut().map_or(Ok(true), Input::join)?;
-            if self.root.is_some()
-                && self.group.empty()?
+            if self.root
+                && self.owner.empty()?
                 && input_done
                 && self.readers.iter().all(JoinHandle::is_finished)
             {
@@ -205,7 +175,7 @@ impl Inner {
                 .join()
                 .map_err(|_| anyhow::anyhow!("raw output worker panicked"))?;
         }
-        self.group.remove()?;
+        self.owner.remove(&mut self.child)?;
         self.removed = true;
         Ok(())
     }

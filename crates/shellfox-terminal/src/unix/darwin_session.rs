@@ -1,6 +1,7 @@
 use super::{
     darwin_io::{PtyIo, Stop},
-    darwin_process::{exit_queue, Leader},
+    darwin_kqueue,
+    darwin_process::Leader,
 };
 use crate::{config::size, input::InputWriter, reader::OutputReader};
 use crate::{
@@ -81,7 +82,7 @@ impl PtySession {
             .chain(command.args)
             .collect::<Vec<_>>();
         let builder = config.builder(&argv)?;
-        let queue = exit_queue().context("create macOS PTY exit queue")?;
+        let queue = darwin_kqueue::queue().context("create macOS PTY exit queue")?;
         let (reaper, receiver) = mpsc::sync_channel::<State>(1);
         std::thread::Builder::new()
             .name("macos-pty-cleanup".into())

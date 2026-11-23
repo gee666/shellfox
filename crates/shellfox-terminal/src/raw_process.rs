@@ -6,13 +6,10 @@ pub(crate) mod io;
 #[cfg(windows)]
 #[path = "raw_process_windows.rs"]
 mod platform;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod platform {
     pub use crate::unix::raw::{RawProcess, RawSpawnError};
 }
-#[cfg(not(any(windows, target_os = "linux")))]
-#[path = "raw_process_unsupported.rs"]
-mod platform;
 #[cfg(windows)]
 #[path = "raw_process_supervisor.rs"]
 mod supervisor;
@@ -31,12 +28,8 @@ pub fn supervisor_entry() -> Option<u32> {
     {
         supervisor::entry()
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         crate::unix::raw::supervisor_entry()
-    }
-    #[cfg(not(any(windows, target_os = "linux")))]
-    {
-        None
     }
 }

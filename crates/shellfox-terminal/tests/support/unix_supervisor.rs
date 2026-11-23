@@ -93,6 +93,8 @@ fn fixture() -> anyhow::Result<bool> {
             }
             std::thread::sleep(Duration::from_millis(5));
         }
+        // Only the Linux production tests crash their pidfd-pinned controller.
+        #[cfg(target_os = "linux")]
         if mode == "--fixture-crash-controller" {
             let parent = unsafe { libc::getppid() };
             let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, parent, 0) };

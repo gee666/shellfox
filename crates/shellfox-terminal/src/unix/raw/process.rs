@@ -1,16 +1,8 @@
 use super::input::Input;
 use super::*;
-use crate::{
-    raw_process::RawStream,
-    unix::{cgroup::Cgroup, startup::Gate},
-    UnixPrivilegeMode,
-};
+use crate::raw_process::RawStream;
 use anyhow::ensure;
-use std::{
-    os::unix::process::CommandExt,
-    process::{Command, Stdio},
-    time::Duration,
-};
+use std::{process::Stdio, time::Duration};
 impl RawProcess {
     pub fn spawn(
         supervisor: &Path,
@@ -34,28 +26,16 @@ impl RawProcess {
         fail_cleanup: bool,
     ) -> std::result::Result<Self, RawSpawnError> {
         ensure_waitable_host()?;
-        let supervisor = crate::unix::private::helper_path(supervisor)?;
         let command = command.resolved()?;
         let specification = serde_json::to_vec(&command).map_err(anyhow::Error::from)?;
-        let group = Cgroup::create()?;
-        let gate = Gate::new()?;
-        let runner = crate::unix::private::helper_path(Path::new("/usr/bin/systemd-run"))?;
-        // Match the ordinary shareable PTY: the pinned supervisor and the
-        // target it execs must not gain privileges at exec time.
-        let uid = unsafe { libc::getuid() };
-        let mode = if binding.is_some() && uid != 0 && uid == unsafe { libc::geteuid() } {
-            UnixPrivilegeMode::NonElevating
-        } else {
-            UnixPrivilegeMode::Local
-        };
-        let arguments = crate::unix::linux::scope::scope_arguments(
-            &crate::unix::linux::scope::fresh_nonce()?,
-            &supervisor,
-            &gate.raw_arguments(mode),
-        )?;
+        let owner::Launch {
+            command: mut builder,
+            owner,
+            mut gate,
+        } = owner::prepare(supervisor, &command, binding.is_some())?;
         let (reaper, incoming) = mpsc::sync_channel::<Inner>(1);
         std::thread::Builder::new()
-            .name("linux-raw-cleanup".into())
+            .name("raw-cleanup".into())
             .spawn(move || {
                 while let Ok(mut inner) = incoming.recv() {
                     while inner.close().is_err() {
@@ -64,35 +44,17 @@ impl RawProcess {
                 }
             })
             .map_err(anyhow::Error::from)?;
-        // Target cwd/argv/env travel ONLY on the authenticated startup socket.
-        // No frame bytes are put in target stdin or the controller environment.
-        let mut builder = Command::new(runner);
         builder
-            .arg("--expand-environment=no")
-            .args(arguments)
             .current_dir("/")
-            .env_clear()
-            .env(
-                "DBUS_SESSION_BUS_ADDRESS",
-                format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() }),
-            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        unsafe {
-            builder.pre_exec(|| {
-                if libc::setsid() < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
         let child = builder
             .spawn()
             .map_err(|_| anyhow::anyhow!("Trusted raw controller launch failed"))?;
         let mut process = Self {
             pid: child.id(),
-            inner: Some(Inner::new(child, group)),
+            inner: Some(Inner::new(child, owner)),
             reaper,
             input_ended: false,
             ready: false,
@@ -104,29 +66,26 @@ impl RawProcess {
         let mut evidence = None;
         let startup = (|| -> Result<()> {
             let inner = process.inner.as_mut().context("Raw owner missing")?;
-            inner.pin()?;
-            inner.readers.push(inner.output.reader(
-                inner.child.stdout.take().context("Raw stdout missing")?,
-                RawStream::Stdout,
-            )?);
-            inner.readers.push(inner.output.reader(
-                inner.child.stderr.take().context("Raw stderr missing")?,
-                RawStream::Stderr,
-            )?);
+            inner.owner.pin(&inner.child)?;
+            let stdout = inner.child.stdout.take().context("Raw stdout missing")?;
+            let stdout = inner.owner.reader(stdout)?;
+            inner
+                .readers
+                .push(inner.output.reader(stdout, RawStream::Stdout)?);
+            let stderr = inner.child.stderr.take().context("Raw stderr missing")?;
+            let stderr = inner.owner.reader(stderr)?;
+            inner
+                .readers
+                .push(inner.output.reader(stderr, RawStream::Stderr)?);
             inner.input = Some(Input::start(
                 inner.child.stdin.take().context("Raw stdin missing")?,
             )?);
-            inner.control = Some(gate.release_raw(inner.child.id(), &specification, || {
+            inner.control = Some(gate.release(inner.child.id(), &specification, || {
                 ensure!(!deny_assignment, "Injected raw assignment denial before GO");
                 inner.attach()?;
                 ensure!(!skip_release, "Injected raw cancellation before GO");
                 if let Some(binding) = binding {
-                    evidence = Some(crate::launch_privilege::capture_raw_posix(
-                        binding,
-                        inner.child.id(),
-                        inner.pidfd.as_ref().context("Original raw pidfd missing")?,
-                        mode,
-                    )?);
+                    evidence = Some(inner.owner.evidence(binding, &inner.child)?);
                 }
                 Ok(())
             })?);

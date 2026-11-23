@@ -1,4 +1,7 @@
-#![cfg(all(target_os = "linux", feature = "test-support"))]
+#![cfg(all(
+    any(target_os = "linux", target_os = "macos"),
+    feature = "test-support"
+))]
 use shellfox_terminal::raw_process::{RawOutput, RawProcess, RawStream};
 use std::time::{Duration, Instant};
 #[path = "support/raw_unix.rs"]
@@ -47,7 +50,7 @@ fn tree(signal: Option<i32>, stop: bool) {
         },
     ]);
     let leaf = pin_leaf(&socket);
-    assert!(!exited(&leaf));
+    assert!(!leaf.exited());
     if let Some(signal) = signal {
         process.signal_controller_for_test(signal).unwrap();
     } else if stop {
@@ -57,7 +60,7 @@ fn tree(signal: Option<i32>, stop: bool) {
     }
     // No host polling or shutdown can help this observation. The persistent
     // controller must wait the real guest then kill its exact cgroup itself.
-    until(|| exited(&leaf));
+    until(|| leaf.exited());
     let code = collect(&mut process).2;
     assert_eq!(code, if signal.is_none() && !stop { 7 } else { 137 });
     assert_eq!(process.was_forcibly_stopped(), stop);
@@ -96,7 +99,7 @@ fn lost_original_controller_never_invents_guest137_or_finish() {
             Ok(status) => assert!(status.is_none(), "controller kill is not a guest exit"),
             Err(_) => unconfirmed = true,
         }
-        unconfirmed && exited(&leaf)
+        unconfirmed && leaf.exited()
     });
     assert_eq!(process.exit_code(), None);
     assert!(!process.was_forcibly_stopped());
@@ -189,18 +192,27 @@ fn raw_sealed_facts_prove_same_account_non_elevating_launch() {
     assert!(verifier.matches(&evidence));
     let facts = evidence.facts();
     assert_eq!(facts.purpose, LaunchFactoryPurpose::RawProgram);
-    assert_eq!(
-        facts.basis,
-        LaunchEvidenceBasis::OriginalPinnedPosixCredentials
-    );
     assert_eq!(facts.stage, LaunchEvidenceStage::BeforeRawGoConfirmedReady);
     assert_eq!(facts.privilege, LaunchPrivilege::Normal);
     assert!(facts.unknown.is_none());
     assert!(facts.token.is_none());
-    assert!(facts
-        .posix
-        .unwrap()
-        .is_non_elevating_account(unsafe { libc::getuid() }));
+    let uid = unsafe { libc::getuid() };
+    #[cfg(target_os = "linux")]
+    {
+        assert_eq!(
+            facts.basis,
+            LaunchEvidenceBasis::OriginalPinnedPosixCredentials
+        );
+        assert!(facts.posix.unwrap().is_non_elevating_account(uid));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        assert_eq!(
+            facts.basis,
+            LaunchEvidenceBasis::OriginalDarwinCredentials { uid }
+        );
+        assert!(facts.posix.is_none());
+    }
     process.request_stop().unwrap();
     assert_eq!(collect(&mut process).2, 137);
 }
@@ -221,11 +233,11 @@ fn retained_raw_failure_does_not_publish_launch_evidence_or_accept_input() {
     .unwrap_err();
     let mut retained = error.take_process().expect("original resources retained");
     let leaf = pin_leaf(&socket);
-    assert!(!exited(&leaf));
+    assert!(!leaf.exited());
     assert!(retained.take_launch_evidence().is_none());
     assert!(retained.write(vec![42], false).is_err());
     retained.close().unwrap();
-    until(|| exited(&leaf));
+    until(|| leaf.exited());
     std::fs::remove_file(socket).unwrap();
 }
 #[test]

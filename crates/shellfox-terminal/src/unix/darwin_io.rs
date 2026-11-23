@@ -19,18 +19,19 @@ impl PtyIo {
     pub fn pair(fd: RawFd, stop: Arc<Stop>) -> io::Result<(Self, Self)> {
         // portable-pty owns the master; each worker keeps its own descriptor.
         let file = File::from(unsafe { BorrowedFd::borrow_raw(fd) }.try_clone_to_owned()?);
+        let reader = Self::new(file.try_clone()?, Arc::clone(&stop))?;
+        Ok((reader, Self { file, stop }))
+    }
+
+    /// Also used for raw pipes, which an escaped descendant can hold open.
+    pub fn new(file: File, stop: Arc<Stop>) -> io::Result<Self> {
+        let fd = file.as_raw_fd();
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags == -1 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1
         {
             return Err(io::Error::last_os_error());
         }
-        Ok((
-            Self {
-                file: file.try_clone()?,
-                stop: Arc::clone(&stop),
-            },
-            Self { file, stop },
-        ))
+        Ok(Self { file, stop })
     }
 
     fn ready(&self, events: libc::c_short) -> io::Result<bool> {

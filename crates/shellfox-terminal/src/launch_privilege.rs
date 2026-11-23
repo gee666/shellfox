@@ -134,6 +134,23 @@ pub(crate) fn capture_darwin(binding: NativeLaunchBinding, uid: u32) -> NativeLa
         },
     }
 }
+/// The raw controller's own credentials before GO. A setuid/setgid target can
+/// still change them at exec, so its launch is not certified as Normal.
+#[cfg(target_os = "macos")]
+pub(crate) fn capture_darwin_raw(
+    binding: NativeLaunchBinding,
+    uid: u32,
+    setid_target: bool,
+) -> NativeLaunchEvidence {
+    let mut evidence = capture_darwin(binding, uid);
+    evidence.facts.purpose = LaunchFactoryPurpose::RawProgram;
+    evidence.facts.stage = LaunchEvidenceStage::BeforeRawGoConfirmedReady;
+    if setid_target && uid != 0 {
+        evidence.facts.privilege = LaunchPrivilege::Unknown;
+        evidence.facts.unknown = Some(LaunchUnknownReason::UnrestrictedPosixLaunch);
+    }
+    evidence
+}
 
 #[cfg(target_os = "linux")]
 #[path = "launch_privilege_posix.rs"]

@@ -13,7 +13,7 @@ fn main() -> anyhow::Result<()> {
     }
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         Some("unix-leaf") => {
             use std::os::unix::net::UnixListener;
             unsafe {
@@ -24,14 +24,21 @@ fn main() -> anyhow::Result<()> {
                 let _ = listener.accept()?;
             }
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         Some("unix-branch") => {
             use std::os::unix::process::CommandExt;
             let mut leaf = Command::new(std::env::current_exe()?);
             leaf.args(["unix-leaf", &args[1]]);
+            // Linux contains a setsid escape in the cgroup. A macOS session
+            // cannot, so there the leaf only leaves its parent's process group.
             unsafe {
                 leaf.pre_exec(|| {
-                    if libc::setsid() < 0 {
+                    let left = if cfg!(target_os = "linux") {
+                        libc::setsid()
+                    } else {
+                        libc::setpgid(0, 0)
+                    };
+                    if left < 0 {
                         return Err(io::Error::last_os_error());
                     }
                     Ok(())
@@ -50,14 +57,14 @@ fn main() -> anyhow::Result<()> {
                 std::thread::sleep(Duration::from_secs(1));
             }
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         Some("unix-self-kill") => {
             unsafe {
                 libc::raise(libc::SIGKILL);
             }
             unreachable!();
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(unix)]
         Some("unix-close-input") => {
             unsafe {
                 libc::close(0);

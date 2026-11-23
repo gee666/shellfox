@@ -2,7 +2,6 @@ use anyhow::Result;
 #[path = "raw_process_stdin_error.rs"]
 mod stdin_error;
 use std::sync::mpsc::{self, Receiver};
-#[cfg(any(windows, target_os = "linux", test))]
 pub(crate) use stdin_error::StdinFailure;
 pub use stdin_error::{AutomationStdinClosed, AutomationStdinIoError, AutomationStdinUnavailable};
 #[cfg(windows)]
@@ -10,10 +9,8 @@ pub use stdin_error::{AutomationStdinClosed, AutomationStdinIoError, AutomationS
 mod workers;
 #[cfg(windows)]
 pub(super) use workers::Input;
-#[cfg(any(windows, target_os = "linux"))]
 #[path = "raw_process_output.rs"]
 mod output;
-#[cfg(any(windows, target_os = "linux"))]
 pub(crate) use output::Output;
 
 #[cfg(test)]

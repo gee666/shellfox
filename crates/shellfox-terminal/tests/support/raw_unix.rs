@@ -95,13 +95,33 @@ pub fn until(mut check: impl FnMut() -> bool) {
         std::thread::sleep(Duration::from_millis(2));
     }
 }
-pub fn pin_leaf(path: &std::path::Path) -> File {
+/// The leaf fixture, pinned so that its exit is observed, not its PID reused.
+pub struct Leaf {
+    pin: File,
+    exited: std::cell::Cell<bool>,
+}
+pub fn pin_leaf(path: &std::path::Path) -> Leaf {
     let mut stream = None;
     until(|| {
         stream = UnixStream::connect(path).ok();
         stream.is_some()
     });
     let stream = stream.unwrap();
+    Leaf {
+        pin: pin(peer_pid(&stream)),
+        exited: Default::default(),
+    }
+}
+impl Leaf {
+    pub fn exited(&self) -> bool {
+        if !self.exited.get() {
+            self.exited.set(observe_exit(&self.pin));
+        }
+        self.exited.get()
+    }
+}
+#[cfg(target_os = "linux")]
+fn peer_pid(stream: &UnixStream) -> libc::pid_t {
     let mut peer: libc::ucred = unsafe { std::mem::zeroed() };
     let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
     assert_eq!(
@@ -116,15 +136,69 @@ pub fn pin_leaf(path: &std::path::Path) -> File {
         },
         0
     );
-    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, peer.pid, 0) };
+    peer.pid
+}
+#[cfg(target_os = "macos")]
+fn peer_pid(stream: &UnixStream) -> libc::pid_t {
+    let mut pid: libc::pid_t = 0;
+    let mut length = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    assert_eq!(
+        unsafe {
+            libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::SOL_LOCAL,
+                libc::LOCAL_PEERPID,
+                (&mut pid as *mut libc::pid_t).cast(),
+                &mut length,
+            )
+        },
+        0
+    );
+    pid
+}
+#[cfg(target_os = "linux")]
+fn pin(pid: libc::pid_t) -> File {
+    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
     assert!(fd >= 0);
     unsafe { File::from_raw_fd(i32::try_from(fd).unwrap()) }
 }
-pub fn exited(fd: &File) -> bool {
+#[cfg(target_os = "linux")]
+fn observe_exit(pidfd: &File) -> bool {
     let mut poll = libc::pollfd {
-        fd: fd.as_raw_fd(),
+        fd: pidfd.as_raw_fd(),
         events: libc::POLLIN,
         revents: 0,
     };
     unsafe { libc::poll(&mut poll, 1, 0) == 1 && poll.revents & libc::POLLIN != 0 }
+}
+/// A kqueue with the leaf's NOTE_EXIT registered while it is still alive.
+#[cfg(target_os = "macos")]
+fn pin(pid: libc::pid_t) -> File {
+    let queue = unsafe { File::from_raw_fd(libc::kqueue()) };
+    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+    event.ident = pid as usize;
+    event.filter = libc::EVFILT_PROC;
+    event.flags = libc::EV_ADD | libc::EV_ONESHOT;
+    event.fflags = libc::NOTE_EXIT;
+    let added = unsafe {
+        libc::kevent(
+            queue.as_raw_fd(),
+            &event,
+            1,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null(),
+        )
+    };
+    assert_eq!(added, 0);
+    queue
+}
+#[cfg(target_os = "macos")]
+fn observe_exit(queue: &File) -> bool {
+    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
+    let now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    unsafe { libc::kevent(queue.as_raw_fd(), std::ptr::null(), 0, &mut event, 1, &now) == 1 }
 }

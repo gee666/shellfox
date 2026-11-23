@@ -229,9 +229,9 @@ pub(crate) fn channel_with_policy(
 ) -> (ExternalSource, ExternalOwner) {
     let (sender, receiver) = mpsc::sync_channel(EXTERNAL_FEED_CAPACITY);
     let status = Arc::new(Mutex::new(ExternalStatus::default()));
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     let purpose = crate::LaunchFactoryPurpose::RawProgram;
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     let purpose = crate::LaunchFactoryPurpose::StandardRawCreateProcess;
     let (launch, launch_binding) = crate::launch::new(purpose);
     (

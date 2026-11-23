@@ -1,8 +1,8 @@
+use super::darwin_kqueue as kqueue;
 use anyhow::{ensure, Context, Result};
 use portable_pty::{Child, ExitStatus};
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd};
 use std::time::{Duration, Instant};
 
 type Pid = libc::pid_t;
@@ -10,23 +10,11 @@ const SIGNAL_GRACE: Duration = Duration::from_secs(3);
 const SWEEP_INTERVAL: Duration = Duration::from_millis(40);
 // Values from Darwin's <sys/proc_info.h>.
 const PROC_UID_ONLY: u32 = 4;
-const PROC_FLAG_PSUGID: u32 = 0x2000;
+pub(crate) const PROC_FLAG_PSUGID: u32 = 0x2000;
 const MAX_PIDS: usize = 65_536;
 
 #[link(name = "proc")]
 extern "C" {}
-
-pub(super) fn exit_queue() -> io::Result<File> {
-    let fd = unsafe { libc::kqueue() };
-    if fd < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let queue = unsafe { File::from_raw_fd(fd) };
-    if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(queue)
-}
 
 pub(super) struct Leader {
     child: Box<dyn Child + Send + Sync>,
@@ -72,81 +60,24 @@ impl Leader {
                 && info.pbi_flags & PROC_FLAG_PSUGID == 0,
             "original macOS PTY credentials changed at launch"
         );
-        let mut event: libc::kevent = unsafe { std::mem::zeroed() };
-        event.ident = self.sid as usize;
-        event.filter = libc::EVFILT_PROC;
-        event.flags = libc::EV_ADD | libc::EV_ONESHOT;
-        event.fflags = libc::NOTE_EXIT;
-        let result = unsafe {
-            libc::kevent(
-                self.queue.as_raw_fd(),
-                &event,
-                1,
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null(),
-            )
-        };
-        if result == 0 {
-            self.watching = true;
-        } else {
-            let error = io::Error::last_os_error();
+        match kqueue::watch_exit(&self.queue, self.sid) {
+            Ok(true) => self.watching = true,
             // A short-lived program may already have exited. Leave its status
             // waitable so cleanup still owns the same numeric group ID.
-            if error.raw_os_error() != Some(libc::ESRCH) || !self.observe_exit()? {
-                return Err(error).context("register macOS PTY child exit notification");
-            }
+            Ok(false) if self.observe_exit()? => (),
+            Ok(false) => anyhow::bail!("macOS PTY child exit notification unavailable"),
+            Err(error) => return Err(error).context("register macOS PTY child exit notification"),
         }
         Ok(self.uid)
     }
-
     fn observe_exit(&mut self) -> io::Result<bool> {
         if !self.exited {
-            if self.watching {
-                let mut event: libc::kevent = unsafe { std::mem::zeroed() };
-                let now = libc::timespec {
-                    tv_sec: 0,
-                    tv_nsec: 0,
-                };
-                let count = unsafe {
-                    libc::kevent(
-                        self.queue.as_raw_fd(),
-                        std::ptr::null(),
-                        0,
-                        &mut event,
-                        1,
-                        &now,
-                    )
-                };
-                match count {
-                    1 => self.exited = event.fflags & libc::NOTE_EXIT != 0,
-                    0 => (),
-                    _ => {
-                        let error = io::Error::last_os_error();
-                        if error.kind() != io::ErrorKind::Interrupted {
-                            return Err(error);
-                        }
-                    }
-                }
+            self.exited = if self.watching {
+                kqueue::next(&self.queue, Some(Duration::ZERO))?
+                    .is_some_and(|event| event.fflags & libc::NOTE_EXIT != 0)
             } else {
-                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-                if unsafe {
-                    libc::waitid(
-                        libc::P_PID,
-                        self.sid as libc::id_t,
-                        &mut info,
-                        libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
-                    )
-                } == 0
-                {
-                    self.exited = unsafe { info.si_pid() } == self.sid;
-                } else {
-                    let error = io::Error::last_os_error();
-                    if error.kind() != io::ErrorKind::Interrupted {
-                        return Err(error);
-                    }
-                }
-            }
+                kqueue::child_exited(self.sid)?
+            };
         }
         Ok(self.exited)
     }
@@ -196,54 +127,64 @@ impl Leader {
     }
 
     fn sweep(&self, force: bool) -> bool {
-        let mut remaining = false;
-        // A shell may create more process groups in the same session for job
-        // control. Include reparented same-session members. An independent
-        // setsid can escape this best-effort sweep; this is not containment.
-        let mut pids = list_pids(|buf, size| {
-            // The convenience API returns PID count; proc_listpids returns bytes.
-            unsafe { libc::proc_listchildpids(self.sid, buf, size) }
-                .saturating_mul(size_of::<Pid>() as libc::c_int)
-        });
-        pids.extend(list_pids(|buf, size| unsafe {
-            libc::proc_listpids(PROC_UID_ONLY, self.uid, buf, size)
-        }));
-        pids.sort_unstable();
-        pids.dedup();
-        for pid in pids {
-            if pid <= 1 || pid == self.sid || unsafe { libc::getsid(pid) } != self.sid {
-                continue;
-            }
-            let Some(member) = process_info(pid, false) else {
-                continue;
-            };
-            if [member.pbi_ruid, member.pbi_uid, member.pbi_svuid] != [self.uid; 3] {
-                continue;
-            }
-            remaining = true;
-            let same_member = |pid| {
-                process_info(pid, false).is_some_and(|info| {
-                    info.pbi_start_tvsec == member.pbi_start_tvsec
-                        && info.pbi_start_tvusec == member.pbi_start_tvusec
-                        && [info.pbi_ruid, info.pbi_uid, info.pbi_svuid] == [self.uid; 3]
-                }) && unsafe { libc::getsid(pid) } == self.sid
-            };
-            // Recheck birth, session and credentials immediately before each
-            // individual signal. Darwin has no pidfd for arbitrary members.
-            if force && same_member(pid) {
-                let _ = signal(pid, libc::SIGKILL);
-            } else if !force && member.pbi_pgid != self.sid as u32 && same_member(pid) {
-                let _ = signal(pid, libc::SIGHUP);
-                if same_member(pid) {
-                    let _ = signal(pid, libc::SIGTERM);
-                }
-            }
-        }
-        remaining
+        sweep_session(self.sid, self.uid, force)
     }
 }
 
-fn process_info(pid: Pid, include_zombie: bool) -> Option<libc::proc_bsdinfo> {
+/// Live members of session `sid` run by `uid`, except the leader. A shell may
+/// create more process groups in the same session for job control; reparented
+/// members count too. An independent setsid escapes; this is not containment.
+fn session_members(sid: Pid, uid: libc::uid_t) -> Vec<(Pid, libc::proc_bsdinfo)> {
+    let mut pids = list_pids(|buf, size| {
+        // The convenience API returns PID count; proc_listpids returns bytes.
+        unsafe { libc::proc_listchildpids(sid, buf, size) }
+            .saturating_mul(size_of::<Pid>() as libc::c_int)
+    });
+    pids.extend(list_pids(|buf, size| unsafe {
+        libc::proc_listpids(PROC_UID_ONLY, uid, buf, size)
+    }));
+    pids.sort_unstable();
+    pids.dedup();
+    pids.into_iter()
+        .filter(|pid| *pid > 1 && *pid != sid && unsafe { libc::getsid(*pid) } == sid)
+        .filter_map(|pid| Some((pid, process_info(pid, false).filter(|m| own(m, uid))?)))
+        .collect()
+}
+
+/// PIDs of the live members other than the leader.
+pub(crate) fn session_member_pids(sid: Pid, uid: libc::uid_t) -> Vec<Pid> {
+    session_members(sid, uid)
+        .into_iter()
+        .map(|(pid, _)| pid)
+        .collect()
+}
+
+/// Signals the members other than the leader: SIGKILL when `force`, else
+/// HUP/TERM to those outside the leader's group. True if any were found.
+pub(crate) fn sweep_session(sid: Pid, uid: libc::uid_t, force: bool) -> bool {
+    let members = session_members(sid, uid);
+    for (pid, member) in &members {
+        let pid = *pid;
+        let same_member = |pid| {
+            process_info(pid, false)
+                .is_some_and(|info| birth(&info) == birth(member) && own(&info, uid))
+                && unsafe { libc::getsid(pid) } == sid
+        };
+        // Recheck birth, session and credentials immediately before each
+        // individual signal. Darwin has no pidfd for arbitrary members.
+        if force && same_member(pid) {
+            let _ = signal(pid, libc::SIGKILL);
+        } else if !force && member.pbi_pgid != sid as u32 && same_member(pid) {
+            let _ = signal(pid, libc::SIGHUP);
+            if same_member(pid) {
+                let _ = signal(pid, libc::SIGTERM);
+            }
+        }
+    }
+    !members.is_empty()
+}
+
+pub(crate) fn process_info(pid: Pid, include_zombie: bool) -> Option<libc::proc_bsdinfo> {
     let mut result: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
     let bytes = unsafe {
@@ -271,7 +212,7 @@ fn list_pids(list: impl Fn(*mut libc::c_void, libc::c_int) -> libc::c_int) -> Ve
     }
 }
 
-fn signal(target: Pid, signal: libc::c_int) -> io::Result<()> {
+pub(crate) fn signal(target: Pid, signal: libc::c_int) -> io::Result<()> {
     if unsafe { libc::kill(target, signal) } == 0 {
         return Ok(());
     }

@@ -41,6 +41,16 @@ fn normal_raw_launch(facts: &LaunchPrivilegeFacts) -> bool {
                     .posix
                     .is_some_and(|p| p.is_non_elevating_account(owner.as_raw()))
         }
+        // A same-account, non-root controller whose target has no setuid/setgid bit.
+        #[cfg(target_os = "macos")]
+        (Purpose::RawProgram, Basis::OriginalDarwinCredentials { uid }) => {
+            let owner = rustix::process::getuid();
+            uid != 0
+                && uid == owner.as_raw()
+                && owner == rustix::process::geteuid()
+                && facts.token.is_none()
+                && facts.posix.is_none()
+        }
         _ => false,
     }
 }

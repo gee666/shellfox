@@ -1,24 +1,28 @@
 //! Unix lifecycle contracts and native ownership adapters.
 //!
-//! Linux isolates sessions with cgroup v2. Darwin uses an original session
-//! leader and best-effort cleanup within its session ID.
+//! Linux isolates sessions and automation runs with cgroup v2. Darwin uses an
+//! original session leader and best-effort cleanup within its session ID.
 #[cfg(target_os = "linux")]
 mod cgroup;
 #[cfg(target_os = "macos")]
 mod darwin_io;
+#[cfg(target_os = "macos")]
+mod darwin_kqueue;
 #[cfg(target_os = "macos")]
 pub(crate) mod darwin_process;
 #[cfg(target_os = "macos")]
 pub(crate) mod darwin_session;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod environment;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod handshake;
 mod lifecycle;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod private;
 #[cfg(target_os = "linux")]
 pub(crate) mod production_supervisor;
 mod protocol;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod raw;
 #[cfg(target_os = "linux")]
 pub(crate) mod session;

@@ -65,13 +65,11 @@ impl fmt::Display for AutomationStdinUnavailable {
 }
 impl std::error::Error for AutomationStdinUnavailable {}
 
-#[cfg(any(windows, target_os = "linux", test))]
 #[derive(Clone)]
 pub(crate) enum StdinFailure {
     Closed(AutomationStdinClosed),
     Io(AutomationStdinIoError),
 }
-#[cfg(any(windows, target_os = "linux", test))]
 impl StdinFailure {
     pub fn known_closed() -> Self {
         Self::Closed(AutomationStdinClosed::known())

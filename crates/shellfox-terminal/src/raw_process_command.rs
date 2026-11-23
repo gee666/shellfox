@@ -188,7 +188,7 @@ fn resolve(command: &RawCommand) -> Result<PathBuf> {
         "Automation executable not found. Invoke batch scripts explicitly through cmd.exe."
     )
 }
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn resolve(command: &RawCommand) -> Result<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
     let program = Path::new(&command.executable);
@@ -218,12 +218,6 @@ fn resolve(command: &RawCommand) -> Result<PathBuf> {
         }
     }
     anyhow::bail!("Automation executable not found in the explicit cwd/PATH.")
-}
-#[cfg(not(any(windows, target_os = "linux")))]
-fn resolve(_command: &RawCommand) -> Result<PathBuf> {
-    // Do not add std::Child/killpg here. Unix raw launch needs the pidfd/subreaper
-    // or authenticated native supervisor, which this platform doesn't have yet.
-    anyhow::bail!("Automation processes are not supported on this platform yet.")
 }
 #[cfg(windows)]
 fn windows_command_units(command: &RawCommand) -> usize {

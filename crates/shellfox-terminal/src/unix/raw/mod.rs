@@ -1,8 +1,21 @@
-//! Ordinary byte pipes under the reviewed cgroup-v2/original-controller boundary.
+//! Ordinary byte pipes under an original controller that owns the target's
+//! process tree: a cgroup v2 scope on Linux, its own session on macOS.
+mod controller;
 mod exec;
 mod input;
+#[cfg(target_os = "linux")]
+#[path = "owner_linux.rs"]
+mod owner;
+#[cfg(target_os = "macos")]
+#[path = "owner_darwin.rs"]
+mod owner;
 mod process;
 mod state;
+#[cfg(target_os = "linux")]
+#[path = "supervisor_linux.rs"]
+mod supervisor;
+#[cfg(target_os = "macos")]
+#[path = "supervisor_darwin.rs"]
 mod supervisor;
 use crate::launch_privilege::{NativeLaunchBinding, NativeLaunchEvidence};
 use crate::raw_process::{RawCommand, RawOutput, WriteReceipt};
@@ -15,7 +28,10 @@ use std::{
         Mutex,
     },
 };
+#[cfg(target_os = "linux")]
 pub(super) const FLAG: &str = "--shellfox-linux-raw-v1";
+#[cfg(target_os = "macos")]
+pub(super) const FLAG: &str = "--shellfox-darwin-raw-v1";
 pub(crate) fn supervisor_entry() -> Option<u32> {
     supervisor::entry()
 }
@@ -111,7 +127,7 @@ impl RawProcess {
         inner.output.set_wake(wake.clone());
         // The controller is in the group and exits only after reporting the
         // guest's status, so "empty" is when poll_exit can finish.
-        inner.group.watch(wake)
+        inner.owner.watch(&inner.child, wake)
     }
     pub fn poll_exit(&mut self) -> Result<Option<i32>> {
         self.inner.as_mut().map_or(Ok(None), Inner::poll)
@@ -148,7 +164,6 @@ impl RawProcess {
     }
     #[cfg(feature = "test-support")]
     pub fn signal_controller_for_test(&self, signal: i32) -> Result<()> {
-        use std::os::fd::AsRawFd;
         anyhow::ensure!(
             matches!(
                 signal,
@@ -156,24 +171,8 @@ impl RawProcess {
             ),
             "invalid controller signal"
         );
-        let fd = self
-            .inner
-            .as_ref()
-            .and_then(|inner| inner.pidfd.as_ref())
-            .context("missing original pidfd")?;
-        anyhow::ensure!(
-            unsafe {
-                libc::syscall(
-                    libc::SYS_pidfd_send_signal,
-                    fd.as_raw_fd(),
-                    signal,
-                    std::ptr::null::<libc::siginfo_t>(),
-                    0,
-                )
-            } == 0,
-            "signal original raw controller"
-        );
-        Ok(())
+        let inner = self.inner.as_ref().context("Raw owner unavailable")?;
+        inner.owner.signal_controller(&inner.child, signal)
     }
 }
 impl Drop for RawProcess {

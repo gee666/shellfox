@@ -1,6 +1,5 @@
 //! Linux abstract socket capability plus exact SO_PEERCRED, never a PID lookup.
-use anyhow::{ensure, Context, Result};
-use std::io::{Read, Write};
+use anyhow::{ensure, Result};
 use std::os::fd::AsRawFd;
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::net::{SocketAddr, UnixListener, UnixStream};
@@ -62,7 +61,7 @@ impl Gate {
         args
     }
     pub fn release(&self, pid: u32, before_go: impl FnOnce() -> Result<()>) -> Result<UnixStream> {
-        self.release_payload(pid, &[], before_go)
+        self.release_raw(pid, &[], before_go)
     }
     pub fn raw_arguments(&self, mode: crate::UnixPrivilegeMode) -> Vec<std::ffi::OsString> {
         vec![
@@ -78,44 +77,17 @@ impl Gate {
         payload: &[u8],
         before_go: impl FnOnce() -> Result<()>,
     ) -> Result<UnixStream> {
-        ensure!(
-            payload.len() <= crate::raw_process::command::MAX_CONFIG_BYTES,
-            "raw startup payload exceeds bound"
-        );
-        self.release_payload(pid, payload, before_go)
-    }
-    fn release_payload(
-        &self,
-        pid: u32,
-        payload: &[u8],
-        before_go: impl FnOnce() -> Result<()>,
-    ) -> Result<UnixStream> {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             match self.listener.accept() {
-                Ok((mut stream, _)) => {
+                Ok((stream, _)) => {
                     let credentials = peer(&stream)?;
                     if credentials.pid != pid as libc::pid_t
                         || credentials.uid != unsafe { libc::getuid() }
                     {
                         continue;
                     }
-                    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-                    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-                    let mut ready = [0; 6];
-                    stream.read_exact(&mut ready)?;
-                    ensure!(&ready == b"READY\n", "invalid PTY startup frame");
-                    before_go()?;
-                    stream.write_all(b"GO\n")?;
-                    stream.write_all(&(payload.len() as u32).to_le_bytes())?;
-                    stream.write_all(payload)?;
-                    let mut started = [0; 6];
-                    stream
-                        .read_exact(&mut started)
-                        .context("owned PTY command failed before START")?;
-                    ensure!(&started == b"START\n", "owned PTY exec failed");
-                    stream.set_nonblocking(true)?;
-                    return Ok(stream);
+                    return super::handshake::release(stream, payload, before_go);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => (),
                 Err(error) => return Err(error.into()),
