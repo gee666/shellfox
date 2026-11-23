@@ -6,6 +6,7 @@ impl Service {
         for tab in tabs {
             let _ = self.drain(tab);
         }
+        self.pump_closing();
         let _ = self.pump_grant_retirements();
         self.pump_native_catalog();
         self.pump_automation();

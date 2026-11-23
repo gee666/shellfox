@@ -6,6 +6,7 @@ mod electron_import;
 pub mod app_composition;
 pub mod app_paths;
 pub mod automation;
+mod close;
 mod creation;
 pub mod desktop_launch;
 pub mod desktop_session;
@@ -51,7 +52,7 @@ mod tab_stats;
 mod tests;
 
 use anyhow::{bail, Context, Result};
-use shellfox_core::{PreparedClose, Snapshot, TabId, TerminalIdentity};
+use shellfox_core::{Snapshot, TabId, TerminalIdentity};
 use shellfox_host::Host;
 use shellfox_runtime::Phase;
 use std::{
@@ -105,6 +106,7 @@ pub struct Service {
     ownership_lost: shellfox_protocol::CancellationToken,
     stopping: bool,
     metadata_closing: bool,
+    closing: Option<close::Closing>,
     automation: owner_automation::AutomationState,
     ssh_profiles: Option<crate::ssh::Store>,
     system_native_handler: Option<std::sync::Arc<system::SystemNativeHandler>>,
@@ -120,138 +122,14 @@ impl Service {
     pub(crate) fn host(&self) -> &Host {
         &self.host
     }
-    fn during_metadata_close<T>(
-        &mut self,
-        operation: impl FnOnce(&mut Self) -> Result<T>,
-    ) -> Result<T> {
-        if self.metadata_closing {
-            bail!("Metadata cleanup is already active.");
-        }
-        self.metadata_closing = true;
-        let result = operation(self);
-        self.metadata_closing = false;
-        result
-    }
     pub fn close_tab(&mut self, id: TabId) -> Result<Snapshot> {
-        self.close_tab_using(id, |host| host.prepare_close_tab(id))
+        self.close_now(close::CloseTarget::Tab(id))
     }
     pub(crate) fn close_terminal(&mut self, identity: TerminalIdentity) -> Result<Snapshot> {
-        self.close_tab_using(identity.tab_id, |host| host.prepare_close_terminal(identity))
-    }
-    fn close_tab_using(&mut self, id: TabId, prepare: impl FnOnce(&Host) -> shellfox_core::Result<PreparedClose>) -> Result<Snapshot> {
-        self.assert_owned()?;
-        self.during_metadata_close(|service| {
-            let prepared = prepare(&service.host)?;
-            if let Err(error) = service.close_external_for_tab(id) {
-                service.host.cancel_close(prepared.token)?;
-                return Err(error);
-            }
-            let snapshot = service.finish_close(prepared)?;
-            service.forget_closed_external(id);
-            Ok(snapshot)
-        })
+        self.close_now(close::CloseTarget::Terminal(identity))
     }
     pub fn delete_session(&mut self, id: shellfox_core::SessionId) -> Result<Snapshot> {
-        self.assert_owned()?;
-        self.during_metadata_close(|service| {
-            let tabs: Vec<_> = service
-                .host
-                .snapshot()?
-                .sessions
-                .iter()
-                .find(|session| session.id == id)
-                .map(|session| session.tabs.iter().map(|tab| tab.id).collect())
-                .unwrap_or_default();
-            let prepared = service.host.prepare_delete_session(id)?;
-            for tab in &tabs {
-                if let Err(error) = service.close_external_for_tab(*tab) {
-                    service.host.cancel_close(prepared.token)?;
-                    return Err(error);
-                }
-            }
-            let snapshot = service.finish_close(prepared)?;
-            for tab in tabs {
-                service.forget_closed_external(tab);
-            }
-            service.activity.persistence.forget_session(id);
-            Ok(snapshot)
-        })
-    }
-    fn finish_close(&mut self, prepared: PreparedClose) -> Result<Snapshot> {
-        for identity in &prepared.terminals {
-            if let Err(error) = self.stop_terminal(*identity) {
-                self.host.cancel_close(prepared.token)?;
-                return Err(error);
-            }
-        }
-        // stop_terminal removes each generation only after Runtime phase Closed.
-        // Native loss while waiting must never permit the metadata commit.
-        if let Err(error) = self.assert_owned() {
-            self.host.cancel_close(prepared.token)?;
-            return Err(error);
-        }
-        match self.host.commit_close(prepared.token) {
-            Ok(snapshot) => Ok(snapshot),
-            Err(error) => {
-                self.host.cancel_close(prepared.token)?;
-                Err(error.into())
-            }
-        }
-    }
-    fn stop_terminal(&mut self, identity: TerminalIdentity) -> Result<()> {
-        self.begin_terminal_stop(identity)?;
-        self.confirm_terminal_stop(identity, Instant::now() + Duration::from_secs(12))
-    }
-    fn begin_terminal_stop(&mut self, identity: TerminalIdentity) -> Result<()> {
-        let terminal = self
-            .terminals
-            .get_mut(&identity.tab_id)
-            .context("Registered terminal owner is missing; cleanup cannot be confirmed.")?;
-        let runtime = &terminal.runtime;
-        if runtime.identity().generation != identity.generation {
-            bail!("Terminal generation changed.");
-        }
-        if runtime.source_kind() != shellfox_runtime::SourceKind::ExternalBytes
-            && runtime.phase() != Phase::Closed
-        {
-            terminal.discard_output();
-            self.request_close(identity.tab_id)?;
-        }
-        Ok(())
-    }
-    fn confirm_terminal_stop(
-        &mut self,
-        identity: TerminalIdentity,
-        deadline: Instant,
-    ) -> Result<()> {
-        if self.terminals[&identity.tab_id].runtime.source_kind()
-            == shellfox_runtime::SourceKind::ExternalBytes
-        {
-            return self.close_external_parser(identity);
-        }
-        self.wait_until(
-            deadline,
-            |service| {
-                if let Some(terminal) = service.terminals.get_mut(&identity.tab_id) {
-                    terminal.discard_output();
-                }
-                service.drain(identity.tab_id)?;
-                let terminal = service
-                    .terminals
-                    .get(&identity.tab_id)
-                    .context("Terminal owner disappeared.")?;
-                Ok((terminal.runtime.phase() == Phase::Closed).then_some(()))
-            },
-            || anyhow::anyhow!("Owned terminal cleanup not confirmed; metadata retained."),
-        )?;
-        let runtime_identity = self.terminals[&identity.tab_id].runtime.identity();
-        self.host.terminal_stopped(identity)?;
-        self.activity_collect_live();
-        self.activity_confirmed_exit(runtime_identity);
-        self.forget_activity(runtime_identity);
-        self.terminals.remove(&identity.tab_id);
-        self.ownership_source_destroyed(runtime_identity);
-        Ok(())
+        self.close_now(close::CloseTarget::Session(id))
     }
     /// Must succeed before the endpoint disappears or metadata ownership releases.
     /// An error retains every unconfirmed runtime and the database lock for retry.
@@ -259,6 +137,7 @@ impl Service {
         // Fence admission before the first resource cleanup. A failed/uncertain
         // shutdown may retry cleanup, but can never reopen launch admission.
         self.stopping = true;
+        self.abandon_close("The host is shutting down; the close was not finished.");
         self.begin_stop_power();
         self.begin_stop_native_catalog();
         self.begin_stop_system_native();

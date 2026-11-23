@@ -86,6 +86,14 @@ impl PrivateOwner {
                     Ok(action) => action,
                     Err(error) => { let _ = reply.send(Err(error)); return; }
                 };
+                if let Some(target) = action.close_target() {
+                    service.close_request(target, Box::new(move |result| {
+                        let _ = reply.send(result.and_then(|snapshot| {
+                            crate::local::DesktopReply::try_from(crate::native::NativeResponse::Snapshot(snapshot))
+                        }).and_then(encode));
+                    }));
+                    return;
+                }
                 if matches!(action, crate::native::NativeAction::TabStats) {
                     service.enqueue_tab_stats(crate::tab_stats::StatsReply::Desktop(reply));
                     return;
@@ -101,6 +109,13 @@ impl PrivateOwner {
                     .and_then(crate::local::DesktopReply::try_from)
                     .and_then(encode);
                 let _ = reply.send(result);
+            }
+            PrivateRequest::LocalApi(request) if request.close_target().is_some() => {
+                if let Some(target) = request.close_target() {
+                    service.close_request(target, Box::new(move |result| {
+                        let _ = reply.send(result.map(LocalApiResponse::Snapshot).and_then(encode));
+                    }));
+                }
             }
             PrivateRequest::LocalApi(request) => {
                 let detach = matches!(request, LocalApiRequest::Detach {});

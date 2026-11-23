@@ -133,6 +133,10 @@ impl Service {
             self.automation.fault = Some(error.to_string());
         }
         self.collect_automation_exit_touches();
+        // Retirement can close tabs; it waits for a close in flight.
+        if self.metadata_busy() {
+            return;
+        }
         if let Err(error) = self
             .pump_automation_retirement()
             .and_then(|()| self.retire_failed_automation())

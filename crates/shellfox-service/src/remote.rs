@@ -16,6 +16,7 @@ use shellfox_remote::{
 };
 use std::collections::HashMap;
 
+mod close;
 mod commands;
 mod creation_profile;
 mod dispatcher;
@@ -91,6 +92,8 @@ pub struct RemoteState {
     wsl_transfers: wsl_files::Transfers,
     visibility_dirty: bool,
     pub(super) stats: stats::PendingStats,
+    closing: Option<close::Closing>,
+    held: close::Held,
 }
 impl RemoteState {
     pub fn new(
@@ -108,6 +111,8 @@ impl RemoteState {
             wsl_transfers: Default::default(),
             visibility_dirty: false,
             stats: Default::default(),
+            closing: None,
+            held: Default::default(),
         }
     }
     pub(super) fn dispatch_request(
@@ -115,11 +120,17 @@ impl RemoteState {
         service: &mut Service,
         request: shellfox_remote::OwnerRequest,
     ) {
+        let Some(request) = self.hold(service, request) else {
+            return;
+        };
         let Some(request) = self.stats_ready(service, request) else {
             return;
         };
         let cancel = request.cancellation_token();
         service.with_grant_recipient(cancel, |service| request.dispatch(&mut self.bind(service)));
+        // A close this dispatch started may already be done.
+        service.pump_closing();
+        self.finish_close(service);
         if std::mem::take(&mut self.visibility_dirty) {
             service.activity.report_remote_visibility(
                 self.views.values().flat_map(|view| &view.visible).copied().collect(),
@@ -301,5 +312,8 @@ impl ServiceHost for RemoteService<'_> {
                 self.execute(&actor, command)
             }
         }
+    }
+    fn keep(&mut self, request: shellfox_remote::OwnerRequest) -> Option<shellfox_remote::OwnerRequest> {
+        self.keep_closing(request)
     }
 }

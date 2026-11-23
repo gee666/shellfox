@@ -107,6 +107,8 @@ impl ServiceOwner {
                 let mut remote_install: Option<std::sync::Arc<approvals::RemoteInstall>> = None;
                 let mut controllers = HashMap::new();
                 let mut private = private::PrivateOwner::new();
+                // Tasks that arrived while a close was in flight, in arrival order.
+                let mut deferred = std::collections::VecDeque::new();
                 dispatcher.bind_wake(wake.clone());
                 loop {
                     if lost.is_cancelled() || owner_abandon.is_cancelled() {
@@ -144,7 +146,23 @@ impl ServiceOwner {
                     {
                         break;
                     }
-                    match incoming.recv_timeout(service.owner_pass_timeout()) {
+                    let received = match deferred.pop_front() {
+                        Some(task) if !service.metadata_busy() => Ok(task),
+                        held => {
+                            if let Some(task) = held {
+                                deferred.push_front(task);
+                            }
+                            incoming.recv_timeout(service.owner_pass_timeout())
+                        }
+                    };
+                    let received = match received {
+                        Ok(task) if service.metadata_busy() && !task.flows(&service) => {
+                            deferred.push_back(task);
+                            continue;
+                        }
+                        received => received,
+                    };
+                    match received {
                         Ok(Task::Approvals(task)) => approvals::handle(&mut service, *task, &lost),
                         Ok(Task::InstallRemote(install)) => {
                             if !active && remote_install.is_none() {
@@ -177,6 +195,12 @@ impl ServiceOwner {
                                         continue;
                                     }
                                 };
+                            if let Some(target) = request.close_target() {
+                                service.close_request(target, Box::new(move |result| {
+                                    let _ = reply.send(result.map(LocalApiResponse::Snapshot));
+                                }));
+                                continue;
+                            }
                             let detach = matches!(request, LocalApiRequest::Detach {});
                             // Complete metadata mutations; only unresolved ownership
                             // offers follow recipient cancellation into exact cleanup.
@@ -241,6 +265,12 @@ impl ServiceOwner {
                                     let _ = reply.send(Err(anyhow::anyhow!(error.message)));
                                     continue;
                                 }
+                            }
+                            if let Some(target) = action.close_target() {
+                                service.close_request(target, Box::new(move |result| {
+                                    let _ = reply.send(result.map(crate::native::NativeResponse::Snapshot));
+                                }));
+                                continue;
                             }
                             let detach = matches!(*action, crate::native::NativeAction::DetachAll);
                             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

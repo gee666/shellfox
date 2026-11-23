@@ -47,6 +47,11 @@ pub trait RemoteHost: Send + Sync {
 /// Called only on the existing service owner thread. No Send or Sync requirement.
 pub trait ServiceHost {
     fn dispatch(&mut self, command: OwnerCommand) -> OwnerResult;
+    /// Called after a successful dispatch. A host whose work finishes later
+    /// keeps the request and returns None; it must complete it itself.
+    fn keep(&mut self, request: OwnerRequest) -> Option<OwnerRequest> {
+        Some(request)
+    }
 }
 
 type Wake = Arc<dyn Fn() + Send + Sync>;
@@ -154,6 +159,13 @@ impl OwnerRequest {
                 host.dispatch(self.command.clone())
             })
         };
-        self.complete(result);
+        match result {
+            Ok(value) => {
+                if let Some(request) = host.keep(self) {
+                    request.complete(Ok(value));
+                }
+            }
+            Err(error) => self.complete(Err(error)),
+        }
     }
 }

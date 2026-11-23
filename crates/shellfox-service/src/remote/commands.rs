@@ -221,23 +221,14 @@ impl RemoteService<'_> {
                 if current != Some(input.generation) {
                     return Err(failure(ErrorCode::TargetLost, "Stale terminal generation."));
                 }
-                let snapshot = self.service.close_tab(input.tab_id).map_err(|_| {
-                    failure(
-                        ErrorCode::NativeUnavailable,
-                        "Owned cleanup not confirmed; metadata retained.",
-                    )
-                })?;
-                checked(self.session(&snapshot, session_id)?)
+                let target = crate::close::CloseTarget::Tab(input.tab_id);
+                let kind = super::close::Kind::Tab { session: session_id };
+                self.start_close(actor, CloseTab(input), target, kind)
             }
             DeleteSession(input) => {
-                self.service.delete_session(input.session_id).map_err(|_| {
-                    failure(
-                        ErrorCode::NativeUnavailable,
-                        "Owned terminal cleanup not confirmed; metadata retained.",
-                    )
-                })?;
-                self.state.facts.sessions.remove(&input.session_id);
-                checked(wire::Deleted { deleted: true })
+                let target = crate::close::CloseTarget::Session(input.session_id);
+                let kind = super::close::Kind::Session { session: input.session_id };
+                self.start_close(actor, DeleteSession(input), target, kind)
             }
             CreateSession(input) => self.create_session(input),
             AddTab(input) => self.add_tab(input),

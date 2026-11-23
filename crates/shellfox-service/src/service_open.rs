@@ -32,6 +32,7 @@ impl Service {
             ownership_lost: shellfox_protocol::CancellationToken::new(),
             stopping: false,
             metadata_closing: false,
+            closing: None,
             automation: owner_automation::AutomationState::new(supervisor.to_owned()),
             ssh_profiles: None,
             system_native_handler: None,

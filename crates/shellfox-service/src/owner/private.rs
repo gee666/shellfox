@@ -86,6 +86,11 @@ impl PrivateOwner {
     }
     /// Runs every owner pass, after any task, so receipt changes from tasks are published here too.
     pub fn pump(&mut self, service: &mut Service) {
+        // A launch creates metadata, which would invalidate a close in flight.
+        if service.metadata_busy() && !service.stopping {
+            service.publish_launch_receipts(self.launches.generation());
+            return;
+        }
         if service.stopping || service.ownership_lost.is_cancelled() {
             self.cancel_outgoing_fences();
             self.launches.invalidate_owner();
@@ -253,4 +258,22 @@ impl PrivateOwner {
 }
 fn encode(value: impl serde::Serialize) -> Result<Value> {
     Ok(serde_json::to_value(value)?)
+}
+
+impl PrivateTask {
+    /// Whether this task may run while a close is in flight (see close.rs).
+    pub(super) fn flows(&self, service: &Service) -> bool {
+        let Self::Request { request, .. } = self else {
+            return false;
+        };
+        match request {
+            PrivateRequest::LocalApi(request) => service.local_api_flows(request),
+            PrivateRequest::DesktopView(request) => {
+                crate::native::NativeAction::try_from((**request).clone())
+                    .is_ok_and(|action| service.native_flows(&action))
+            }
+            PrivateRequest::Power(_) => true,
+            _ => false,
+        }
+    }
 }

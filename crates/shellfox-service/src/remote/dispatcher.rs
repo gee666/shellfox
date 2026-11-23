@@ -50,6 +50,8 @@ impl OwnerDispatcher for RemoteDispatcher {
             while facts.finish(service, &mut self.state) {}
         }
         self.state.finish_stats(service);
+        self.state.finish_close(service);
+        self.state.release_held(service);
         while let Ok(request) = self.receiver.try_recv() {
             match &mut self.facts {
                 Some(facts)
@@ -62,6 +64,8 @@ impl OwnerDispatcher for RemoteDispatcher {
                 _ => self.state.dispatch_request(service, request),
             }
         }
+        // A close that finished during this dispatch is answered now.
+        self.state.finish_close(service);
         self.state.wake_ready_views(service);
     }
     fn bind_wake(&mut self, wake: OwnerWake) {
