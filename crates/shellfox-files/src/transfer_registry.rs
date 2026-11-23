@@ -20,11 +20,17 @@ pub(crate) struct Transfer {
     pub touched: Instant,
     pub state: TransferState,
 }
+impl Transfer {
+    fn asset(&self) -> bool {
+        matches!(&self.state, TransferState::Read(read) if read.asset)
+    }
+}
 pub(crate) struct TransferRead {
     pub file: File,
     pub inspected: Inspected,
     pub offset: u64,
     pub last: Option<(u64, ReadChunkResult)>,
+    pub asset: bool,
 }
 pub(crate) enum TransferState {
     Read(Box<TransferRead>),
@@ -93,7 +99,7 @@ impl TransferRegistry {
         capability.authorized(write)?;
         auth.check(actor, capability, write)
     }
-    pub(crate) fn reserve(&mut self, actor: &TransferActor, size: u64) -> Result<()> {
+    pub(crate) fn reserve(&mut self, actor: &TransferActor, size: u64, asset: bool) -> Result<()> {
         // Request-scoped policy may know only this actor. Never revoke unrelated transfers.
         self.entries
             .retain(|_, entry| entry.touched.elapsed() <= self.limits.idle_ttl);
@@ -102,13 +108,14 @@ impl TransferRegistry {
         if self.disposed {
             return Err(FileError::denied());
         }
-        let actors = self
-            .entries
-            .values()
-            .filter(|entry| entry.actor.owner == actor.owner)
-            .count();
-        if actors >= TRANSFERS_PER_ACTOR
-            || self.entries.len() >= TRANSFERS_TOTAL
+        let (per_actor, total) = if asset {
+            (ASSET_READS_PER_ACTOR, ASSET_READS_TOTAL)
+        } else {
+            (TRANSFERS_PER_ACTOR, TRANSFERS_TOTAL)
+        };
+        let same = || self.entries.values().filter(|entry| entry.asset() == asset);
+        if same().filter(|entry| entry.actor.owner == actor.owner).count() >= per_actor
+            || same().count() >= total
             || self.usage().staged_bytes + size > self.staging_limit
         {
             return Err(FileError::new(

@@ -19,13 +19,15 @@ pub(super) struct Page {
     cancel: EditorCancellation,
     executor: BackgroundExecutor,
     loaded: Mutex<Loaded>,
-    reads: tokio::sync::Mutex<()>,
+    reads: tokio::sync::Semaphore,
     warnings: watch::Sender<Vec<String>>,
 }
 
 #[derive(Default)]
 struct Loaded {
     assets: HashMap<String, Option<Arc<Asset>>>,
+    /// Misses being read now; they count against MAX_ASSETS.
+    pending: usize,
     bytes: usize,
 }
 
@@ -51,7 +53,8 @@ impl Page {
             cancel,
             executor,
             loaded: Mutex::default(),
-            reads: tokio::sync::Mutex::new(()),
+            // Matches the host's asset-read budget for this session.
+            reads: tokio::sync::Semaphore::new(shellfox_files::ASSET_READS_PER_ACTOR),
             warnings: watch::Sender::new(Vec::new()),
         }
     }
@@ -73,18 +76,19 @@ impl Page {
     }
 
     async fn load(&self, path: String) -> Response {
-        // The host limits concurrent transfers, so read one asset at a time.
-        let _reading = self.reads.lock().await;
         let cached = {
-            let loaded = self.loaded.lock().expect("preview assets");
+            let mut loaded = self.loaded.lock().expect("preview assets");
             match loaded.assets.get(&path) {
                 Some(asset) => Some(asset.clone()),
-                None if loaded.assets.len() >= MAX_ASSETS => {
+                None if loaded.assets.len() + loaded.pending >= MAX_ASSETS => {
                     drop(loaded);
                     self.warn_once(LIMIT_WARNING);
                     return super::sandbox::not_found();
                 }
-                None => None,
+                None => {
+                    loaded.pending += 1;
+                    None
+                }
             }
         };
         let asset = match cached {
@@ -98,6 +102,7 @@ impl Page {
     }
 
     async fn read(&self, path: &str) -> Option<Arc<Asset>> {
+        let _reading = self.reads.acquire().await.expect("the read budget is never closed");
         let result = match self.backend.check_current() {
             Ok(()) => {
                 self.backend
@@ -124,6 +129,11 @@ impl Page {
             Err(error) => Err(error.to_string()),
         };
         let mut loaded = self.loaded.lock().expect("preview assets");
+        loaded.pending -= 1;
+        // Another request for the same path may have finished first.
+        if let Some(existing) = loaded.assets.get(path) {
+            return existing.clone();
+        }
         let asset = match asset {
             Ok(asset) if loaded.bytes + asset.bytes.len() <= MAX_ASSET_BYTES => {
                 loaded.bytes += asset.bytes.len();

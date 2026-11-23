@@ -25,7 +25,7 @@ impl TransferRegistry {
         limit: u64,
     ) -> Result<ReadStarted> {
         self.check(actor, &capability, false, auth)?;
-        self.reserve(actor, 0)?;
+        self.reserve(actor, 0, input.asset_path.is_some())?;
         let (target, asset_mime) = if let Some(asset_path) = &input.asset_path {
             let (target, mime) = assets::asset_target(
                 &capability,
@@ -71,6 +71,7 @@ impl TransferRegistry {
                     inspected,
                     offset: 0,
                     last: None,
+                    asset: input.asset_path.is_some(),
                 })),
             },
         );
@@ -85,7 +86,7 @@ impl TransferRegistry {
     ) -> Result<WriteStarted> {
         staged_write::validate(input, self.limits.max_file_bytes)?;
         self.check(actor, &capability, true, auth)?;
-        self.reserve(actor, input.size)?;
+        self.reserve(actor, input.size, false)?;
         let check = || self.check(actor, &capability, true, auth);
         let stage = staged_write::StagedWrite::begin(
             &capability,

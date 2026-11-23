@@ -68,3 +68,48 @@ fn picker_streams_preserve_bytes_and_leave_existing_file_on_cancellation() {
     drop(full);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn asset_reads_have_their_own_budget_beside_user_transfers() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tmp")
+        .canonicalize()
+        .unwrap();
+    let base = base.to_str().unwrap().trim_start_matches("\\\\?\\");
+    let root = Path::new(base).join(format!("rust-asset-budget-{}", Uuid::new_v4()));
+    fs::create_dir_all(root.join("files")).unwrap();
+    fs::write(root.join("files/page.html"), "<img src=a.png>").unwrap();
+    fs::write(root.join("files/a.png"), b"png").unwrap();
+    fs::write(root.join("files/big.bin"), b"data").unwrap();
+    let capability =
+        Arc::new(FileService::approved_root(root.join("files"), Access::ReadWrite).unwrap());
+    let backend = EditorBackend::new(capability).unwrap();
+    let session = backend.session();
+    let cancel = EditorCancellation::default();
+    // The user's own transfers fill their quota.
+    let downloads: Vec<_> = (0..TRANSFERS_PER_ACTOR)
+        .map(|_| session.file_source("big.bin", cancel.clone()).ok().unwrap())
+        .collect();
+    assert!(session.file_source("big.bin", cancel.clone()).is_err());
+    let asset = |_| {
+        session.open_source(
+            BeginRead {
+                path: "page.html".into(),
+                asset_path: Some("a.png".into()),
+            },
+            cancel.clone(),
+        )
+    };
+    let previews: Vec<_> = (0..ASSET_READS_PER_ACTOR).map(|i| asset(i).ok().unwrap()).collect();
+    assert_eq!(asset(0).err().unwrap().code, ErrorCode::Validation);
+    drop(previews);
+    assert_eq!(session.read_asset(&AssetRequest {
+        path: "page.html".into(),
+        asset_path: "a.png".into(),
+    }, cancel.clone()).unwrap().bytes, b"png");
+    drop(downloads);
+    assert_eq!(session.registry.lock().unwrap().usage().active, 0);
+    drop(session);
+    drop(backend);
+    fs::remove_dir_all(root).unwrap();
+}

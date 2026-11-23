@@ -26,6 +26,7 @@ impl TransferRegistry {
             inspected,
             offset,
             last,
+            ..
         } = reader.as_mut();
         let replay = last
             .as_ref()

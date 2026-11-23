@@ -21,6 +21,10 @@ pub const TRANSFER_TEXT_BYTES: u64 = 8 * 1024 * 1024;
 pub const TRANSFER_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 pub const TRANSFERS_PER_ACTOR: usize = 2;
 pub const TRANSFERS_TOTAL: usize = 8;
+/// Preview asset reads are small and read-only. They have their own budget so
+/// a page's images never compete with the user's uploads and downloads.
+pub const ASSET_READS_PER_ACTOR: usize = 6;
+pub const ASSET_READS_TOTAL: usize = 24;
 pub const TRANSFER_RECEIPTS: usize = 128;
 
 #[derive(Debug, Clone)]
