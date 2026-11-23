@@ -79,12 +79,26 @@ impl fmt::Display for CliError {
 }
 impl std::error::Error for CliError {}
 
+/// 0.9 records, `ok` first. A struct fixes the field order whatever serde_json map features other crates enable.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum Record<'a, T: Serialize> {
+    Ok { ok: bool, value: &'a T },
+    Error { ok: bool, error: Failure<'a> },
+}
+#[derive(Serialize)]
+struct Failure<'a> {
+    code: &'a str,
+    message: &'a str,
+    retryable: bool,
+}
+
 pub fn print_value(value: &impl Serialize) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     match mode() {
         Mode::Json => {
-            let line = serde_json::to_string(&serde_json::json!({ "ok": true, "value": value }))?;
+            let line = serde_json::to_string(&Record::Ok { ok: true, value })?;
             writeln!(output, "{line}")?;
         }
         Mode::Human => {
@@ -126,10 +140,9 @@ pub fn print_error(error: &anyhow::Error) -> i32 {
     let message = known.map_or_else(|| format!("{error:#}"), |error| error.message.clone());
     match mode() {
         Mode::Json => {
-            let record = serde_json::json!({ "ok": false, "error": {
-                "code": code, "message": message, "retryable": known.is_some_and(|e| e.retryable),
-            }});
-            println!("{record}");
+            let error = Failure { code, message: &message, retryable: known.is_some_and(|e| e.retryable) };
+            let record = Record::<()>::Error { ok: false, error };
+            println!("{}", serde_json::to_string(&record).unwrap_or_default());
         }
         Mode::Human => eprintln!(
             "{}{}",

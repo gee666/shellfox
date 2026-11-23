@@ -78,5 +78,5 @@ fn desktop_update_and_cold_launch_reach_the_sibling_desktop() {
     let json_create = run(&["session", "create", ".", "--json"]);
     // JSON never opens a window; it reports the missing host as a failure.
     assert_eq!(json_create.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&json_create.stdout).starts_with("{\"error\""));
+    assert!(String::from_utf8_lossy(&json_create.stdout).starts_with("{\"ok\":false,\"error\""));
 }
