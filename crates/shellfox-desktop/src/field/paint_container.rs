@@ -35,13 +35,13 @@ pub(super) fn container(
                 .h(px(if session_title {
                     16.
                 } else if compact {
-                    24.
+                    field.line_height + 8.
                 } else {
                     28.
                 }))
                 .when(compact, |style| style.px(px(4.)))
                 .when(session_title, |style| style.px(px(2.)))
-                .when(settings_input, |style| style.px(px(6.)))
+                .when(settings_input && !compact, |style| style.px(px(6.)))
                 .border_1()
                 .border_color(if (session_title || compact) && focused {
                     palette.accent

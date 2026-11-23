@@ -1,5 +1,6 @@
-//! Compact custom-color popup: preset and saved swatches, a preview and
-//! HEX, RGB and HSL fields that stay in sync. Every change applies live.
+//! Compact custom-color popup: a saturation/value square, a hue slider,
+//! HEX, RGB and HSL fields, and the preset and saved swatches. They all stay
+//! in sync, and every change applies live.
 use super::*;
 use crate::field::NumberKind;
 use gpui::{Bounds, Pixels, point};
@@ -9,17 +10,20 @@ use std::{cell::Cell, rc::Rc};
 mod model;
 #[path = "settings_color_picker_view.rs"]
 mod view;
-use model::{Rgb, from_hsl, hex, parse_channel, parse_hex, to_hsl};
+use model::{Hsv, Rgb, from_hsl, hex, parse_channel, parse_hex, to_hsl};
 
 const PAD: f32 = 6.;
 const GAP: f32 = 4.;
-const SWATCH: f32 = 14.;
-const ROW: f32 = 24.;
-const CAPTION: f32 = 26.;
-const CHANNEL: f32 = 40.;
-const PREVIEW: f32 = 34.;
-const WIDTH: f32 = PAD * 2. + PREVIEW + GAP + CAPTION + CHANNEL * 3. + GAP * 2.;
-const HEIGHT: f32 = PAD * 2. + SWATCH + GAP * 2. + ROW * 3. + GAP * 2.;
+const SWATCH: f32 = 12.;
+const ROW: f32 = 20.;
+const CAPTION: f32 = 22.;
+const CHANNEL: f32 = 42.;
+const INNER: f32 = CAPTION + GAP + CHANNEL * 3. + GAP * 2.;
+const SQUARE: f32 = 96.;
+const HUE: f32 = 10.;
+/// Content plus padding and the 1 px border.
+const WIDTH: f32 = PAD * 2. + INNER + 2.;
+const HEIGHT: f32 = PAD * 2. + SQUARE + HUE + ROW * 3. + SWATCH + GAP * 5. + 2.;
 const KINDS: [Option<NumberKind>; 7] = [
     None,
     Some(NumberKind::Byte),
@@ -47,6 +51,14 @@ enum Group {
     Hex,
     Rgb,
     Hsl,
+    /// The square or the hue slider, which own the HSV state while dragged.
+    Area,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Drag {
+    Square,
+    Hue,
 }
 
 fn group(index: usize) -> Group {
@@ -65,6 +77,8 @@ pub(super) struct Picker {
     initial: Rgb,
     value: Rgb,
     hsl: [u16; 3],
+    hsv: Hsv,
+    drag: Option<Drag>,
     /// HEX, then R G B, then H S L.
     fields: [Entity<Field>; 7],
     seen: [String; 7],
@@ -111,6 +125,8 @@ impl Picker {
             initial,
             value: initial,
             hsl: to_hsl(initial),
+            hsv: Hsv::from_rgb(initial, Hsv { hue: 0., saturation: 0., value: 0. }),
+            drag: None,
             fields,
             seen: Default::default(),
             focus_on_open: true,
@@ -169,6 +185,9 @@ impl Picker {
 
     /// Sets the color and refreshes every group except the one being typed in.
     fn apply(&mut self, rgb: Rgb, editing: Option<Group>, cx: &mut Context<Self>) {
+        if editing != Some(Group::Area) {
+            self.hsv = Hsv::from_rgb(rgb, self.hsv);
+        }
         let changed = rgb != self.value;
         self.value = rgb;
         self.sync_fields(editing, cx);
@@ -204,6 +223,23 @@ impl Picker {
                 field.set_text(text, cx);
             }
         });
+    }
+
+    /// Moves the dragged marker to the pointer, clamped to its area.
+    fn drag_to(&mut self, drag: Drag, position: gpui::Point<Pixels>, viewport: gpui::Size<Pixels>, cx: &mut Context<Self>) {
+        let origin = self.popup(viewport).origin;
+        let x = (f32::from(position.x - origin.x) - PAD - 1.) / INNER;
+        match drag {
+            Drag::Square => {
+                let y = (f32::from(position.y - origin.y) - PAD - 1.) / SQUARE;
+                self.hsv.saturation = x.clamp(0., 1.);
+                self.hsv.value = 1. - y.clamp(0., 1.);
+            }
+            Drag::Hue => self.hsv.hue = x.clamp(0., 1.) * 360.,
+        }
+        let rgb = self.hsv.rgb();
+        self.hsl = to_hsl(rgb);
+        self.apply(rgb, Some(Group::Area), cx);
     }
 
     fn popup(&self, viewport: gpui::Size<Pixels>) -> Bounds<Pixels> {

@@ -67,9 +67,68 @@ pub(super) fn from_hsl([h, s, l]: [u16; 3]) -> Rgb {
     [r, g, b].map(|channel| ((channel + offset) * 255.).round().clamp(0., 255.) as u8)
 }
 
+/// Hue in degrees, saturation and value in 0..=1: the picking square's axes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Hsv {
+    pub hue: f32,
+    pub saturation: f32,
+    pub value: f32,
+}
+
+impl Hsv {
+    /// Keeps `previous` hue (and saturation for black) where the color alone
+    /// doesn't define them, so markers don't jump while typing grays.
+    pub fn from_rgb(rgb: Rgb, previous: Self) -> Self {
+        let [r, g, b] = rgb.map(|channel| f32::from(channel) / 255.);
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let delta = max - min;
+        let hue = if delta == 0. {
+            previous.hue
+        } else if max == r {
+            ((g - b) / delta).rem_euclid(6.) * 60.
+        } else if max == g {
+            ((b - r) / delta + 2.) * 60.
+        } else {
+            ((r - g) / delta + 4.) * 60.
+        };
+        let saturation = if max == 0. { previous.saturation } else { delta / max };
+        Self { hue, saturation, value: max }
+    }
+
+    pub fn rgb(self) -> Rgb {
+        let chroma = self.value * self.saturation;
+        let sector = (self.hue.rem_euclid(360.)) / 60.;
+        let x = chroma * (1. - (sector.rem_euclid(2.) - 1.).abs());
+        let (r, g, b) = match sector as u8 {
+            0 => (chroma, x, 0.),
+            1 => (x, chroma, 0.),
+            2 => (0., chroma, x),
+            3 => (0., x, chroma),
+            4 => (x, 0., chroma),
+            _ => (chroma, 0., x),
+        };
+        let offset = self.value - chroma;
+        [r, g, b].map(|channel| ((channel + offset) * 255.).round().clamp(0., 255.) as u8)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hsv_round_trips_and_keeps_hue_for_grays() {
+        let start = Hsv { hue: 200., saturation: 0.5, value: 0.5 };
+        for hex_value in ["#ec4899", "#60a5fa", "#ff0000", "#00ff00", "#0000ff", "#111016"] {
+            let rgb = parse_hex(hex_value).unwrap();
+            assert_eq!(Hsv::from_rgb(rgb, start).rgb(), rgb, "{hex_value}");
+        }
+        let gray = Hsv::from_rgb([128, 128, 128], start);
+        assert_eq!((gray.hue, gray.saturation), (200., 0.));
+        let black = Hsv::from_rgb([0, 0, 0], start);
+        assert_eq!((black.hue, black.saturation, black.value), (200., 0.5, 0.));
+        assert_eq!(Hsv { hue: 360., saturation: 1., value: 1. }.rgb(), [255, 0, 0]);
+    }
 
     #[test]
     fn hex_accepts_six_digits_with_or_without_hash() {
