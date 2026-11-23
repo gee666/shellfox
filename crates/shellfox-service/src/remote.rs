@@ -103,8 +103,8 @@ struct View {
 }
 impl View {
     /// True when the next Poll would return events, given the host's latest revision.
-    fn has_events(&self, service: &Service, latest_revision: Option<u64>) -> bool {
-        latest_revision.is_some_and(|latest| latest > self.revision)
+    fn has_events(&self, service: &Service, latest_revision: u64) -> bool {
+        latest_revision > self.revision
             || self.terminals.iter().any(|(&tab, delivery)| {
                 delivery.has_events(service.remote_v1_status(tab, &delivery.lease).ok())
             })
@@ -174,10 +174,9 @@ impl RemoteState {
         }
     }
     fn ready_views<'a>(&'a self, service: &'a Service) -> impl Iterator<Item = &'a View> {
-        let latest = self.views.values().map(|view| view.revision).min().and_then(|oldest| {
-            let changed = service.host().changed_since(oldest).ok().flatten();
-            changed.map(|event| event.revision)
-        });
+        // Every metadata commit records `last_change` at the committed revision,
+        // so the in-memory revision tells whether Poll would see a change.
+        let latest = service.host().revision();
         self.views.values().filter(move |view| view.has_events(service, latest))
     }
     fn remove_metadata_view(&mut self, id: wire::observer_v2::Id) {
