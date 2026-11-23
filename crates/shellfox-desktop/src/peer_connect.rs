@@ -4,13 +4,13 @@ use shellfox_client::ConnectionStatus;
 use shellfox_protocol as wire;
 
 struct Connected {
-    snapshot: m::Snapshot,
+    snapshot: wire::ManagerSnapshot,
     home: Option<String>,
 }
 
 async fn connect(binding: &V1Binding) -> anyhow::Result<Connected> {
     binding.connect().await?;
-    let snapshot = catalog_v1::project(binding.v1_snapshot().await?)?;
+    let snapshot = binding.v1_snapshot().await?;
     let home = binding
         .v1_execute(&wire::GetHomeDirectory {})
         .await

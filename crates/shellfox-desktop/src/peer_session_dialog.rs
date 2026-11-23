@@ -16,7 +16,7 @@ pub(crate) enum Editor {
 
 pub(crate) struct PeerSessionDialog {
     pub cycle: source::PeerCycle,
-    pub id: m::Id,
+    pub id: SessionId,
     pub editor: Editor,
     prior: Option<FocusHandle>,
 }
@@ -34,7 +34,7 @@ impl Root {
     pub(super) fn open_peer_session_dialog(
         &mut self,
         cycle: source::PeerCycle,
-        id: m::Id,
+        id: SessionId,
         item: Item,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -49,10 +49,7 @@ impl Root {
         let editor = match item {
             Item::Rename => Editor::Rename(Field::session_title(session.title.clone(), cx)),
             Item::Environment => {
-                let Some(variables) = session.facts.env.known() else {
-                    return;
-                };
-                let field = Field::textarea(environment_data::format(variables), cx);
+                let field = Field::textarea(environment_data::format(&session.env), cx);
                 field.update(cx, |field, cx| {
                     field.configure(
                         FieldOptions {
@@ -120,8 +117,7 @@ impl Root {
             .peers
             .get(&cycle.peer)
             .and_then(|state| state.snapshot.as_ref())
-            .and_then(|snapshot| snapshot.probe.known())
-            .is_some_and(|probe| probe.platform == "win32")
+            .is_some_and(|snapshot| snapshot.probe.platform == "win32")
     }
 
     pub(crate) fn peer_environment_is_open(&self) -> bool {
@@ -164,10 +160,8 @@ impl Root {
         }
         let session = self.peer_session(&dialog.cycle, dialog.id)?;
         let running = session.tabs.iter().any(|tab| {
-            matches!(
-                tab.facts.terminal_kind.known(),
-                Some(Some(shellfox_protocol::TerminalKind::Embedded))
-            ) && !matches!(tab.facts.lifecycle.known(), Some(TabLifecycle::Closed))
+            matches!(tab.terminal_kind, Some(shellfox_protocol::TerminalKind::Embedded))
+                && !matches!(tab.lifecycle, TabLifecycle::Closed)
         });
         Some(self.inline_session_delete(session.title.clone(), running, palette, cx))
     }
@@ -190,7 +184,7 @@ impl Root {
     pub(super) fn dismiss_completed_peer_dialog(
         &mut self,
         cycle: &source::PeerCycle,
-        id: m::Id,
+        id: SessionId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

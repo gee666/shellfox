@@ -15,13 +15,7 @@ impl Root {
         let Some(session) = self.peers.peers[&cycle.peer].selected_session else {
             return;
         };
-        let session_id = match session.to_string().parse() {
-            Ok(value) => value,
-            Err(error) => {
-                self.error = Some(format!("Invalid remote session: {error}"));
-                return;
-            }
-        };
+        let session_id = session;
         let source_epoch = self.source_selection_epoch();
         let navigation = self
             .peer_ui
@@ -44,11 +38,15 @@ impl Root {
                 )
                 .await
                 .map_err(|error| anyhow::anyhow!(error.message))?;
-                let old: HashSet<_> = source::sessions(&before)
+                let old: HashSet<_> = before
+                    .sessions
+                    .iter()
                     .flat_map(|session| session.tabs.iter().map(|tab| tab.id))
                     .collect();
                 let snapshot = api.snapshot().await?;
-                let tab = source::sessions(&snapshot)
+                let tab = snapshot
+                    .sessions
+                    .iter()
                     .find(|value| value.id == session)
                     .and_then(|value| value.tabs.iter().find(|tab| !old.contains(&tab.id)))
                     .map(|tab| tab.id);

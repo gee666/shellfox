@@ -14,7 +14,7 @@ pub(super) enum Mutation {
     Delete,
 }
 
-type ActivationKey = (source::PeerCycle, m::Id);
+type ActivationKey = (source::PeerCycle, SessionId);
 
 #[derive(Default)]
 pub(super) struct PeerActivations(HashMap<ActivationKey, ActivationFence>);
@@ -49,7 +49,7 @@ mod activation_tests {
             peer: AuthenticatedPeerId::new("owned-fixture").unwrap(),
             generation: 1,
         };
-        let row = || SessionId::new().to_string().parse::<m::Id>().unwrap();
+        let row = SessionId::new;
         let a = (cycle.clone(), row());
         let b = (cycle, row());
         let first = ActivationFence { source: 1, navigation: 1 };
@@ -69,7 +69,7 @@ mod activation_tests {
 }
 
 impl Root {
-    pub(crate) fn peer_session(&self, cycle: &source::PeerCycle, id: m::Id) -> Option<&m::Session> {
+    pub(crate) fn peer_session(&self, cycle: &source::PeerCycle, id: SessionId) -> Option<&wire::SessionDto> {
         if !self.peers.current(cycle) {
             return None;
         }
@@ -78,17 +78,17 @@ impl Root {
             .get(&cycle.peer)?
             .snapshot
             .as_ref()
-            .and_then(|snapshot| source::sessions(snapshot).find(|session| session.id == id))
+            .and_then(|snapshot| snapshot.sessions.iter().find(|session| session.id == id))
     }
 
     pub(crate) fn peer_session_menu_info(
         &self,
         cycle: &source::PeerCycle,
-        id: m::Id,
+        id: SessionId,
     ) -> Option<MenuSession> {
         let session = self.peer_session(cycle, id)?;
         Some(MenuSession {
-            pinned: session.facts.pinned_at.known().is_some_and(Option::is_some),
+            pinned: session.pinned_at.is_some(),
             settled: sidebar::settled(session),
             has_error: sidebar::has_error(session),
             pending: self.peer_ui.pending.contains(&cycle.peer),
@@ -99,7 +99,7 @@ impl Root {
     pub(crate) fn run_peer_session_item(
         &mut self,
         cycle: source::PeerCycle,
-        id: m::Id,
+        id: SessionId,
         item: Item,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -117,7 +117,7 @@ impl Root {
             Item::Copy => {
                 if let Some(cwd) = self
                     .peer_session(&cycle, id)
-                    .and_then(|session| session.facts.cwd.known().cloned())
+                    .map(|session| session.cwd.clone())
                 {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(cwd));
                     self.notify_info(cx, "Path copied");
@@ -137,7 +137,7 @@ impl Root {
     pub(crate) fn toggle_peer_settlement(
         &mut self,
         cycle: source::PeerCycle,
-        id: m::Id,
+        id: SessionId,
         settled: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -148,7 +148,7 @@ impl Root {
     pub(crate) fn activate_peer_session(
         &mut self,
         cycle: source::PeerCycle,
-        id: m::Id,
+        id: SessionId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -156,16 +156,9 @@ impl Root {
             return;
         };
         let has_tabs = session.tabs.iter().any(|tab| {
-            !matches!(
-                tab.facts.lifecycle.known(),
-                Some(wire::TabLifecycle::Closed)
-            )
+            !matches!(tab.lifecycle, wire::TabLifecycle::Closed)
         });
-        let external = session
-            .facts
-            .adapter_id
-            .known()
-            .is_some_and(|kind| !matches!(kind, wire::AdapterId::EmbeddedPty));
+        let external = !matches!(session.adapter_id, wire::AdapterId::EmbeddedPty);
         self.hide_settings(cx);
         self.peer_ui.pending_create = None;
         let key = (cycle.clone(), id);
@@ -197,7 +190,7 @@ impl Root {
         let Some(fence) = self.peer_activation_fence(&key) else { return };
         let (cycle, id) = &key;
         let Ok(api) = self.peer_api(cycle) else { return };
-        let Ok(session_id) = id.to_string().parse() else { return };
+        let session_id = *id;
         if !self.peer_ui.opening.begin(key.clone(), fence) {
             return;
         }
@@ -229,7 +222,7 @@ impl Root {
     pub(super) fn mutate_peer_session(
         &mut self,
         cycle: source::PeerCycle,
-        id: m::Id,
+        id: SessionId,
         mutation: Mutation,
         window: &Window,
         cx: &mut Context<Self>,
@@ -243,9 +236,7 @@ impl Root {
         let Ok(api) = self.peer_api(&cycle) else {
             return;
         };
-        let Ok(session_id) = id.to_string().parse::<SessionId>() else {
-            return;
-        };
+        let session_id = id;
         self.peer_ui.pending.insert(cycle.peer.clone());
         let closes_dialog = matches!(
             &mutation,

@@ -1,7 +1,7 @@
 use crate::{app::TerminalFileLink, root::Root};
 use gpui::{AnyWindowHandle, Context, Window};
 use shellfox_core::TabId;
-use shellfox_protocol::{AuthenticatedPeerId, manager_v2 as m};
+use shellfox_protocol::AuthenticatedPeerId;
 use std::path::Path;
 
 #[derive(Clone, Copy)]
@@ -14,11 +14,11 @@ pub(crate) struct SourcePosition {
 #[derive(Clone, Copy)]
 pub(crate) enum LinkOrigin {
     Local(u64),
-    Peer { tab: m::Id, navigation: u64, source: u64 },
+    Peer { tab: TabId, navigation: u64, source: u64 },
 }
 
 impl LinkOrigin {
-    pub(super) fn matches_peer(self, current_source: u64, current_tab: Option<m::Id>, current_navigation: Option<u64>) -> bool {
+    pub(super) fn matches_peer(self, current_source: u64, current_tab: Option<TabId>, current_navigation: Option<u64>) -> bool {
         matches!(self, Self::Peer { tab, navigation, source }
             if current_source == source && current_tab == Some(tab) && current_navigation == Some(navigation))
     }
@@ -90,7 +90,7 @@ impl Root {
     pub(crate) fn open_peer_terminal_file_link(
         &mut self,
         peer: &AuthenticatedPeerId,
-        tab: m::Id,
+        tab: TabId,
         target: &TerminalFileLink,
         window: &Window,
         cx: &mut Context<Self>,

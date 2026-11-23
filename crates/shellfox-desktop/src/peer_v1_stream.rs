@@ -5,7 +5,7 @@ use shellfox_protocol::{HostEvent, TerminalEvent};
 use std::{sync::Arc, time::Duration};
 
 impl Root {
-    pub(crate) fn peer_tab_busy(&self, peer: &AuthenticatedPeerId, tab: m::Id) -> Option<bool> {
+    pub(crate) fn peer_tab_busy(&self, peer: &AuthenticatedPeerId, tab: TabId) -> Option<bool> {
         self.peer_ui.v1_activity.get(&(peer.clone(), tab)).copied()
     }
 
@@ -67,7 +67,7 @@ impl Root {
         let result = binding.and_then(|binding| {
             let view = TerminalView::open_peer(
                 binding.clone(),
-                tab.to_string().parse()?,
+                tab,
                 frontend_replies,
                 window,
                 cx,
@@ -202,7 +202,7 @@ impl Root {
             .get(peer)
             .and_then(|state| state.snapshot.as_ref())
             .into_iter()
-            .flat_map(source::sessions)
+            .flat_map(|snapshot| &snapshot.sessions)
             .flat_map(|session| session.tabs.iter().map(|tab| tab.id))
             .collect();
         self.peer_ui.v1_activity.retain(|(id, tab), _| {
@@ -222,9 +222,7 @@ impl Root {
                 | TerminalEvent::Control { tab_id, .. }
                 | TerminalEvent::Activity { tab_id, .. } => tab_id,
             };
-            let Ok(tab) = tab.to_string().parse::<m::Id>() else {
-                continue;
-            };
+            let tab = *tab;
             match &event {
                 TerminalEvent::Activity { busy, .. } => {
                     let key = (peer.clone(), tab);
@@ -262,7 +260,7 @@ impl Root {
 
     fn show_v1_terminal(
         &mut self,
-        key: Option<&(AuthenticatedPeerId, m::Id)>,
+        key: Option<&(AuthenticatedPeerId, TabId)>,
         cx: &mut Context<Self>,
     ) {
         let mut changed = false;

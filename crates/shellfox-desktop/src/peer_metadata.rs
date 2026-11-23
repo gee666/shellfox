@@ -25,8 +25,8 @@ impl PeerApi {
         &self.0
     }
 
-    pub(crate) async fn snapshot(&self) -> anyhow::Result<m::Snapshot> {
-        catalog_v1::project(self.0.v1_snapshot().await?)
+    pub(crate) async fn snapshot(&self) -> anyhow::Result<wire::ManagerSnapshot> {
+        self.0.v1_snapshot().await
     }
 
     pub(crate) async fn call<R: wire::Request, T>(

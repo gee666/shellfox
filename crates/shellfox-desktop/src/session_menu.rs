@@ -7,7 +7,6 @@ use gpui::{
     AnyElement, Context, FocusHandle, KeyDownEvent, Pixels, Point, Window, div, prelude::*, px,
 };
 use shellfox_core::{Session, SessionId};
-use shellfox_protocol::manager_v2 as m;
 use shellfox_service::native::NativeAction;
 
 #[path = "session_delete.rs"]
@@ -18,7 +17,7 @@ mod keys;
 #[derive(Clone)]
 enum Target {
     Local(SessionId),
-    Peer(PeerCycle, m::Id),
+    Peer(PeerCycle, SessionId),
 }
 
 pub(crate) struct SessionMenu {
@@ -87,7 +86,7 @@ impl Root {
     pub(crate) fn open_peer_session_menu(
         &mut self,
         cycle: PeerCycle,
-        id: m::Id,
+        id: SessionId,
         at: Point<Pixels>,
         keyboard: bool,
         window: &mut Window,

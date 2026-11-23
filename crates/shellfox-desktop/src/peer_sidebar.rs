@@ -7,52 +7,43 @@ use crate::{
 use crate::sidebar::list::Entry;
 #[path = "peer_sidebar_row.rs"]
 mod row;
-use shellfox_protocol::{Status, TabLifecycle, TabStatus};
+use shellfox_protocol::{SessionDto, Status, TabId, TabLifecycle, TabStatus};
 use shellfox_service::activity::AgentState;
 
-pub(super) fn settled(session: &m::Session) -> bool {
-    session
-        .facts
-        .settled_at
-        .known()
-        .is_some_and(Option::is_some)
-        || matches!(session.facts.status.known(), Some(Status::Settled))
+pub(super) fn settled(session: &SessionDto) -> bool {
+    session.settled_at.is_some() || matches!(session.status, Status::Settled)
 }
 
-pub(super) fn error_text(session: &m::Session, closed: bool) -> Option<&str> {
+pub(super) fn error_text(session: &SessionDto, closed: bool) -> Option<&str> {
     session
-        .facts
         .error
-        .known()
-        .and_then(Option::as_ref)
+        .as_ref()
         .map(|error| error.message.as_str())
         .or_else(|| {
             session
                 .tabs
                 .iter()
                 .filter(|tab| {
-                    closed || !matches!(tab.facts.lifecycle.known(), Some(TabLifecycle::Closed))
+                    closed || !matches!(tab.lifecycle, TabLifecycle::Closed)
                 })
                 .find_map(|tab| {
-                    tab.facts
-                        .error
-                        .known()
-                        .and_then(Option::as_ref)
+                    tab.error
+                        .as_ref()
                         .map(|error| error.message.as_str())
                 })
         })
 }
 
-pub(super) fn has_error(session: &m::Session) -> bool {
+pub(super) fn has_error(session: &SessionDto) -> bool {
     error_text(session, true).is_some()
-        || matches!(session.facts.status.known(), Some(Status::Error))
+        || matches!(session.status, Status::Error)
         || session
             .tabs
             .iter()
-            .any(|tab| matches!(tab.facts.status.known(), Some(TabStatus::Error)))
+            .any(|tab| matches!(tab.status, TabStatus::Error))
 }
 
-fn dot(session: &m::Session, busy: impl Fn(m::Id) -> bool) -> AgentState {
+fn dot(session: &SessionDto, busy: impl Fn(TabId) -> bool) -> AgentState {
     if settled(session) {
         return AgentState::Settled;
     }
@@ -62,12 +53,12 @@ fn dot(session: &m::Session, busy: impl Fn(m::Id) -> bool) -> AgentState {
         return AgentState::Error;
     }
     for tab in &session.tabs {
-        if matches!(tab.facts.lifecycle.known(), Some(TabLifecycle::Closed)) {
+        if matches!(tab.lifecycle, TabLifecycle::Closed) {
             continue;
         }
-        match tab.facts.status.known() {
-            Some(TabStatus::Error) => return AgentState::Error,
-            Some(TabStatus::Running) => {
+        match tab.status {
+            TabStatus::Error => return AgentState::Error,
+            TabStatus::Running => {
                 running = true;
                 working |= busy(tab.id);
             }
@@ -125,12 +116,14 @@ impl Root {
         &self,
         peer: &AuthenticatedPeerId,
         state: &'a source::PeerState,
-    ) -> Vec<(&'a m::Session, AgentState)> {
+    ) -> Vec<(&'a SessionDto, AgentState)> {
         let mut rows: Vec<_> = state
             .snapshot
             .as_ref()
             .map(|snapshot| {
-                source::sessions(snapshot)
+                snapshot
+                    .sessions
+                    .iter()
                     .map(|session| {
                         (session, dot(session, |tab| self.peer_tab_busy(peer, tab).unwrap_or(false)))
                     })
@@ -138,14 +131,14 @@ impl Root {
             })
             .unwrap_or_default();
         rows.sort_by(|(a, a_dot), (b, b_dot)| {
-            let a_pin = a.facts.pinned_at.known().and_then(Option::as_ref);
-            let b_pin = b.facts.pinned_at.known().and_then(Option::as_ref);
+            let a_pin = a.pinned_at.as_ref();
+            let b_pin = b.pinned_at.as_ref();
             b_pin
                 .is_some()
                 .cmp(&a_pin.is_some())
                 .then_with(|| a_pin.cmp(&b_pin))
                 .then_with(|| crate::sidebar::rank(*a_dot).cmp(&crate::sidebar::rank(*b_dot)))
-                .then_with(|| a.facts.created_at.known().cmp(&b.facts.created_at.known()))
+                .then_with(|| a.created_at.cmp(&b.created_at))
                 .then_with(|| a.id.to_string().cmp(&b.id.to_string()))
         });
         rows
@@ -256,7 +249,7 @@ impl Root {
             return div().into_any_element();
         };
         let count = connected.then(|| {
-            let total = state.snapshot.as_ref().map_or(0, |snapshot| source::sessions(snapshot).count());
+            let total = state.snapshot.as_ref().map_or(0, |snapshot| snapshot.sessions.len());
             format!("· {total}")
         });
         let hostname = state.hostname.clone();

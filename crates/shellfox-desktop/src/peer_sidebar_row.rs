@@ -5,7 +5,7 @@ use crate::{accessibility::{SemanticAction, SemanticActionKind}, assets::inline_
 use gpui::{Bounds, KeyDownEvent, Pixels};
 use std::{cell::Cell, rc::Rc};
 
-fn workspace_session_key(peer: &shellfox_protocol::AuthenticatedPeerId, session: m::Id) -> String {
+fn workspace_session_key(peer: &shellfox_protocol::AuthenticatedPeerId, session: SessionId) -> String {
     format!("workspace/peer/{}/session/{session}", peer.as_str())
 }
 
@@ -30,7 +30,7 @@ impl Root {
             if !state.remembered || state.phase != source::Phase::Connected || self.peer_ui.collapsed.contains(peer) {
                 return None;
             }
-            let session = source::sessions(state.snapshot.as_ref()?)
+            let session = state.snapshot.as_ref()?.sessions.iter()
                 .find(|session| matches(&workspace_session_key(peer, session.id)))?;
             Some((source::PeerCycle { peer: peer.clone(), generation: state.cycle }, session.id))
         });
@@ -44,7 +44,7 @@ impl Root {
     pub(in crate::root::peer) fn peer_sidebar_row(
         &self,
         cycle: &source::PeerCycle,
-        session: &m::Session,
+        session: &shellfox_protocol::SessionDto,
         dot: AgentState,
         selected: bool,
         focus: RowFocus,
@@ -60,7 +60,7 @@ impl Root {
         let toggle = cycle.clone();
         let rename = cycle.clone();
         let settled = dot == AgentState::Settled;
-        let cwd = session.facts.cwd.known().map(String::as_str).unwrap_or("");
+        let cwd = session.cwd.as_str();
         let pending = self.peer_ui.pending.contains(&cycle.peer);
         let background = palette.accent.opacity(0.09);
         let bounds: Rc<Cell<Option<Bounds<Pixels>>>> = Default::default();
@@ -125,7 +125,7 @@ impl Root {
                                 )),
                         )
                         .when(
-                            session.facts.pinned_at.known().is_some_and(Option::is_some),
+                            session.pinned_at.is_some(),
                             |line| {
                                 line.child(
                                     div()

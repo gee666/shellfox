@@ -3,7 +3,7 @@ use crate::root::{
     peer::metadata::{PeerApi, PeerCallError},
     source::PeerCycle,
 };
-use shellfox_protocol::{self as wire, manager_v2 as m};
+use shellfox_protocol as wire;
 
 #[derive(Clone)]
 pub(super) struct PeerDirectory {
@@ -68,25 +68,17 @@ impl Root {
         let Some(snapshot) = &peer.snapshot else {
             return;
         };
-        // Native catalog reads may omit stale discovery facts. Embedded
-        // CreateSession uses the host's separately validated profile catalog;
-        // the createWindow bit is still required for external window adapters.
-        let probe = snapshot.probe.known();
-        let embedded =
-            probe.is_none_or(|probe| matches!(probe.adapter_id, wire::AdapterId::EmbeddedPty));
-        if !embedded
-            && !probe.is_some_and(|probe| probe.available && probe.capabilities.create_window)
-        {
+        // Embedded CreateSession uses the host's separately validated profile
+        // catalog; external window adapters still need the createWindow bit.
+        let probe = &snapshot.probe;
+        let embedded = matches!(probe.adapter_id, wire::AdapterId::EmbeddedPty);
+        if !embedded && !(probe.available && probe.capabilities.create_window) {
             return;
         }
         let home = peer.home.as_ref().map(PathBuf::from);
         let name = peer.hostname.clone();
-        let windows = probe.is_some_and(|probe| probe.platform == "win32");
-        let platform_known = probe.is_some();
-        let configured = snapshot
-            .settings
-            .known()
-            .and_then(|settings| settings.terminal_profile_id.clone().flatten());
+        let windows = probe.platform == "win32";
+        let configured = snapshot.settings.terminal_profile_id.clone().flatten();
         let epoch = self.source_selection_epoch();
         if !self.peer_ui.pending.insert(cycle.peer.clone()) {
             return;
@@ -100,11 +92,7 @@ impl Root {
                     if catalog.profiles.iter().any(|item| {
                         item.available && (windows || Some(&item.id) == profile.as_ref())
                     }) {
-                        Ok(if windows || !platform_known {
-                            None
-                        } else {
-                            profile
-                        })
+                        Ok(if windows { None } else { profile })
                     } else {
                         Err(PeerCallError {
                             message: "No discovered interactive terminal profile is available."
@@ -166,10 +154,10 @@ impl Root {
         cx.spawn_in(window, async move |root, cx| {
             let result = async {
                 let (session, has_tabs) = target.api.call(request,
-                    |session| anyhow::Ok((session.id.to_string().parse::<m::Id>()?, session.tabs.iter().any(|tab| !matches!(tab.lifecycle, wire::TabLifecycle::Closed)))),
-                    ).await.map_err(|error| anyhow::anyhow!(error.message))??;
+                    |session| (session.id, session.tabs.iter().any(|tab| !matches!(tab.lifecycle, wire::TabLifecycle::Closed))),
+                    ).await.map_err(|error| anyhow::anyhow!(error.message))?;
                 let tab_error = if has_tabs { None } else {
-                    let request = wire::AddTab { session_id: session.to_string().parse()?, title: None, cwd: None, profile_id: target.fallback_profile };
+                    let request = wire::AddTab { session_id: session, title: None, cwd: None, profile_id: target.fallback_profile };
                     target.api.call(request, |_| ()).await.err().map(|error| error.message)
                 };
                 let snapshot = target.api.snapshot().await?;

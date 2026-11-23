@@ -47,7 +47,7 @@ impl Root {
         let mut pane = div().flex().flex_col().flex_1().min_w_0().min_h_0();
         let files_available = self.peer_api(&cycle).is_ok();
         let session = state.snapshot.as_ref().and_then(|snapshot| {
-            source::sessions(snapshot).find(|session| Some(session.id) == state.selected_session)
+            snapshot.sessions.iter().find(|session| Some(session.id) == state.selected_session)
         });
         let visible_selected = state.selected_tab.filter(|id| session.is_some_and(|session| {
             session.tabs.iter().any(|tab| tab.id == *id && source::viewable_tab(tab))

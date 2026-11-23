@@ -1,6 +1,6 @@
 //! Window selection/cache identity. A peer catalog is never a local Snapshot.
 use anyhow::{Result, anyhow};
-use shellfox_protocol::{AuthenticatedPeerId, Validate, manager_v2 as m};
+use shellfox_protocol::{AuthenticatedPeerId, ManagerSnapshot, SessionId, TabDto, TabId, Validate};
 use shellfox_service::remote::native::RemotePeer;
 use uuid::Uuid;
 use std::collections::HashMap;
@@ -36,10 +36,10 @@ pub(crate) struct PeerState {
     pub home: Option<String>,
     pub phase: Phase,
     pub cycle: u64,
-    pub snapshot: Option<m::Snapshot>,
+    pub snapshot: Option<ManagerSnapshot>,
     catalog_cycle: Option<u64>,
-    pub selected_session: Option<m::Id>,
-    pub selected_tab: Option<m::Id>,
+    pub selected_session: Option<SessionId>,
+    pub selected_tab: Option<TabId>,
     pub selection_committed: bool,
     pub pending: bool,
     pub owner_connected: bool,
@@ -170,7 +170,7 @@ impl PeerSources {
         }
         true
     }
-    pub fn catalog(&mut self, cycle: &PeerCycle, snapshot: m::Snapshot) -> anyhow::Result<bool> {
+    pub fn catalog(&mut self, cycle: &PeerCycle, snapshot: ManagerSnapshot) -> anyhow::Result<bool> {
         snapshot.validate()?;
         let Some(state) = self
             .peers
@@ -189,7 +189,7 @@ impl PeerSources {
         }
         let session = state
             .selected_session
-            .and_then(|id| sessions(&snapshot).find(|session| session.id == id));
+            .and_then(|id| snapshot.sessions.iter().find(|session| session.id == id));
         let restoring = state.catalog_cycle != Some(cycle.generation);
         let valid_tab = state.selected_tab.is_none_or(|id| {
             session.is_some_and(|session| {
@@ -215,8 +215,8 @@ impl PeerSources {
     pub fn select(
         &mut self,
         cycle: &PeerCycle,
-        session: m::Id,
-        tab: Option<m::Id>,
+        session: SessionId,
+        tab: Option<TabId>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.current(cycle),
@@ -231,7 +231,7 @@ impl PeerSources {
             .snapshot
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Peer catalog is not available."))?;
-        let selected = sessions(snapshot)
+        let selected = snapshot.sessions.iter()
             .find(|item| item.id == session)
             .ok_or_else(|| anyhow::anyhow!("Peer session is unavailable."))?;
         anyhow::ensure!(
@@ -243,7 +243,7 @@ impl PeerSources {
         } else {
             None
         };
-        let viewable = |tab: &&m::Tab| viewable_tab(tab);
+        let viewable = |tab: &&TabDto| viewable_tab(tab);
         state.selection_committed = true;
         state.selected_session = Some(session);
         state.selected_tab = tab.or_else(|| {
@@ -285,19 +285,13 @@ impl PeerSources {
         Ok(())
     }
 }
-pub(crate) fn viewable_tab(tab: &m::Tab) -> bool {
-    if matches!(tab.facts.terminal_kind.known(), Some(Some(shellfox_protocol::TerminalKind::ExternalLegacy))) {
+pub(crate) fn viewable_tab(tab: &TabDto) -> bool {
+    use shellfox_protocol::{TabLifecycle, TerminalKind};
+    if matches!(tab.terminal_kind, Some(TerminalKind::ExternalLegacy)) {
         return false;
     }
-    !matches!(tab.facts.lifecycle.known(), Some(shellfox_protocol::TabLifecycle::Closed))
-        || tab.facts.profile_id.known().and_then(Option::as_deref) == Some(shellfox_service::AUTOMATION_PROFILE_ID)
-}
-
-pub(crate) fn sessions(snapshot: &m::Snapshot) -> impl Iterator<Item = &m::Session> {
-    snapshot.entries.iter().filter_map(|entry| match entry {
-        m::CatalogEntry::Session { value } => Some(value.as_ref()),
-        m::CatalogEntry::Unavailable { .. } => None,
-    })
+    !matches!(tab.lifecycle, TabLifecycle::Closed)
+        || tab.profile_id.as_ref().and_then(Option::as_deref) == Some(shellfox_service::AUTOMATION_PROFILE_ID)
 }
 #[cfg(test)]
 #[path = "peer_source_tests.rs"]

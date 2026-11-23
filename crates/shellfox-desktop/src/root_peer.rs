@@ -1,9 +1,7 @@
 use super::*;
 use crate::theme::Palette;
 use gpui::{AnyElement, div, prelude::*, px};
-use shellfox_protocol::{AuthenticatedPeerId, manager_v2 as m};
-#[path = "peer_catalog_v1.rs"]
-mod catalog_v1;
+use shellfox_protocol::{AuthenticatedPeerId, SessionId, TabId};
 #[path = "peer_connect.rs"]
 mod connect;
 #[path = "peer_connection_view.rs"]
@@ -30,11 +28,11 @@ mod workspace;
 mod pairing;
 #[derive(Default)]
 pub(crate) struct PeerUi {
-    pub(crate) v1_views: HashMap<(AuthenticatedPeerId, m::Id), Entity<crate::app::TerminalView>>,
+    pub(crate) v1_views: HashMap<(AuthenticatedPeerId, TabId), Entity<crate::app::TerminalView>>,
     /// Last view that failed to open; the render hook skips it until Reconnect.
-    pub(crate) v1_failed: Option<(AuthenticatedPeerId, m::Id)>,
+    pub(crate) v1_failed: Option<(AuthenticatedPeerId, TabId)>,
     v1_streams: HashMap<AuthenticatedPeerId, gpui::Task<()>>,
-    v1_activity: HashMap<(AuthenticatedPeerId, m::Id), bool>,
+    v1_activity: HashMap<(AuthenticatedPeerId, TabId), bool>,
     metadata_polls: HashMap<AuthenticatedPeerId, Option<std::time::Instant>>,
     pub paused: HashSet<AuthenticatedPeerId>,
     pub pending: HashSet<AuthenticatedPeerId>,
@@ -180,7 +178,7 @@ impl Root {
         let Some(id) = state
             .snapshot
             .as_ref()
-            .and_then(|snapshot| source::sessions(snapshot).next())
+            .and_then(|snapshot| snapshot.sessions.first())
             .map(|session| session.id)
         else {
             return;
@@ -200,8 +198,8 @@ impl Root {
     pub(crate) fn select_peer_session(
         &mut self,
         cycle: source::PeerCycle,
-        session: m::Id,
-        tab: Option<m::Id>,
+        session: SessionId,
+        tab: Option<TabId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

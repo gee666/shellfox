@@ -140,15 +140,15 @@ impl Root {
         peer: &shellfox_protocol::AuthenticatedPeerId,
         cx: &mut Context<Self>,
     ) {
-        use crate::root::source::{Source, sessions, viewable_tab};
+        use crate::root::source::{Source, viewable_tab};
         let Some(snapshot) = self.peers.peers.get(peer).and_then(|state| state.snapshot.as_ref()) else { return };
         let source = Source::Peer(peer.clone());
         let removable = |files: &Files| {
             files.source == source && !files.dirty(cx) && !files.busy && files.transfer.is_none()
                 && !files.image_editor.as_ref().is_some_and(ImageEditor::transforming)
                 && files.backend.peer_file_scope().is_some_and(|scope| {
-                    !sessions(snapshot).any(|session| session.id.to_string() == scope.session.to_string()
-                        && session.tabs.iter().any(|tab| tab.id.to_string() == scope.tab.to_string() && viewable_tab(tab)))
+                    !snapshot.sessions.iter().any(|session| session.id == scope.session
+                        && session.tabs.iter().any(|tab| tab.id == scope.tab && viewable_tab(tab)))
                 })
         };
         self.retained_files.retain(|files| !removable(files));

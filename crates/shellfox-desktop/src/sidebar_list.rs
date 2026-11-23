@@ -4,7 +4,7 @@
 use super::*;
 use crate::session_visibility::PollingTarget;
 use gpui::{Bounds, FocusHandle, ListAlignment, ListState, Pixels};
-use shellfox_protocol::{AuthenticatedPeerId, manager_v2 as m};
+use shellfox_protocol::AuthenticatedPeerId;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -19,7 +19,7 @@ pub(crate) enum Entry {
     PeersGap,
     PeerHeader(AuthenticatedPeerId),
     PeerEmpty(AuthenticatedPeerId),
-    Peer(AuthenticatedPeerId, m::Id),
+    Peer(AuthenticatedPeerId, SessionId),
     PeerMore(AuthenticatedPeerId),
     PeerEnd(AuthenticatedPeerId),
 }

@@ -57,7 +57,7 @@ impl Root {
     }
 
     pub(super) fn peer_file_backend_for(&self, use_tab: bool) -> anyhow::Result<(DocumentBackend, Option<String>)> {
-        use crate::root::source::{PeerCycle, sessions};
+        use crate::root::source::PeerCycle;
         let (peer, state) = self
             .peers
             .selected_peer()
@@ -67,18 +67,17 @@ impl Root {
             generation: state.cycle,
         };
         let session = state.snapshot.as_ref().filter(|_| use_tab)
-            .and_then(|snapshot| sessions(snapshot).find(|session| Some(session.id) == state.selected_session));
+            .and_then(|snapshot| snapshot.sessions.iter().find(|session| Some(session.id) == state.selected_session));
         let tab = session.and_then(|session| session.tabs.iter().find(|tab| Some(tab.id) == state.selected_tab));
-        let mut cwd = tab.and_then(|tab| tab.facts.cwd.known())
-            .or_else(|| session.and_then(|session| session.facts.cwd.known())).cloned();
+        let mut cwd = tab.map(|tab| &tab.cwd).or(session.map(|session| &session.cwd)).cloned();
         let scope = match (session, tab) {
             (Some(session), Some(tab)) => {
-                let profile = tab.facts.profile_id.known().and_then(Option::as_deref);
+                let profile = tab.profile_id.as_ref().and_then(Option::as_deref);
                 match profile.filter(|profile| *profile == "wsl" || profile.starts_with("wsl:")) {
                     Some(profile) => {
                         let guest = shellfox_files::WslBrowserScope::for_tab(cwd.as_deref().unwrap_or("/"), profile)?;
                         cwd = Some(if cwd.is_some() { guest.guest_cwd() } else { "." }.to_owned());
-                        Some(PeerFileScope { session: session.id.to_string().parse()?, tab: tab.id.to_string().parse()?, guest })
+                        Some(PeerFileScope { session: session.id, tab: tab.id, guest })
                     }
                     None => None,
                 }

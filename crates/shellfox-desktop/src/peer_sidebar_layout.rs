@@ -8,12 +8,12 @@ use shellfox_service::activity::AgentState;
 
 pub(crate) struct PeerSectionLayout {
     generation: u64,
-    ids: Vec<m::Id>,
+    ids: Vec<SessionId>,
     has_more: bool,
     restore_more_focus: bool,
     pub heading: FocusHandle,
     pub more: FocusHandle,
-    row_focus: HashMap<m::Id, RowFocus>,
+    row_focus: HashMap<SessionId, RowFocus>,
 }
 impl PeerSectionLayout {
     fn new(cx: &mut gpui::App) -> Self {
@@ -27,7 +27,7 @@ impl PeerSectionLayout {
             row_focus: HashMap::new(),
         }
     }
-    fn focus(&mut self, id: m::Id, cx: &mut gpui::App) -> RowFocus {
+    fn focus(&mut self, id: SessionId, cx: &mut gpui::App) -> RowFocus {
         self.row_focus
             .entry(id)
             .or_insert_with(|| RowFocus::new(cx))
@@ -40,7 +40,7 @@ impl Root {
     pub(super) fn record_peer_layout(
         &self,
         cycle: &source::PeerCycle,
-        ids: Vec<m::Id>,
+        ids: Vec<SessionId>,
         has_more: bool,
         window: &Window,
         cx: &mut gpui::App,
@@ -73,7 +73,7 @@ impl Root {
         layout.heading.clone()
     }
 
-    pub(crate) fn peer_row_focus(&self, peer: &AuthenticatedPeerId, id: m::Id) -> Option<FocusHandle> {
+    pub(crate) fn peer_row_focus(&self, peer: &AuthenticatedPeerId, id: SessionId) -> Option<FocusHandle> {
         let layouts = self.peer_ui.sidebar_layout.borrow();
         Some(layouts.get(peer)?.row_focus.get(&id)?.row.clone())
     }
@@ -81,7 +81,7 @@ impl Root {
     pub(super) fn render_peer_row(
         &self,
         cycle: &source::PeerCycle,
-        session: &m::Session,
+        session: &shellfox_protocol::SessionDto,
         dot: AgentState,
         palette: Palette,
         window: &Window,
@@ -164,7 +164,7 @@ impl Root {
     pub(super) fn peer_row_navigation(
         &mut self,
         cycle: &source::PeerCycle,
-        id: m::Id,
+        id: SessionId,
         event: &KeyDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -249,7 +249,7 @@ impl Root {
         false
     }
 
-    pub(super) fn reveal_peer_session(&self, cycle: &source::PeerCycle, id: m::Id) {
+    pub(super) fn reveal_peer_session(&self, cycle: &source::PeerCycle, id: SessionId) {
         if !self.sidebar {
             return;
         }

@@ -1,5 +1,5 @@
 use super::{FileList, LinkOrigin, Navigation};
-use shellfox_protocol::manager_v2 as m;
+use shellfox_core::TabId;
 use std::{
     io::{BufRead, BufReader, Write},
     net::{Ipv4Addr, TcpListener, TcpStream},
@@ -10,8 +10,8 @@ use std::{
 
 #[test]
 fn delayed_loopback_terminal_directory_result_cannot_replace_the_selected_peer_tab() {
-    let a: m::Id = "00000000-0000-4000-8000-000000000001".parse().unwrap();
-    let b: m::Id = "00000000-0000-4000-8000-000000000002".parse().unwrap();
+    let a: TabId = "00000000-0000-4000-8000-000000000001".parse().unwrap();
+    let b: TabId = "00000000-0000-4000-8000-000000000002".parse().unwrap();
     let request = Navigation::Terminal(LinkOrigin::Peer {
         tab: a,
         navigation: 1,

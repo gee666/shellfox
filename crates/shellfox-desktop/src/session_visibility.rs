@@ -89,16 +89,12 @@ impl Root {
                     && entry.tabs.iter().any(|item| {
                         item.id == tab
                             && !matches!(
-                                item.facts.lifecycle.known(),
-                                Some(
-                                    shellfox_protocol::TabLifecycle::Launching
-                                        | shellfox_protocol::TabLifecycle::Closed
-                                )
+                                item.lifecycle,
+                                shellfox_protocol::TabLifecycle::Launching | shellfox_protocol::TabLifecycle::Closed
                             )
                     })
-                    && let Ok(id) = session.to_string().parse()
                 {
-                    peers.entry(peer.clone()).or_default().push(id);
+                    peers.entry(peer.clone()).or_default().push(session);
                 }
             }
         }
