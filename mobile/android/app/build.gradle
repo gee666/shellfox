@@ -50,12 +50,12 @@ else rustAndroidDir.set(providers.provider {
         commandLine(shellfoxNode() + [artifactValidator.absolutePath, "--print-default-artifact-dir"])
     }.standardOutput.asText.get().trim()
     if (selected.isEmpty()) throw new GradleException("No complete Rust Android build-output directory selected.")
-    file(selected)
+    layout.projectDirectory.dir(selected)
 })
 rustAndroidDir.finalizeValueOnRead()
 
 // Validate the selected files/declarations before native configuration/linking.
-// This does not replace the linker's actual symbol or runtime acceptance gates.
+// The linker still checks the symbols.
 def validateRustArtifacts = tasks.register("validateShellfoxRustArtifacts", Exec) {
     doFirst {
         def abis = providers.gradleProperty("reactNativeArchitectures")
