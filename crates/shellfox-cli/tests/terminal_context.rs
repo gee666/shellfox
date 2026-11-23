@@ -122,6 +122,15 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
     ensure!(reply["value"]["status"] == "settled", "{reply}");
     ensure!(host.plain(&["session", "list"])?.contains("settled"));
 
+    // The activity feed reports the shell as open shortly after it starts.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while host.json(&["terminals", "list", &id, "--json"])?
+        .as_array()
+        .is_none_or(|tabs| !tabs.iter().any(|t| t["id"] == tab.as_str() && t["lifecycle"] == "open"))
+    {
+        ensure!(Instant::now() < deadline, "The tab never showed as open.");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     // The open tab is live now: write joins only when free; --take switches control.
     let held = host.reply(&["terminals", "write", &tab, "echo hi\r", "--json"])?;
     ensure!(

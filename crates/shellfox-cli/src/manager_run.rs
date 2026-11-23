@@ -92,16 +92,21 @@ async fn current(host: &Host<'_>) -> Result<SessionId> {
                 "No current session. Supply a session UUID or run inside a Shellfox terminal.",
             )
         })?;
-    let live = local.live(marker).await?.is_some();
+    // The command runs inside this tab, so a saved, unclosed tab is live. The
+    // activity feed is not used: it can lag a command typed as the shell starts.
     let session = local
         .snapshot()
         .await?
         .sessions
         .iter()
-        .find(|s| s.tabs.iter().any(|t| t.id == marker))
+        .find(|s| {
+            s.tabs
+                .iter()
+                .any(|t| t.id == marker && t.state != shellfox_core::TabState::Archived)
+        })
         .map(|s| s.id);
     match session {
-        Some(id) if live => Ok(id),
+        Some(id) => Ok(id),
         _ => Err(CliError::usage(
             "The current terminal does not identify a live owned session. Supply a session UUID.",
         )),

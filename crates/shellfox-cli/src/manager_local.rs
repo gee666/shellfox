@@ -349,7 +349,8 @@ impl Local<'_> {
                     session["env"] = json!([]);
                     for tab in session["tabs"].as_array().into_iter().flatten() {
                         let stat = measured.iter().find(|stat| tab["id"] == stat.tab_id.to_string());
-                        if let ("open", Some(stat)) = (tab["lifecycle"].as_str().unwrap_or_default(), stat) {
+                        // Measured tabs have a running shell, even before the activity feed says so.
+                        if let Some(stat) = stat {
                             tabs.push(serde_json::to_value(stat)?);
                         }
                     }
