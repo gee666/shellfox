@@ -135,12 +135,21 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
     );
     ensure!(host.json(&["session", "focus", &id, "--json"])?["focused"] == true);
     let stats = host.json(&["session", "stats", &id, "--json"])?;
+    let measured = stats["tabs"]
+        .as_array()
+        .and_then(|t| t.iter().find(|t| t["tabId"] == tab.as_str()))
+        .with_context(|| format!("no stats for the live tab: {stats}"))?;
+    // The shell's own process tree, measured on demand.
+    ensure!(measured["memoryBytes"].as_u64().is_some_and(|m| m > 0), "{measured}");
+    ensure!(measured["elapsedSeconds"].as_f64().is_some_and(|s| s >= 0.0), "{measured}");
+    let processes = measured["processes"].as_array().context("processes")?;
     ensure!(
-        stats["tabs"]
-            .as_array()
-            .is_some_and(|t| t.iter().any(|t| t["tabId"] == tab.as_str())),
-        "{stats}"
+        processes.iter().any(|p| p["pid"].as_u64().is_some_and(|pid| pid > 0)
+            && p["parentPid"].as_u64().is_some_and(|pid| pid > 0)),
+        "{measured}"
     );
+    let tree = host.plain(&["session", "processes", &id])?;
+    ensure!(tree.contains("  PID ") && tree.contains(" MiB"), "{tree}");
     let _ = client.disconnect().await;
     Ok(())
 }

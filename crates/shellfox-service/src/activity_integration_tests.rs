@@ -33,6 +33,9 @@ fn raw(identity: Identity) -> ProcessInspection {
                 executable: Some("C:\\工具\\cmd.exe".into()),
                 process_name: Some("cmd.exe".into()),
                 argv: Some(vec!["cmd.exe".into(), "/D".into()]),
+                parent_pid: None,
+                memory_bytes: None,
+                started_ms: None,
             }],
         },
     }

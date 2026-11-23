@@ -11,6 +11,7 @@ use windows_sys::Win32::{
     },
     System::{
         JobObjects::{IsProcessInJob, JobObjectBasicProcessIdList, QueryInformationJobObject},
+        ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
         Threading::{
             GetCurrentProcess, GetProcessId, GetProcessTimes, OpenProcess, WaitForSingleObject,
             PROCESS_QUERY_LIMITED_INFORMATION, SYNCHRONIZATION_SYNCHRONIZE,
@@ -240,7 +241,42 @@ fn inaccessible(identity: RawProcessIdentity, is_root: bool) -> RawProcessEviden
         executable: None,
         process_name: None,
         argv: None,
+        parent_pid: None,
+        memory_bytes: None,
+        started_ms: None,
     }
+}
+
+/// Parent PID, working set and start time, read through the held query handle only.
+fn measure(handle: HANDLE, identity: RawProcessIdentity) -> (Option<u32>, Option<u64>, Option<u64>) {
+    #[repr(C)]
+    struct BasicInformation {
+        exit_status: i32,
+        peb: usize,
+        affinity: usize,
+        priority: i32,
+        pid: usize,
+        parent: usize,
+    }
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(process: HANDLE, class: u32, info: *mut std::ffi::c_void, size: u32, returned: *mut u32) -> i32;
+    }
+    let mut basic: BasicInformation = unsafe { mem::zeroed() };
+    // SAFETY: class 0 (ProcessBasicInformation) fills exactly this struct on a query handle.
+    let parent = (unsafe {
+        NtQueryInformationProcess(handle, 0, (&mut basic as *mut BasicInformation).cast(), mem::size_of::<BasicInformation>() as u32, ptr::null_mut())
+    } >= 0)
+        .then(|| u32::try_from(basic.parent).ok())
+        .flatten();
+    let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { mem::zeroed() };
+    counters.cb = mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    // SAFETY: the counters struct is sized and owned here; limited query access suffices.
+    let memory = (unsafe { K32GetProcessMemoryInfo(handle, &mut counters, counters.cb) } != 0)
+        .then_some(counters.WorkingSetSize as u64);
+    // FILETIME counts 100 ns from 1601; the Unix epoch is 11644473600 s later.
+    let started = identity.birth.checked_sub(116_444_736_000_000_000).map(|t| t / 10_000);
+    (parent, memory, started)
 }
 fn row(
     handle: HANDLE,
@@ -269,7 +305,11 @@ fn row(
                 }
             }
             *budget = next;
+            let (parent_pid, memory_bytes, started_ms) = measure(handle, identity);
             Ok(RawProcessEvidence {
+                parent_pid,
+                memory_bytes,
+                started_ms,
                 identity,
                 is_root,
                 accessible: true,
@@ -288,6 +328,15 @@ fn row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn this_process_reports_its_parent_working_set_and_start() {
+        let handle = open_query(std::process::id()).unwrap();
+        let identity = process_identity(handle.as_raw_handle().cast()).unwrap();
+        let (parent, memory, started) = measure(handle.as_raw_handle().cast(), identity);
+        assert!(parent.is_some_and(|p| p > 0) && memory.is_some_and(|m| m > 0));
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        assert!(started.is_some_and(|s| s <= now + 1000 && s + 3_600_000 > now));
+    }
     #[test]
     fn twenty_thousand_row_bound_reports_partial_not_false_complete() {
         let count = MAX_INSPECTION_PROCESSES + 1;

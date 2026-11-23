@@ -61,6 +61,7 @@ pub mod system;
 #[cfg(windows)]
 pub mod wsl_files_worker;
 mod terminals;
+mod tab_stats;
 #[cfg(test)]
 mod tests;
 

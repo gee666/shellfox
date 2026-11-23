@@ -80,7 +80,7 @@ impl OwnedInspection {
         if !root_alive {
             // A transient unreadable original root is not an exit observation.
             if after.contains(&root.pid) { return Err(Error::Unavailable); }
-            processes.push(RawProcessEvidence { identity: root, is_root: true, accessible: false, executable: None, process_name: None, argv: None });
+            processes.push(RawProcessEvidence { identity: root, is_root: true, accessible: false, executable: None, process_name: None, argv: None, parent_pid: None, memory_bytes: None, started_ms: None });
         }
         Ok(RawOwnedEvidence { platform: InspectionPlatform::Unix, root, root_alive, complete, processes })
     }
@@ -107,6 +107,9 @@ fn process(pid: u32, uid: u32, total: &mut usize) -> Result<(Record, RawProcessE
         .map(|arg| OsString::from_vec(arg.to_vec())).collect::<Vec<_>>();
     if argv.len() > 4096 { return Err(Error::Bounds); }
     let row = RawProcessEvidence {
+        parent_pid: Some(after.parent),
+        memory_bytes: resident(pid),
+        started_ms: started_ms(before.identity.ticks),
         identity: RawProcessIdentity { pid, birth: before.identity.ticks },
         is_root: false,
         accessible: !cmdline.is_empty(),
@@ -115,6 +118,27 @@ fn process(pid: u32, uid: u32, total: &mut usize) -> Result<(Record, RawProcessE
         argv: (!cmdline.is_empty()).then_some(argv),
     };
     Ok((after, row))
+}
+
+/// Resident set from /proc/<pid>/statm, in bytes. The caller has checked the owner.
+fn resident(pid: u32) -> Option<u64> {
+    let text = procfs::bounded(format!("/proc/{pid}/statm"), 256).ok()?;
+    let pages: u64 = std::str::from_utf8(&text).ok()?.split_whitespace().nth(1)?.parse().ok()?;
+    // SAFETY: sysconf is a read-only query.
+    let page = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
+    pages.checked_mul(page)
+}
+/// Start ticks since boot as ms since the Unix epoch, using btime from /proc/stat.
+fn started_ms(ticks: u64) -> Option<u64> {
+    static BOOT: OnceLock<Option<(u64, u64)>> = OnceLock::new();
+    let (boot, hertz) = (*BOOT.get_or_init(|| {
+        let text = procfs::bounded("/proc/stat", 1 << 20).ok()?;
+        let boot = std::str::from_utf8(&text).ok()?.lines().find_map(|l| l.strip_prefix("btime "))?.trim().parse().ok()?;
+        // SAFETY: sysconf is a read-only query.
+        let hertz = u64::try_from(unsafe { libc::sysconf(libc::_SC_CLK_TCK) }).ok().filter(|h| *h > 0)?;
+        Some((boot, hertz))
+    }))?;
+    boot.checked_mul(1000)?.checked_add(ticks.checked_mul(1000)? / hertz)
 }
 
 #[cfg(test)]
@@ -127,6 +151,9 @@ mod tests {
         let (_, row) = super::process(std::process::id(), uid, &mut total).unwrap();
         assert_ne!(row.identity.birth, 0);
         assert!(row.accessible && row.executable.is_some() && row.argv.is_some());
+        assert!(row.parent_pid.is_some() && row.memory_bytes.is_some_and(|m| m > 0));
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        assert!(row.started_ms.is_some_and(|s| s <= now + 1000 && s + 3_600_000 > now));
         assert!(total > 0);
     }
 }

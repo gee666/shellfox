@@ -240,6 +240,10 @@ impl ServiceOwner {
                                 service.request_power(request, cancel, crate::power_service::PowerReply::Native(reply));
                                 continue;
                             }
+                            if matches!(*action, crate::native::NativeAction::TabStats) {
+                                service.enqueue_tab_stats(crate::tab_stats::StatsReply::Native(reply));
+                                continue;
+                            }
                             if matches!(*action, crate::native::NativeAction::TerminalProfiles) {
                                 service.enqueue_native_catalog(controller, reply);
                                 continue;

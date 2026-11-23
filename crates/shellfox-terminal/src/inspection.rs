@@ -22,6 +22,11 @@ pub struct RawProcessEvidence {
     pub executable: Option<OsString>,
     pub process_name: Option<OsString>,
     pub argv: Option<Vec<OsString>>,
+    /// For `session stats`: parent PID, resident memory, and start time in ms
+    /// since the Unix epoch. None where the OS didn't report them.
+    pub parent_pid: Option<u32>,
+    pub memory_bytes: Option<u64>,
+    pub started_ms: Option<u64>,
 }
 pub struct RawOwnedEvidence {
     pub platform: InspectionPlatform,

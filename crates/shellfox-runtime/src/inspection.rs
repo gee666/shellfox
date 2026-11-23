@@ -166,6 +166,11 @@ impl InspectionClient {
     pub(crate) fn invalidate(&self) {
         invalidate(&self.shared);
     }
+    /// The same read-only capability the worker uses, for an on-demand capture.
+    pub(crate) fn capability(&self) -> Option<InspectionCapability> {
+        let state = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        (!state.stopped).then(|| state.capability.clone()).flatten()
+    }
 }
 impl Drop for InspectionClient {
     fn drop(&mut self) {

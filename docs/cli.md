@@ -97,7 +97,7 @@ shellfox ss processes
 shellfox ss rm --yes
 ```
 
-`stats` and `processes` require a session ID, current context, or explicit `--all`. They use the same validated `getSessionStats` method locally and remotely. This host reports running terminals but no process or memory measurements, so RSS and duration show `n/a` with a reason; a 0.9 peer still reports them.
+`stats` and `processes` require a session ID, current context, or explicit `--all`. They use the same validated `getSessionStats` method locally and remotely. Each request measures the running terminals once: the processes inside each tab's own Job (Windows), cgroup (Linux) or session (macOS), run by this user, with their parent PID, resident memory and start time. Nothing is sampled in the background.
 
 `env --input` replaces the entire saved environment. Without `--input`, it reads it. `settle` and `unsettle` change status without closing terminals or stopping agents. If settling active work requires confirmation, use `--confirm-active --yes`. `delete`, `rm`, and `-rm` are the same operation within the session namespace. Noninteractive deletion requires `--yes`; piping `yes` is not a substitute. Interactive deletion inspects the resolved target before prompting and keeps that UUID pinned for the mutation.
 
@@ -285,4 +285,4 @@ The Windows-installed WSL command runs the Windows `shellfox-cli` against the in
 
 - Local session records are this host's fields (`id`, `title`, `cwd`, `createdAt`, `updatedAt`, `settledAt`, `pinnedAt`, `env`, `tabs`) plus 0.9's `status`, `activityStatus` and `counts`. Each tab adds `lifecycle`, `status`, `agents` and `generation`. The host reports whether a tab runs agents, not how many, so `agents` is 0 or 1. 0.9's `adapterId`, `shellId`, `window`, `canFocus`, `canAddTab`, `controlReason`, `terminalLifetime` and `shellSurvival` are not included. A remote `--host` peer returns its own v1 records.
 - `api getSnapshot` returns `revision`, `sessions` and `settings`, without `probe`, `explorer` or `cli`. Settings and `remote api` state use this version's fields.
-- `session stats` and `session processes` have no process or memory measurements on this host.
+- Over a remote `--host` to a Rust peer, `session stats` has no measurements yet.

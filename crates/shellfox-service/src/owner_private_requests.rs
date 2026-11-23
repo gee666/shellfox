@@ -86,6 +86,10 @@ impl PrivateOwner {
                     Ok(action) => action,
                     Err(error) => { let _ = reply.send(Err(error)); return; }
                 };
+                if matches!(action, crate::native::NativeAction::TabStats) {
+                    service.enqueue_tab_stats(crate::tab_stats::StatsReply::Desktop(reply));
+                    return;
+                }
                 if matches!(action, crate::native::NativeAction::TerminalProfiles) {
                     service.enqueue_desktop_catalog(controller, reply);
                     return;

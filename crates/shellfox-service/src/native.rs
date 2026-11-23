@@ -58,6 +58,8 @@ pub enum NativeAction {
     SetVisibleSessions(shellfox_protocol::SetVisibleSessions),
     SaveWindowState(shellfox_core::window_state::WindowState),
     TerminalProfiles,
+    /// Owned-process stats of the live tabs, captured on demand off the owner thread.
+    TabStats,
     Power(crate::power::PowerRequest),
     Metadata(HostRequest),
     /// Original Host request record; never derives identity from selection.
@@ -203,6 +205,7 @@ pub enum NativeResponse {
     TabActivity(Vec<crate::NativeTabActivity>),
     Power(crate::power::PowerReport),
     TerminalProfiles(Box<crate::NativeLaunchCatalog>),
+    TabStats(Vec<shellfox_protocol::TabStat>),
     Snapshot(Snapshot),
     CreationRequestReceipt {
         request_id: SessionId,

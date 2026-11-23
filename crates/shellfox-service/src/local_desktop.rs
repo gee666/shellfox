@@ -25,6 +25,7 @@ pub use provider::DesktopProviderRequest;
 pub enum DesktopRequest {
     Status,
     TerminalProfiles,
+    TabStats,
     ReadWindowState,
     ReadTabActivity,
     SetVisibleSessions(shellfox_protocol::SetVisibleSessions),
@@ -123,7 +124,7 @@ macro_rules! native_actions {
         }
     };
 }
-native_actions!(Status, TerminalProfiles, ReadWindowState, ReadTabActivity, SetVisibleSessions: visibility, SaveWindowState: state,
+native_actions!(Status, TerminalProfiles, TabStats, ReadWindowState, ReadTabActivity, SetVisibleSessions: visibility, SaveWindowState: state,
     Metadata: request, Settings: request, CreationRequestReceipt { request_id }, SelectTab { tab },
     SetSettled { session, settled }, ClearSessionError { session }, ChangedSince { revision },
     CloseTab { tab }, CloseTerminal: identity, DeleteSession { session }, Attach { tab, takeover }, Detach { tab, attachment },
@@ -158,6 +159,7 @@ pub enum DesktopReply {
     WindowState(Option<WindowState>),
     TabActivity(Vec<crate::NativeTabActivity>),
     TerminalProfiles(Box<NativeLaunchCatalog>),
+    TabStats(Vec<shellfox_protocol::TabStat>),
     Snapshot(Snapshot),
     Settings(Settings),
     System(crate::system::SystemNativeResponse),
@@ -188,6 +190,7 @@ impl TryFrom<NativeResponse> for DesktopReply {
             NativeResponse::WindowState(value) => Self::WindowState(value),
             NativeResponse::TabActivity(value) => Self::TabActivity(value),
             NativeResponse::TerminalProfiles(value) => Self::TerminalProfiles(value),
+            NativeResponse::TabStats(value) => Self::TabStats(value),
             NativeResponse::Snapshot(value) => Self::Snapshot(value),
             NativeResponse::Settings(value) => Self::Settings(value),
             NativeResponse::System(value) => Self::System(value),
@@ -220,6 +223,7 @@ impl From<DesktopReply> for NativeResponse {
             DesktopReply::WindowState(value) => Self::WindowState(value),
             DesktopReply::TabActivity(value) => Self::TabActivity(value),
             DesktopReply::TerminalProfiles(value) => Self::TerminalProfiles(value),
+            DesktopReply::TabStats(value) => Self::TabStats(value),
             DesktopReply::Snapshot(value) => Self::Snapshot(value),
             DesktopReply::Settings(value) => Self::Settings(value),
             DesktopReply::System(value) => Self::System(value),
@@ -260,6 +264,10 @@ impl Validate for DesktopReply {
             Self::TerminalProfiles(catalog) => {
                 catalog.probe.validate()?;
                 catalog.profiles.validate()
+            }
+            Self::TabStats(stats) => {
+                ensure(stats.len() <= 64)?;
+                stats.iter().try_for_each(shellfox_protocol::Validate::validate)
             }
             Self::Attached(a) => ensure(a.controller > 0 && a.epoch > 0),
             Self::Observed(a) => ensure(a.viewer > 0 && a.epoch > 0),

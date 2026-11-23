@@ -341,15 +341,16 @@ impl Local<'_> {
                         return Err(not_found("Session not found."));
                     }
                 }
+                let DesktopReply::TabStats(measured) = self.desktop(DesktopRequest::TabStats).await? else {
+                    return Err(unexpected());
+                };
                 let mut tabs = Vec::new();
                 for session in &mut sessions {
                     session["env"] = json!([]);
                     for tab in session["tabs"].as_array().into_iter().flatten() {
-                        if tab["lifecycle"] == "open" {
-                            tabs.push(json!({
-                                "tabId": tab["id"], "processes": [], "memoryBytes": null, "elapsedSeconds": null,
-                                "reason": "Process and memory measurements are unavailable on this host.",
-                            }));
+                        let stat = measured.iter().find(|stat| tab["id"] == stat.tab_id.to_string());
+                        if let ("open", Some(stat)) = (tab["lifecycle"].as_str().unwrap_or_default(), stat) {
+                            tabs.push(serde_json::to_value(stat)?);
                         }
                     }
                 }

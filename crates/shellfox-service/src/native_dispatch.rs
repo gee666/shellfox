@@ -26,6 +26,7 @@ impl crate::Service {
         let response = match action {
             NativeAction::Power(_) => anyhow::bail!("Keep-awake requests require the owned blocking worker route."),
             NativeAction::TerminalProfiles => anyhow::bail!("Native catalog discovery requires its protected owner worker route."),
+            NativeAction::TabStats => anyhow::bail!("Tab stats are captured on their own worker route."),
             NativeAction::Status => NativeResponse::Status(NativeStatus {
                 active_terminals: self.active_terminals(),
             }),
