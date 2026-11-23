@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 #[path = "support/raw_unix.rs"]
 mod support;
 use support::*;
+#[path = "support/raw_wake.rs"]
+mod wake;
 #[path = "support/raw_unix_common.rs"]
 mod common;
 

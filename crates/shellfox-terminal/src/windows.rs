@@ -86,6 +86,11 @@ fn owned(handle: HANDLE) -> Result<OwnedHandle> {
 
 pub(crate) struct Job(OwnedHandle);
 
+// Job completion-port messages (winnt.h).
+const JOB_MESSAGE_ACTIVE_PROCESS_ZERO: u32 = 4;
+const JOB_MESSAGE_EXIT_PROCESS: u32 = 7;
+const JOB_MESSAGE_ABNORMAL_EXIT_PROCESS: u32 = 8;
+
 impl Job {
     pub fn new() -> Result<Self> {
         // Null security attributes make this handle noninheritable.
@@ -108,6 +113,64 @@ impl Job {
 
     pub(crate) fn handle(&self) -> HANDLE {
         self.0.as_raw_handle().cast()
+    }
+
+    /// Calls `wake` after each process in the Job exits and once the Job is
+    /// empty. A Job takes one completion port, so call this once.
+    pub fn watch(&self, wake: crate::Wake) -> Result<()> {
+        use windows_sys::Win32::{
+            Foundation::INVALID_HANDLE_VALUE,
+            System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus},
+        };
+        let port =
+            owned(unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, ptr::null_mut(), 0, 1) })?;
+        let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+            CompletionKey: ptr::null_mut(),
+            CompletionPort: port.as_raw_handle().cast(),
+        };
+        let ok = unsafe {
+            SetInformationJobObject(
+                self.handle(),
+                JobObjectAssociateCompletionPortInformation,
+                (&association as *const JOBOBJECT_ASSOCIATE_COMPLETION_PORT).cast(),
+                mem::size_of_val(&association) as u32,
+            )
+        };
+        ensure!(ok != 0, "watch owned Job: {}", io::Error::last_os_error());
+        // Windows posts ACTIVE_PROCESS_ZERO only on a transition, so an
+        // already empty Job gets no message.
+        if self.active_processes()? == 0 {
+            wake();
+            return Ok(());
+        }
+        std::thread::Builder::new()
+            .name("shellfox-job-watch".into())
+            .spawn(move || loop {
+                let (mut message, mut key, mut overlapped) = (0, 0, ptr::null_mut());
+                // SAFETY: `port` stays open for the whole wait; the outputs are locals.
+                let ok = unsafe {
+                    GetQueuedCompletionStatus(
+                        port.as_raw_handle().cast(),
+                        &mut message,
+                        &mut key,
+                        &mut overlapped,
+                        INFINITE,
+                    )
+                };
+                if ok == 0 {
+                    break;
+                }
+                match message {
+                    JOB_MESSAGE_EXIT_PROCESS | JOB_MESSAGE_ABNORMAL_EXIT_PROCESS => wake(),
+                    JOB_MESSAGE_ACTIVE_PROCESS_ZERO => {
+                        wake();
+                        break;
+                    }
+                    _ => {}
+                }
+            })
+            .context("start Job watch")?;
+        Ok(())
     }
 
     pub fn assign(&self, child: &(dyn Child + Send + Sync)) -> Result<()> {

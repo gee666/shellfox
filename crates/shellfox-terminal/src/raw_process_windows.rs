@@ -279,6 +279,16 @@ impl RawProcess {
     pub fn try_output(&self) -> Option<RawOutput> {
         self.inner.as_ref().and_then(|i| i.output.read())
     }
+    /// Calls `wake` after every output frame and whenever `poll_exit` may have
+    /// news, never under a lock. Fires once now for anything earlier. Call once.
+    pub fn set_output_wake(&self, wake: crate::Wake) -> Result<()> {
+        let inner = self
+            .inner
+            .as_ref()
+            .context("Raw process owner is unavailable.")?;
+        inner.output.set_wake(wake.clone());
+        inner.job.watch(wake)
+    }
     /// A status is public only after the root exited and the entire Job is empty.
     pub fn poll_exit(&mut self) -> Result<Option<i32>> {
         let Some(inner) = &mut self.inner else {

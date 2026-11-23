@@ -54,6 +54,9 @@ impl RawProcess {
     pub fn try_output(&self) -> Option<RawOutput> {
         match *self {}
     }
+    pub fn set_output_wake(&self, _wake: crate::Wake) -> Result<()> {
+        match *self {}
+    }
     pub fn poll_exit(&mut self) -> Result<Option<i32>> {
         match *self {}
     }

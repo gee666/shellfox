@@ -104,6 +104,15 @@ impl RawProcess {
     pub fn try_output(&self) -> Option<RawOutput> {
         self.inner.as_ref().and_then(|inner| inner.output.read())
     }
+    /// Calls `wake` after every output frame and whenever `poll_exit` may have
+    /// news, never under a lock. Fires once now for anything earlier. Call once.
+    pub fn set_output_wake(&self, wake: crate::Wake) -> Result<()> {
+        let inner = self.inner.as_ref().context("Raw owner unavailable")?;
+        inner.output.set_wake(wake.clone());
+        // The controller is in the group and exits only after reporting the
+        // guest's status, so "empty" is when poll_exit can finish.
+        inner.group.watch(wake)
+    }
     pub fn poll_exit(&mut self) -> Result<Option<i32>> {
         self.inner.as_mut().map_or(Ok(None), Inner::poll)
     }

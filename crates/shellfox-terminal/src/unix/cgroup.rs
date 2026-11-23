@@ -92,22 +92,38 @@ impl Cgroup {
             .write_all(pid.to_string().as_bytes())
             .context("attach waiting original PTY child")
     }
+    /// Calls `wake` on every cgroup.events change until the group is empty.
+    pub fn watch(&self, wake: crate::Wake) -> Result<()> {
+        // Its own open file: kernfs tracks seen events per open file, so reads
+        // through `self.events` must not consume the watcher's notification.
+        let mut events = open_at(&self.directory, c"cgroup.events", libc::O_RDONLY)?;
+        std::thread::Builder::new()
+            .name("shellfox-cgroup-watch".into())
+            .spawn(move || {
+                while matches!(populated(&mut events), Ok(true)) {
+                    let mut poll = libc::pollfd {
+                        fd: events.as_raw_fd(),
+                        events: libc::POLLPRI,
+                        revents: 0,
+                    };
+                    // SAFETY: one valid pollfd for the open events file.
+                    if unsafe { libc::poll(&mut poll, 1, -1) } < 0
+                        && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                    {
+                        return;
+                    }
+                    wake();
+                }
+                wake();
+            })
+            .context("start cgroup watch")?;
+        Ok(())
+    }
     pub fn terminate(&mut self) -> Result<()> {
         self.kill.write_all(b"1").context("kill owned PTY cgroup")
     }
     pub fn empty(&mut self) -> Result<bool> {
-        self.events.seek(SeekFrom::Start(0))?;
-        let mut value = String::new();
-        Read::by_ref(&mut self.events)
-            .take(4096)
-            .read_to_string(&mut value)?;
-        ensure!(
-            value
-                .lines()
-                .any(|line| matches!(line, "populated 0" | "populated 1")),
-            "cgroup populated proof missing"
-        );
-        Ok(value.lines().any(|line| line == "populated 0"))
+        Ok(!populated(&mut self.events)?)
     }
     pub fn remove(&mut self) -> Result<()> {
         ensure!(self.empty()?, "PTY cgroup is still populated");
@@ -130,6 +146,18 @@ impl Cgroup {
         );
         Ok(())
     }
+}
+fn populated(events: &mut File) -> Result<bool> {
+    events.seek(SeekFrom::Start(0))?;
+    let mut value = String::new();
+    Read::by_ref(events).take(4096).read_to_string(&mut value)?;
+    ensure!(
+        value
+            .lines()
+            .any(|line| matches!(line, "populated 0" | "populated 1")),
+        "cgroup populated proof missing"
+    );
+    Ok(value.lines().any(|line| line == "populated 1"))
 }
 impl Drop for Cgroup {
     fn drop(&mut self) {
