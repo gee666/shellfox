@@ -44,8 +44,10 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
     let id = session["id"].as_str().context("id")?.to_owned();
     let profile = if cfg!(windows) {
         "windows-powershell"
-    } else {
+    } else if cfg!(target_os = "macos") {
         "zsh"
+    } else {
+        "bash"
     };
     let created = host.json(&["terminals", "create", &id, "--profile", profile, "--json"])?;
     let tab = created["tabs"]

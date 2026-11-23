@@ -271,14 +271,17 @@ impl Watch {
                         actual == expected
                     }
                 };
-                // macOS /bin/sh is a shim that hands off to bash; argv[0] keeps the name.
-                let same_shell = same(row.executable.as_deref().unwrap_or_default())
-                    || (!windows
-                        && row
-                            .argv
-                            .as_ref()
-                            .and_then(|argv| argv.first())
-                            .is_some_and(|first| same(first.trim_start_matches('-'))));
+                let executable = row.executable.as_deref().unwrap_or_default();
+                // macOS /bin/sh is a shim that execs bash and keeps argv[0] = sh.
+                let sh_shim = cfg!(target_os = "macos")
+                    && expected == "sh"
+                    && matching::basename(executable, false) == "bash"
+                    && row
+                        .argv
+                        .as_ref()
+                        .and_then(|argv| argv.first())
+                        .is_some_and(|first| same(first.trim_start_matches('-')));
+                let same_shell = same(executable) || sh_shim;
                 if !same_shell
                     || self
                         .root

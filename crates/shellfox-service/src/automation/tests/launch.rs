@@ -102,7 +102,9 @@ impl Launched {
         }
     }
 }
+#[cfg(windows)]
 struct Viewer(Identity);
+#[cfg(windows)]
 impl AutomationViewer for Viewer {
     fn create_read_only(&mut self, _: &AutomationRun) -> Result<(Uuid, Uuid)> {
         Ok((
