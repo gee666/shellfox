@@ -182,36 +182,3 @@ fn frame_cache_rejects_invalid_grid_and_more_than_128_views_before_acceptance() 
     let tab = TabId::new();
     assert!(frames.accept(tab, false, frame(tab, 129, 0)).is_err());
 }
-
-#[tokio::test(flavor = "current_thread")]
-async fn missing_helper_fails_async_start_without_opening_metadata() {
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
-    std::fs::create_dir_all(&root).unwrap();
-    let path = root.join(format!("native-endpoint-test-{}", std::process::id()));
-    std::fs::create_dir(&path).unwrap();
-    let result = async {
-        let mut endpoint = HostEndpoint::start(HostEndpointConfig {
-            data_dir: path.clone(),
-            helper: path.join("missing-helper.exe"),
-            helper_sha256: [0; 32],
-        })
-        .unwrap();
-        let failed = tokio::time::timeout(std::time::Duration::from_secs(5), endpoint.ready())
-            .await
-            .unwrap()
-            .is_err();
-        assert_eq!(
-            endpoint.startup_outcome(),
-            HostEndpointStartupOutcome::NoOwnerClean
-        );
-        tokio::time::timeout(std::time::Duration::from_secs(1), endpoint.shutdown())
-            .await
-            .unwrap()
-            .unwrap();
-        failed
-    }
-    .await;
-    assert!(result);
-    assert!(!path.join(shellfox_host::STORE_FILENAME).exists());
-    std::fs::remove_dir_all(path).unwrap();
-}

@@ -9,8 +9,6 @@ mod changes;
 #[path = "peer_v1.rs"]
 pub mod peer_v1;
 #[path = "peer_client.rs"] pub mod peer;
-#[path = "host_client_endpoint.rs"]
-mod endpoint;
 #[path = "host_client_frames.rs"]
 mod frames;
 #[path = "host_client_presentation.rs"]
@@ -23,7 +21,6 @@ pub use launch::handoff_existing;
 mod tests;
 
 use anyhow::{Result, ensure};
-pub use endpoint::{HostEndpoint, HostEndpointConfig, HostEndpointStartupOutcome};
 use shellfox_core::TabId;
 use shellfox_service::{
     Attachment,
@@ -38,6 +35,13 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+/// The host's data directory and the trusted helper that guards it.
+#[derive(Clone)]
+pub struct HostEndpointConfig {
+    pub data_dir: std::path::PathBuf,
+    pub helper: std::path::PathBuf,
+    pub helper_sha256: [u8; 32],
+}
 const MAX_REQUESTS: usize = 16;
 const MAX_FRAME_REQUESTS: usize = 2;
 const MAX_FRAME_WAITERS: usize = 128;
