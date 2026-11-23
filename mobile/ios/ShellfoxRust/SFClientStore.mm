@@ -104,12 +104,12 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
   return SFM_OK;
 }
 - (void)startDisconnect:(SFClientRecord *)client {
-  BOOL failedV1 = client.pollFailure != SFM_OK;
-  if (client.disconnectOperation || (client.pollOperation && !failedV1) || client.mutations.count || ![self ownerDrained:client]) return;
+  // Disconnect fences the generation, so it never waits for the outstanding poll.
+  if (client.disconnectOperation || ![self ownerDrained:client]) return;
   uint64_t operation = 0;
   SfmStatus status = sfm_client_disconnect(client.handle, &operation);
   if (status == SFM_OK) {
-    [self clearFailedPollAfterV1Fence:client];
+    [self fenceV1Generation:client keeping:nil];
     client.disconnectOperation = SFDecimal(operation);
   }
   else if (status != SFM_BUSY) { client.disconnectFinished = YES; client.closeStatus = status; }

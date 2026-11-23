@@ -22,29 +22,17 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
               work:(SFClientDeferredWork)work done:(SFClientDeferredDone)done {
   SFClientRecord *client = [self client:identifier];
   if (!client || client.closing) { done(nil, SFM_STALE); return; }
-  if (client.pollFailure != SFM_OK) {
-    BOOL teardown = admission == SFClientAdmissionV1RetireView || admission == SFClientAdmissionV1Reconnect;
-    if (!teardown) {
-      done(nil, client.pollFailure); return;
-    }
-    // Unbind is local. Reconnect fences the generation in Rust. Neither
-    // operation treats an uncertain poll as a successful delivery drain.
+  // Reconnect fences the whole generation in Rust, so it never waits for the
+  // outstanding poll or operations. Unbind is local, so a failed poll can't hold it.
+  BOOL reconnect = admission == SFClientAdmissionV1Reconnect;
+  if (reconnect || (client.pollFailure != SFM_OK && admission == SFClientAdmissionV1RetireView)) {
     SfmStatus status = SFM_OK;
     id value = RunWork(client, work, &status);
-    if (status == SFM_OK && admission == SFClientAdmissionV1Reconnect)
-      [self clearFailedPollAfterV1Fence:client];
+    if (status == SFM_OK && reconnect) [self fenceV1Generation:client keeping:value];
     done(value, status);
     return;
   }
-  // Files commands do not change terminal delivery, and Rust supplies their
-  // usual connection/authority checks. Preserve ordering with queued commands.
-  if (admission == SFClientAdmissionV1FileRequest &&
-      client.polling && !client.pendingCalls.count && !client.mutations.count) {
-    SfmStatus status = SFM_OK;
-    id value = RunWork(client, work, &status);
-    done(value, status);
-    return;
-  }
+  if (client.pollFailure != SFM_OK) { done(nil, client.pollFailure); return; }
   if (client.pendingCalls.count >= 8) { done(nil, SFM_BUSY); return; }
   SFClientDeferredCall *call = [SFClientDeferredCall new];
   call.epoch = client.authorityEpoch; call.work = work; call.done = done;
@@ -52,7 +40,9 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   // Wait for the original normal result. Canceling does not drain delivery.
 }
 - (void)drainClient:(SFClientRecord *)client {
-  while (!client.closing && client.pollFailure == SFM_OK && !client.pollOperation && !client.mutations.count &&
+  // Operations run alongside the long-poll, one at a time in order. Rust holds
+  // output a poll returns for a terminal whose attachment is still settling.
+  while (!client.closing && client.pollFailure == SFM_OK && !client.mutations.count &&
     [self ownerDrained:client] && client.pendingCalls.count) {
     SFClientDeferredCall *call = client.pendingCalls.firstObject;
     [client.pendingCalls removeObjectAtIndex:0];
@@ -62,11 +52,13 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
     call.done(value, status);
   }
 }
-- (void)clearFailedPollAfterV1Fence:(SFClientRecord *)client {
-  if (client.pollFailure == SFM_OK) return;
+- (void)fenceV1Generation:(SFClientRecord *)client keeping:(id)operation {
+  // Late completions of the fenced poll and operations no longer match anything.
   client.pollOperation = nil;
   client.pollFailure = SFM_OK;
   client.polling = NO;
+  [client.mutations removeAllObjects];
+  if ([operation isKindOfClass:NSString.class]) [client.mutations addObject:operation];
   client.authorityEpoch++;
 }
 - (void)retirePending:(SFClientRecord *)client {
@@ -105,7 +97,7 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   if (!client || client.closing) return SFM_STALE;
   if (client.pollFailure != SFM_OK) return client.pollFailure;
   if (client.pollOperation) { *operation = strtoull(client.pollOperation.UTF8String, nullptr, 10); return SFM_OK; }
-  if (!client.polling || client.pendingCalls.count || client.mutations.count || [self recoveringViews:client] || ![self ownerDrained:client]) return SFM_BUSY;
+  if (!client.polling || [self recoveringViews:client] || ![self ownerDrained:client]) return SFM_BUSY;
   SfmStatus status = sfm_client_poll(client.handle, operation);
   if (status == SFM_OK) client.pollOperation = SFDecimal(*operation);
   return status;

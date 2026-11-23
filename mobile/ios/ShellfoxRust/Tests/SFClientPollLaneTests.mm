@@ -20,32 +20,43 @@
   XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
   return store;
 }
-- (void)testV1FilesRunDuringPollWithoutOvertakingQueuedWork {
+- (void)testOperationsRunAlongsideThePollOneAtATimeInOrder {
   SFPollFixtureStore *store = [SFPollFixtureStore new];
   store.fixture = [SFClientRecord new];
   store.fixture.polling = YES;
   store.fixture.pollOperation = @"19";
-  [store whenDrained:@"1" admission:SFClientAdmissionV1FileRequest work:^id(SfmStatus *status) {
-    return @"20";
-  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); XCTAssertEqualObjects(value, @"20"); }];
-  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
-  XCTAssertTrue([store.fixture.mutations containsObject:@"20"]);
+  NSMutableArray<NSString *> *started = [NSMutableArray new];
   [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
-    XCTFail(@"Terminal work overtook an in-flight poll"); return nil;
-  } done:^(id value, SfmStatus status) { XCTFail(@"Unexpected terminal completion"); }];
+    [started addObject:@"attach"]; return @"20";
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
+  [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
+    [started addObject:@"file"]; return @"21";
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
+  [store drainClient:store.fixture];
+  XCTAssertEqualObjects(started, @[@"attach"]);
+  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
   [store completed:@{@"operationId": @"20", @"status": @(SFM_OK)} client:store.fixture];
-  [store whenDrained:@"1" admission:SFClientAdmissionV1FileRequest work:^id(SfmStatus *status) {
-    XCTFail(@"Files work overtook a queued terminal operation"); return nil;
-  } done:^(id value, SfmStatus status) { XCTFail(@"Unexpected Files completion"); }];
-  XCTAssertEqual(store.fixture.pendingCalls.count, 2u);
+  [store drainClient:store.fixture];
+  XCTAssertEqualObjects(started, (@[@"attach", @"file"]));
+  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
+}
+- (void)testReconnectDoesNotWaitForTheOutstandingPoll {
+  SFPollFixtureStore *store = [SFPollFixtureStore new];
+  store.fixture = [SFClientRecord new];
+  store.fixture.polling = YES;
+  store.fixture.pollOperation = @"19";
+  [store whenDrained:@"1" admission:SFClientAdmissionV1Reconnect work:^id(SfmStatus *status) {
+    return @"20";
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
+  XCTAssertNil(store.fixture.pollOperation);
+  XCTAssertTrue([store.fixture.mutations containsObject:@"20"]);
+  [store completed:@{@"operationId": @"19", @"status": @(SFM_CLIENT_CANCELLED)} client:store.fixture];
+  XCTAssertEqual(store.fixture.pollFailure, SFM_OK);
 }
 - (void)testFailedV1PollAllowsOnlyLocalRetirementAndAcceptedReconnectFence {
   SFPollFixtureStore *store = [self storeWithFailedPoll];
   [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     XCTFail(@"Ordinary work entered an uncertain poll lane"); return nil;
-  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
-  [store whenDrained:@"1" admission:SFClientAdmissionV1FileRequest work:^id(SfmStatus *status) {
-    XCTFail(@"Files work entered an uncertain poll lane"); return nil;
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
 
   __block BOOL retired = NO;

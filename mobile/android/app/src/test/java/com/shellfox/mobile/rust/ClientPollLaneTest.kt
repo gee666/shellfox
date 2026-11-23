@@ -29,40 +29,30 @@ class ClientPollLaneTest {
     f.finish("unrelated"); f.tick(); assertEquals(1, f.starts)
     f.finish(); assertEquals(1, f.starts); f.tick(); assertEquals(2, f.starts)
   }
-  @Test fun lateActualResultAndOwnerProcessingPrecedeMutationAndNextPoll() {
-    val f = Fixture(); f.tick(); var admitted = 0; var completed = false
-    f.lane.submit({ admitted++; "attach-original" }) { _, error -> assertNull(error); completed = true }
-    assertEquals("poll-1", f.lane.operation); assertEquals(0, admitted)
-    repeat(10) { f.tick() }; assertEquals(0, admitted); assertFalse(completed)
-    // The original RPC returns real data after the mutation request. It must
-    // still reach the original owner before view/context mutation is admitted.
-    f.finish(); f.tick(ownerDrained = false)
-    assertEquals(0, admitted); assertEquals(1, f.starts)
-    f.tick(ready = false, ownerDrained = true)
-    assertEquals(1, admitted); assertTrue(completed); assertFalse(f.lane.drained)
-    f.tick(); assertEquals(1, f.starts)
-    f.finish("attach-original"); f.tick(); assertEquals(2, f.starts)
+  @Test fun operationsRunAlongsideTheLongPollOneAtATimeInOrder() {
+    val f = Fixture(); f.tick(); val started = mutableListOf<String>()
+    f.lane.submit({ started += "attach"; "attach" }) { _, error -> assertNull(error) }
+    f.lane.submit({ started += "file"; "file" }) { _, error -> assertNull(error) }
+    f.tick()
+    assertEquals(listOf("attach"), started); assertEquals("poll-1", f.lane.operation)
+    f.finish(); f.tick(); assertEquals(2, f.starts) // the next poll does not wait for the operation
+    f.finish("attach"); f.tick(); assertEquals(listOf("attach", "file"), started)
   }
-  @Test fun filesRunDuringPollWithoutOvertakingOrdinaryWork() {
-    val f = Fixture(); f.tick()
-    var fileStarted = false
-    f.lane.submit({ fileStarted = true; "file-1" }, true) { id, error ->
-      assertNull(error); assertEquals("file-1", id)
-    }
-    assertTrue(fileStarted)
-    assertEquals("poll-1", f.lane.operation)
-    var terminalStarted = false
-    f.lane.submit({ terminalStarted = true; "attach" }) { _, error -> assertNull(error) }
-    f.finish("file-1")
-    var secondFileStarted = false
-    f.lane.submit({ secondFileStarted = true; "file-2" }, true) { _, error -> assertNull(error) }
-    assertFalse(terminalStarted)
-    assertFalse(secondFileStarted)
-    f.finish(); f.tick()
-    assertTrue(terminalStarted)
-    assertFalse(secondFileStarted)
-    f.finish("attach"); f.tick()
-    assertTrue(secondFileStarted)
+  @Test fun consumedOutputReachesTheParserBeforeAnOperationIsAdmitted() {
+    val f = Fixture(); f.tick(); var admitted = false
+    f.lane.submit({ admitted = true; "attach" }) { _, error -> assertNull(error) }
+    f.tick(ownerDrained = false); assertFalse(admitted)
+    f.tick(); assertTrue(admitted)
+  }
+  @Test fun reconnectDoesNotWaitForTheFencedLongPoll() {
+    val f = Fixture(); f.tick(); var reconnected = false
+    f.lane.prepareV1Fence()
+    f.lane.submit({ reconnected = true; "reconnect" }) { _, error -> assertNull(error) }
+    f.tick(); assertTrue(reconnected); assertTrue(f.lane.operation == null)
+    f.lane.complete("poll-1", 3, false) // the fenced poll's late result
+    assertFalse(f.lane.failedPoll)
+    f.lane.complete("reconnect", 0, true); f.lane.connection(true, "replacement-binding")
+    f.tick(); assertEquals(2, f.starts)
   }
   @Test fun cancelledCompletionIsNotADataDrainOrPermissionToMutate() {
     val f = Fixture(); f.tick(); var admitted = false; var failed = false

@@ -2,7 +2,12 @@ package com.shellfox.mobile.rust
 
 import java.util.ArrayDeque
 
-/** Owner-thread admission only. Rust captures the witness and owns every ACK. */
+/**
+ * Owner-thread admission only. Rust captures the witness and owns every ACK.
+ * The host long-poll and JS operations run side by side: operations go one at
+ * a time in order, and Rust holds output that a poll returns for a terminal
+ * whose attachment is still settling.
+ */
 internal class ClientPollLane(
   private val clock: () -> Long,
   private val startPoll: () -> String,
@@ -26,19 +31,10 @@ internal class ClientPollLane(
     if (this.authority != authority) { epoch++; this.authority = authority }
     this.connected = connected
   }
-  fun submit(start: () -> String?, done: (String?, Exception?) -> Unit) = submit(start, false, done)
-
-  fun submit(start: () -> String?, independentFile: Boolean, done: (String?, Exception?) -> Unit) {
+  fun submit(start: () -> String?, done: (String?, Exception?) -> Unit) {
     if (retired || uncertain != null) { done(null, NativeCallException(uncertain ?: 3)); return }
-    val call = Waiting(epoch, start, done)
-    // Files RPCs leave terminal delivery alone. Do not overtake any queued
-    // operation or clear the original poll when admitting one.
-    if (independentFile && connected && waiting.isEmpty() && mutations.isEmpty()) {
-      admit(call)
-      return
-    }
     if (waiting.size >= 8) { done(null, NativeCallException(1)); return }
-    waiting.addLast(call)
+    waiting.addLast(Waiting(epoch, start, done))
   }
 
   private fun admit(call: Waiting) {
@@ -47,11 +43,14 @@ internal class ClientPollLane(
     if (id != null) mutations.add(id)
     call.done(id, null)
   }
+  /**
+   * V1 reconnect and disconnect fence the whole native generation, so its
+   * outstanding poll and operations can't deliver anything any more. Don't wait
+   * for them: their late completions no longer match and are ignored.
+   */
   fun prepareV1Fence() {
-    if (uncertain == null) return
-    // V1 reconnect and disconnect fence the entire native generation. A failed
-    // poll may not admit regular work, but it cannot keep that generation alive.
     operation = null
+    mutations.clear()
     uncertain = null
     connected = false
     epoch++
@@ -75,21 +74,22 @@ internal class ClientPollLane(
   fun poll(): String {
     uncertain?.let { throw NativeCallException(it) }
     operation?.let { return it }
-    if (retired || !connected || !viewsReady || waiting.isNotEmpty() || mutations.isNotEmpty()) throw NativeInputBusy()
+    if (retired || !connected || !viewsReady) throw NativeInputBusy()
     return startPoll().also { operation = it }
   }
   /** When the owner should look again for a poll that couldn't start; null if none is due. */
   fun retryAt(): Long? = nextPoll.takeIf { !retired && connected && uncertain == null && operation == null }
   fun advance(viewsReady: Boolean, ownerDrained: Boolean) {
     this.viewsReady = viewsReady && ownerDrained
-    if (!retired && drained && ownerDrained) {
-      while (waiting.isNotEmpty() && drained) {
+    // Consumed output reaches the parser before an operation can change the views.
+    if (!retired && uncertain == null && ownerDrained) {
+      while (waiting.isNotEmpty() && mutations.isEmpty()) {
         val call = waiting.removeFirst()
         if (call.epoch != epoch) { call.done(null, NativeCallException(3)); continue }
         admit(call)
       }
     }
-    if (!retired && connected && viewsReady && ownerDrained && drained && waiting.isEmpty() && clock() >= nextPoll) {
+    if (!retired && connected && this.viewsReady && operation == null && clock() >= nextPoll) {
       try { poll() }
       catch (_: NativeInputBusy) { nextPoll = clock() + 100 }
       catch (error: NativeCallException) {

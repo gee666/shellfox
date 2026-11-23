@@ -67,17 +67,17 @@ internal object ClientTerminalBindings {
     return operation
   }
   fun afterPoll(module: Any, id: String, action: () -> String?, fenceV1: Boolean = false,
-    independentFile: Boolean = false, done: (String?, Exception?) -> Unit) {
+    done: (String?, Exception?) -> Unit) {
     val original = get(module, id)
     if (fenceV1) original.poll.prepareV1Fence()
-    original.poll.submit({ check(get(module, id) === original); action() }, independentFile, done)
+    original.poll.submit({ check(get(module, id) === original); action() }, done)
     kick(original)
   }
   fun changeViewBinding(module: Any, id: String, tab: String?, terminal: String, done: (String?, Exception?) -> Unit) {
     val client = get(module, id)
     val change = { if (tab == null) unbind(module, id, terminal) else bind(module, id, tab, terminal); null }
     if (tab == null || !client.poll.failedPoll) {
-      // V1 bind only reserves a local parser; attach still waits for the poll.
+      // V1 bind only reserves a local parser.
       // An old parser can be released even after the carrier drops its poll.
       val error = try { change(); null } catch (cause: Exception) { cause }
       done(null, error)

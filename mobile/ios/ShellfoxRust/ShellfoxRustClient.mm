@@ -207,21 +207,14 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
   id command = [NSJSONSerialization JSONObjectWithData:bytes options:0 error:nil];
   id methodValue = [command isKindOfClass:NSDictionary.class] ? command[@"method"] : nil;
   NSString *method = [methodValue isKindOfClass:NSString.class] ? methodValue : nil;
-  BOOL files = method && [@[@"getHomeDirectory", @"listFiles", @"readFile", @"writeFile", @"writeImageFile", @"readFileAsset",
-    @"beginFileRead", @"readFileChunk", @"beginFileWrite", @"writeFileChunk", @"finishFileWrite", @"cancelFileTransfer"] containsObject:method];
-  // Submit the same JSON object used to select the lane, so duplicate method
-  // keys cannot send a different command to Rust. Rust still validates it.
-  NSData *wire = files ? [NSJSONSerialization dataWithJSONObject:command options:0 error:nil] : bytes;
-  if (!wire || wire.length > SFM_CLIENT_MAX_REQUEST_BYTES) { reject(@"RUST_INVALID", @"Invalid request.", nil); return; }
-  SFClientAdmission admission = files ? SFClientAdmissionV1FileRequest : SFClientAdmissionOrdinary;
-  [self afterPoll:identifier admission:admission work:^id(SfmStatus *status) {
+  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
     if (!client) { *status = SFM_STALE; return nil; }
     if ([method isEqual:@"writeTerminal"] || [method isEqual:@"acknowledgeTerminal"]) { *status = SFM_INVALID; return nil; }
     if (([method isEqual:@"resizeTerminal"] || [method isEqual:@"finishTerminalUpload"]) &&
       [[SFClientStore shared] hasPendingIntents:identifier]) { *status = SFM_BUSY; return nil; }
     uint64_t operation = 0;
-    *status = sfm_client_operation(client.handle, (const uint8_t *)wire.bytes, wire.length, &operation);
+    *status = sfm_client_operation(client.handle, (const uint8_t *)bytes.bytes, bytes.length, &operation);
     if (*status == SFM_OK) [client.explicitOperations addObject:SFDecimal(operation)];
     return SFDecimal(operation);
   } resolve:resolve reject:reject];
