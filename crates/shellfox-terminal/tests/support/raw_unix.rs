@@ -18,11 +18,10 @@ impl Fixture {
         // A fresh checkout has no tmp/ yet.
         fs::create_dir_all(&root).unwrap();
         let root = root.canonicalize().unwrap();
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let directory = root.join(format!("raw-unix-{}-{stamp}", std::process::id()));
+        // Tests run in parallel; a clock stamp can repeat, a counter cannot.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let index = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let directory = root.join(format!("raw-unix-{}-{index}", std::process::id()));
         fs::create_dir(&directory).unwrap();
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
         Self {
@@ -42,10 +41,8 @@ impl Fixture {
         RawProcess::spawn(&self.helper, self.command(args)).unwrap()
     }
     pub fn socket(&self) -> PathBuf {
-        self.directory
-            .parent()
-            .unwrap()
-            .join(format!("raw-leaf-{}.sock", std::process::id()))
+        // Per fixture: parallel tree tests must not share one leaf socket.
+        self.directory.join("leaf.sock")
     }
 }
 impl Drop for Fixture {
