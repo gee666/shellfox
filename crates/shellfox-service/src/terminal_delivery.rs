@@ -31,7 +31,8 @@ impl Service {
             .identity();
         // A viewer's mailbox never blocks replies/phase/cleanup. Reply activity
         // completion runs before a later Closed event can clear its contexts.
-        for index in 0..shellfox_runtime::EVENT_CAPACITY {
+        let mut woke = false;
+        for _ in 0..shellfox_runtime::EVENT_CAPACITY {
             let event = match self
                 .terminals
                 .get(&tab)
@@ -44,8 +45,11 @@ impl Service {
             };
             self.record_ownership_reply(identity, &event);
             self.native.record_event(tab, &event);
-            if index == 0 {
-                // Frame requests queue behind this pass, so they see every event drained here.
+            // Replies answer requests (frame reads included); waking on them would
+            // release the next held frame read at once. Frame requests queue behind
+            // this pass, so they see every event drained here.
+            if !woke && !matches!(event, Event::Reply { .. }) {
+                woke = true;
                 self.native.watches.frames.wake(tab);
             }
             if let Event::Reply { id, result } = &event {

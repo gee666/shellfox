@@ -42,7 +42,9 @@ enum Seen {
     Frame { changes: watch::Receiver<u64>, focused: bool },
     Activity(watch::Receiver<Arc<[NativeTabActivity]>>),
     Power(watch::Receiver<PowerReport>),
-    Remote(watch::Receiver<RemoteControlState>),
+    /// None, or a closed sender, when this host runs without remote access:
+    /// the state then never changes.
+    Remote(Option<watch::Receiver<RemoteControlState>>),
     Launch(watch::Receiver<u64>),
 }
 impl Seen {
@@ -51,7 +53,7 @@ impl Seen {
             Self::Frame { changes, .. } => changes.has_changed(),
             Self::Activity(changes) => changes.has_changed(),
             Self::Power(changes) => changes.has_changed(),
-            Self::Remote(changes) => changes.has_changed(),
+            Self::Remote(changes) => Ok(changes.as_ref().is_some_and(|changes| changes.has_changed().unwrap_or(false))),
             Self::Launch(changes) => changes.has_changed(),
         }
         .unwrap_or(true)
@@ -62,7 +64,14 @@ impl Seen {
             Self::Frame { changes, .. } => changes.changed().await,
             Self::Activity(changes) => changes.changed().await,
             Self::Power(changes) => changes.changed().await,
-            Self::Remote(changes) => changes.changed().await,
+            Self::Remote(changes) => {
+                if let Some(changes) = changes {
+                    if changes.changed().await.is_ok() {
+                        return;
+                    }
+                }
+                std::future::pending().await
+            }
             Self::Launch(changes) => changes.changed().await,
         };
     }
@@ -78,7 +87,9 @@ impl Seen {
                 changes.borrow_and_update();
             }
             Self::Remote(changes) => {
-                changes.borrow_and_update();
+                if let Some(changes) = changes {
+                    changes.borrow_and_update();
+                }
             }
             Self::Launch(changes) => {
                 changes.borrow_and_update();
@@ -235,7 +246,7 @@ impl LongPolls {
             },
             Kind::Activity => Seen::Activity(self.watches.tab_activity.clone()),
             Kind::Power => Seen::Power(self.watches.power.clone()),
-            Kind::Remote => Seen::Remote(self.remote.clone()?),
+            Kind::Remote => Seen::Remote(self.remote.clone()),
             Kind::Launch(_) => Seen::Launch(self.watches.launches.clone()),
         })
         .map(|mut seen| {
@@ -321,6 +332,15 @@ mod tests {
         assert!(returns_soon(polls.hold(uuid::Uuid::new_v4(), &activity(), &stop)).await);
         stop.cancel();
         assert!(returns_soon(polls.hold(client, &activity(), &stop)).await);
+    }
+
+    #[tokio::test]
+    async fn remote_state_is_held_when_remote_access_is_off() {
+        let (polls, _senders) = polls();
+        let (client, stop) = (uuid::Uuid::new_v4(), CancellationToken::new());
+        let state = || PrivateRequest::RemoteOperator(RemoteRequest::State);
+        assert!(returns_soon(polls.hold(client, &state(), &stop)).await);
+        assert!(!returns_soon(polls.hold(client, &state(), &stop)).await);
     }
 
     #[tokio::test]

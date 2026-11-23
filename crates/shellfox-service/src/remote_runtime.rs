@@ -247,12 +247,16 @@ impl Manager {
                 Some(envelope)=requests.recv()=>{
                     // Enqueue accepted mutations into this owner, not its reply
                     // receiver. Response loss cannot discard an accepted action.
-                    if !envelope.reply.is_closed() || !matches!(&envelope.request, RemoteRequest::State){
+                    let read = matches!(&envelope.request, RemoteRequest::State);
+                    if !envelope.reply.is_closed() || !read {
                         let result = match &envelope.request {
                             RemoteRequest::ContinueDesktopPair { .. } if stop.is_cancelled() || lost.is_cancelled() => Err(pair_stopped()),
                             _ => self.request(envelope.request).await,
                         };
-                        self.emit().await;
+                        // A read changes nothing; publishing it would wake every held reader.
+                        if !read {
+                            self.emit().await;
+                        }
                         let _=envelope.reply.send(result.map(|connect|RemoteReceipt{state:self.state.clone(),connect}));
                     }
                 },
