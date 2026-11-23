@@ -39,6 +39,21 @@ fn missing_cli_fails_at_once_and_names_the_cli() {
     assert!(!config.data_dir.exists());
 }
 
+/// Cleanup asks this from inside its runtime after a failed start.
+#[test]
+fn serving_runs_inside_a_runtime_and_finds_no_host_in_a_missing_dir() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("tmp");
+    std::fs::create_dir_all(&root).unwrap();
+    let directory = tempfile::tempdir_in(root).unwrap();
+    let config = HostEndpointConfig {
+        data_dir: directory.path().join("data"),
+        helper: directory.path().join("helper"),
+        helper_sha256: [0; 32],
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    assert!(!runtime.block_on(serving(&config)));
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_host_scope_survives_oom_kills_of_its_members() {

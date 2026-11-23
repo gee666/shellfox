@@ -83,17 +83,18 @@ impl AppHostBackend for AttachedBackend {
                 return Ok(());
             }
             crate::host_process::announce_quit();
-            with_local(&self.config, async |client| {
+            let stopped = with_local(&self.config, async |client| {
                 client.execute(shellfox_service::experiment::ExperimentRequest::Stop {}).await?;
                 // Stop replies once admitted; the host exits after closing its shells.
                 client.closed().await;
                 Ok(())
             })
-            .await
-            .or_else(|error| {
+            .await;
+            match stopped {
                 // A host that no longer accepts clients has already stopped or died.
-                if crate::host_process::serving(&self.config) { Err(error) } else { Ok(()) }
-            })
+                Err(error) if crate::host_process::serving(&self.config).await => Err(error),
+                _ => Ok(()),
+            }
         })
     }
 }

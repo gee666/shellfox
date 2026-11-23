@@ -142,7 +142,7 @@ impl Prestarted {
                     match self.host.owned_terminal_count().await {
                         Ok(0) => self.host.cleanup().await,
                         Ok(_) => Ok(()),
-                        Err(_) if !crate::host_process::serving(&self.config) => Ok(()),
+                        Err(_) if !crate::host_process::serving(&self.config).await => Ok(()),
                         Err(error) => Err(error),
                     }
                 }),

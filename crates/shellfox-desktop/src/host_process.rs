@@ -106,21 +106,17 @@ fn start_and_discover(
 }
 
 /// Whether a host still answers on this data directory, asked a few times.
-pub(crate) fn serving(config: &HostEndpointConfig) -> bool {
-    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-        return true;
-    };
-    (0..3).any(|attempt| {
+pub(crate) async fn serving(config: &HostEndpointConfig) -> bool {
+    for attempt in 0..3 {
         if attempt > 0 {
-            std::thread::sleep(Duration::from_millis(200));
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
-        runtime.block_on(async {
-            let (client, _) = discover(config).await.ok()?;
+        if let Ok((client, _)) = discover(config).await {
             let _ = client.disconnect().await;
-            Some(())
-        })
-        .is_some()
-    })
+            return true;
+        }
+    }
+    false
 }
 
 async fn discover(config: &HostEndpointConfig) -> Result<(LocalClient, LaunchRouteInfo)> {
