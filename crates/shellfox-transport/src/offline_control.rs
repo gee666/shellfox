@@ -32,6 +32,8 @@ pub(crate) struct OfflineControl {
     _original_directories: RootLifetimeGuard,
     lost: CancellationToken,
     fault: std::sync::atomic::AtomicBool,
+    /// Notified once `poll_exit` records the original wait; the scope monitor polls.
+    exited: tokio::sync::Notify,
 }
 impl OfflineControl {
     pub fn prepare(
@@ -53,6 +55,7 @@ impl OfflineControl {
             _original_directories: original_directories,
             lost: CancellationToken::new(),
             fault: std::sync::atomic::AtomicBool::new(false),
+            exited: tokio::sync::Notify::new(),
         })
     }
     pub fn enter_spawn(&self) -> Result<(), HelperError> {
@@ -147,6 +150,7 @@ impl OfflineControl {
                 child.stdin.take();
                 s.exit = Some(exit);
                 self.lost.cancel();
+                self.exited.notify_waiters();
                 Ok(Some(exit))
             }
             Ok(None) => Ok(None),
@@ -182,16 +186,19 @@ impl OfflineControl {
         }
         Ok(())
     }
+    /// Waits for the original wait, which the scope monitor records.
     pub async fn wait_exit(&self, timeout: Duration) -> Result<ExitStatus, HelperError> {
-        let end = std::time::Instant::now() + timeout;
+        let end = tokio::time::Instant::now() + timeout;
         loop {
+            let notified = self.exited.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             if let Some(exit) = self.poll_exit()? {
                 return Ok(exit);
             }
-            if std::time::Instant::now() >= end {
-                return Err(HelperError::Deadline);
+            if tokio::time::timeout_at(end, notified).await.is_err() {
+                return self.poll_exit()?.ok_or(HelperError::Deadline);
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 }
