@@ -7,7 +7,7 @@ use anyhow::Result;
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 pub(crate) const MARKER: &str = "SHELLFOX_TERMINAL_MARKER";
@@ -159,8 +159,10 @@ fn compose_for(
     if let Some(marker) = marker {
         env.set(MARKER.into(), marker.into());
     }
+    // WSLENV's /p translation can't read a verbatim (\\?\) path.
     for (key, value) in host_paths {
-        env.set(key.clone(), value.clone());
+        let value = crate::environment::lookup_path(PathBuf::from(value));
+        env.set(key.clone(), value.into_os_string());
     }
     if windows {
         // Any Windows shell can start wsl.exe. List the variables Shellfox set
@@ -410,6 +412,19 @@ mod tests {
         );
         let names: Vec<_> = env.iter().map(|(k, _)| k.to_str().unwrap()).collect();
         assert_eq!(names, ["LANG", "TERM", "COLORTERM", "FORCE_HYPERLINK", "PI_HYPERLINKS"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn host_paths_lose_the_verbatim_prefix_so_wslenv_can_translate_them() {
+        let host = map(&[
+            ("SHELLFOX_USER_DATA", r"\\?\C:\Users\me\AppData\Roaming\Shellfox"),
+            ("SHARE", r"\\?\UNC\server\share\Shellfox"),
+        ]);
+        let layers = Layers { host_paths: Some(&host), ..Default::default() };
+        let env = compose_for(true, Vec::new(), layers);
+        assert_eq!(get(&env, "SHELLFOX_USER_DATA"), Some(r"C:\Users\me\AppData\Roaming\Shellfox"));
+        assert_eq!(get(&env, "SHARE"), Some(r"\\server\share\Shellfox"));
     }
 
     #[cfg(windows)]
