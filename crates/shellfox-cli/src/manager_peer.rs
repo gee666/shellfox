@@ -30,7 +30,6 @@ impl OutboundTransport for Outgoing<'_> {
                 Endpoint::Request => OutgoingV2Endpoint::RequestV1,
                 Endpoint::Events => OutgoingV2Endpoint::EventsV1,
                 Endpoint::Disconnect => OutgoingV2Endpoint::DisconnectV1,
-                _ => return Err(TransportError::InvalidRequest),
             };
             let response = self
                 .0
@@ -151,6 +150,10 @@ impl<'a> Peer<'a> {
                 .await
                 .map_err(failed)?,
         )
+    }
+    /// The paired v1 view, for streaming calls such as attach.
+    pub fn client(&self) -> &Client<impl OutboundTransport + 'a> {
+        &self.client
     }
     pub async fn close(self) {
         let _ = self.client.disconnect().await;

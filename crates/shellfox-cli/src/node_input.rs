@@ -15,13 +15,6 @@ pub(super) fn local_only(words: &[String]) -> Result<()> {
         ("run" | "runs", _) => "Automation commands use the local host. Run the CLI on the target machine.",
         ("commands" | "cmd", _) => "Custom commands run locally, not through --host.",
         ("update", _) => "update is local-only; remote --host targets are rejected, not forwarded.",
-        ("terminals" | "tm", "attach") => {
-            return Err(CliError::new(
-                "UNSUPPORTED",
-                "Interactive attach to a remote host is not available in this version. Run shellfox terminals attach on that machine.",
-                false,
-            ))
-        }
         _ => return Ok(()),
     };
     Err(CliError::usage(message))

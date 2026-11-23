@@ -44,6 +44,8 @@ pub enum Action {
     Manager(crate::manager_args::ManagerCommand),
     /// `completion [SHELL]`; None prints the usage.
     Completion(Option<String>),
+    /// `terminals attach` on a remote host.
+    RemoteAttach(shellfox_core::TabId),
     /// `commands`/`cmd` and everything after it.
     Commands(Vec<String>),
     Machines,
@@ -206,6 +208,7 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
         && !matches!(
             action,
             Action::Manager(_)
+                | Action::RemoteAttach(_)
                 | Action::CreateSession { .. }
                 | Action::Help(_)
                 | Action::Version
@@ -356,6 +359,10 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
                 "Interactive attach does not support --json.",
             ));
         }
+        [namespace, "attach", tab] if terminal(namespace) && remote => Action::RemoteAttach(
+            tab.parse()
+                .map_err(|_| CliError::usage("Expected a full session or terminal UUID."))?,
+        ),
         [namespace, "attach", tab] if terminal(namespace) => host(&["attach", tab]),
         ["settings", "read"] if remote => {
             Action::Manager(crate::manager_args::ManagerCommand::Settings)
@@ -432,10 +439,13 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
     })
 }
 
+/// Flag names with their values, in order.
+type Flags<'a> = Vec<(&'a str, &'a str)>;
+
 fn options<'a>(
     rest: &[&'a str],
     allowed: &[&str],
-) -> Result<(Vec<&'a str>, Vec<(&'a str, &'a str)>)> {
+) -> Result<(Vec<&'a str>, Flags<'a>)> {
     let (mut positional, mut flags) = (Vec::new(), Vec::new());
     let mut items = rest.iter();
     while let Some(item) = items.next() {

@@ -32,6 +32,7 @@ mod presentation;
 mod queries;
 mod query_rules;
 mod remote_args;
+mod remote_attach;
 mod remote_command;
 mod session_view;
 mod ssh;

@@ -209,6 +209,21 @@ async fn query(
             )
             .await
         }
+        Action::RemoteAttach(tab) => {
+            crate::attach::require_terminal()?;
+            let target = options.host.as_deref().unwrap_or_default();
+            let peer = crate::manager_peer::resolve(client, target, true).await?;
+            let peer = crate::manager_peer::Peer::connect(client, peer).await?;
+            let result = async {
+                let _terminal = crate::attach::TerminalGuard::enter()?;
+                let size = crossterm::terminal::size()?;
+                let input = crossterm::event::EventStream::new();
+                crate::remote_attach::run(peer.client(), tab, size, std::io::stdout(), input).await
+            }
+            .await;
+            peer.close().await;
+            result
+        }
         Action::Machines => {
             let state = client.remote_control(RemoteRequest::State).await?;
             let hosts: Vec<_> = state
