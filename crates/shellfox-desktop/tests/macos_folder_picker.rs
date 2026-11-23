@@ -1,6 +1,6 @@
 // AppKit requires the main thread, not the Rust test harness worker.
 #[cfg(target_os = "macos")]
-#[path = "../src/macos_folder_panel.rs"]
+#[path = "../src/dialogs/directory/submit/picker/macos_panel.rs"]
 mod configuration;
 
 fn main() {
