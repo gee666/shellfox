@@ -7,9 +7,10 @@ pub const DEFAULT_HEIGHT: i32 = 820;
 pub const MIN_WIDTH: i32 = 850;
 pub const MIN_HEIGHT: i32 = 600;
 
-/// Normal (not maximized) client bounds in logical pixels, relative to the
-/// origin of the display they were on. Display-relative bounds survive DPI
-/// changes and a rearranged monitor layout.
+/// Normal (not maximized) client bounds in logical screen pixels, relative to
+/// the origin of the display they were on. Display-relative bounds survive DPI
+/// changes and a rearranged monitor layout. Screen coordinates ignore where the
+/// taskbar is, as Electron's did; the desktop converts to window coordinates.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct WindowState {
     pub x: i32,

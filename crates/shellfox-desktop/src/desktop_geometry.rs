@@ -3,8 +3,12 @@ use crate::{
     root::Root,
     window_manager::state::{SAVE_DELAY, Screen, WindowState, min_size, place, record},
 };
-use gpui::{App, Context, Global, PlatformDisplay, Task, Window, WindowBounds, WindowOptions};
+use gpui::{App, Bounds, Context, Global, Task, Window, WindowBounds, WindowOptions};
 use shellfox_service::native::{NativeAction, NativeResponse};
+
+#[cfg(windows)]
+#[path = "desktop_geometry_windows.rs"]
+mod platform;
 
 pub(crate) struct WindowHistory {
     client: HostClient,
@@ -129,11 +133,12 @@ fn wayland() -> bool {
     false
 }
 
-fn screen(display: &dyn PlatformDisplay) -> Screen {
-    Screen {
-        uuid: display.uuid().ok().map(|uuid| uuid.to_string()),
-        bounds: display.bounds(),
-    }
+#[cfg(windows)]
+use platform::screen;
+
+#[cfg(not(windows))]
+fn screen(display: &dyn gpui::PlatformDisplay) -> Screen {
+    Screen::full(display.uuid().ok().map(|uuid| uuid.to_string()), display.bounds())
 }
 
 fn configure(cx: &App, saved: Option<&WindowState>, options: &mut WindowOptions) {
@@ -144,22 +149,28 @@ fn configure(cx: &App, saved: Option<&WindowState>, options: &mut WindowOptions)
     });
     let primary = if wayland() {
         // The compositor picks the output and the position, so fit every output.
-        let Some(mut fit) = screens.first().cloned() else {
+        let Some(first) = screens.first() else {
             return;
         };
+        let mut fit = first.bounds.size;
         for screen in &screens {
-            fit.bounds.size = fit.bounds.size.min(&screen.bounds.size);
+            fit = fit.min(&screen.bounds.size);
         }
-        fit.uuid = None;
-        screens = vec![fit];
+        screens = vec![Screen::full(None, Bounds::new(first.bounds.origin, fit))];
         0
     } else {
         primary.unwrap_or(0)
     };
     let saved = saved.filter(|_| !wayland());
     let Some(placement) = place(saved, &screens, primary) else {
+        eprintln!("Window restore: no displays are available yet; using the default placement");
         return;
     };
+    if let Some(id) = saved.and_then(|saved| saved.display.as_ref())
+        && screens[placement.screen].uuid.as_ref() != Some(id)
+    {
+        eprintln!("Window restore: the saved display is gone; using the primary display");
+    }
     options.display_id = (!wayland())
         .then(|| displays.get(placement.screen).map(|display| display.id()))
         .flatten();

@@ -1,6 +1,6 @@
 //! Where a saved window opens. Bounds are GPUI logical pixels; the saved
 //! record is relative to its display, see [`WindowState`].
-use gpui::{Bounds, Pixels, Size, point, px, size};
+use gpui::{Bounds, Pixels, Point, Size, point, px, size};
 use std::time::Duration;
 #[cfg(test)]
 #[path = "window_manager_state_tests.rs"]
@@ -16,6 +16,22 @@ pub struct Screen {
     pub uuid: Option<String>,
     /// Global GPUI bounds of the display.
     pub bounds: Bounds<Pixels>,
+    /// The part not covered by the taskbar, menu bar or dock, relative to `bounds`.
+    pub work: Bounds<Pixels>,
+    /// Windows places windows in workspace coordinates, which start at the work
+    /// area rather than the monitor. Elsewhere this is zero.
+    pub workspace: Point<Pixels>,
+}
+
+impl Screen {
+    pub fn full(uuid: Option<String>, bounds: Bounds<Pixels>) -> Self {
+        Self {
+            uuid,
+            work: Bounds::new(Point::default(), bounds.size),
+            workspace: Point::default(),
+            bounds,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,31 +48,36 @@ pub fn min_size() -> Size<Pixels> {
 }
 
 /// Restores on the saved display, or on the primary display when it is gone.
-/// The window keeps its size where it fits and is moved fully on-screen.
+/// The window keeps its size where it fits and is moved fully into the work area.
 pub fn place(saved: Option<&WindowState>, screens: &[Screen], primary: usize) -> Option<Placement> {
     let screen = saved
         .and_then(|saved| saved.display.as_ref())
         .and_then(|id| screens.iter().position(|screen| screen.uuid.as_ref() == Some(id)))
         .unwrap_or(primary);
-    let area = screens.get(screen)?.bounds;
+    let display = screens.get(screen)?;
+    let work = display.work;
     let (default_width, default_height) = client_size(DEFAULT_WIDTH, DEFAULT_HEIGHT);
     let (width, height) = saved.map_or((default_width, default_height), |saved| {
         (saved.width, saved.height)
     });
     let min = min_size();
-    let width = (width as f32).min(area.size.width.into()).max(min.width.into());
-    let height = (height as f32).min(area.size.height.into()).max(min.height.into());
-    let free_x = (f32::from(area.size.width) - width).max(0.);
-    let free_y = (f32::from(area.size.height) - height).max(0.);
-    let (x, y) = saved.map_or((free_x / 2., free_y / 2.), |saved| {
-        (saved.x as f32, saved.y as f32)
+    let width = (width as f32).min(work.size.width.into()).max(min.width.into());
+    let height = (height as f32).min(work.size.height.into()).max(min.height.into());
+    let free_x = (f32::from(work.size.width) - width).max(0.);
+    let free_y = (f32::from(work.size.height) - height).max(0.);
+    let (x, y) = saved.map_or(((free_x / 2.).round(), (free_y / 2.).round()), |saved| {
+        (
+            saved.x as f32 - f32::from(work.origin.x),
+            saved.y as f32 - f32::from(work.origin.y),
+        )
     });
+    let origin = display.bounds.origin + work.origin - display.workspace;
     Some(Placement {
         screen,
         bounds: Bounds::new(
             point(
-                area.origin.x + px(x.clamp(0., free_x)),
-                area.origin.y + px(y.clamp(0., free_y)),
+                origin.x + px(x.clamp(0., free_x)),
+                origin.y + px(y.clamp(0., free_y)),
             ),
             size(px(width), px(height)),
         ),
@@ -64,13 +85,15 @@ pub fn place(saved: Option<&WindowState>, screens: &[Screen], primary: usize) ->
     })
 }
 
-/// The record for a window's normal bounds on a display.
+/// The record for a window's normal bounds, in GPUI window coordinates, on a display.
 pub fn record(
     normal: Bounds<Pixels>,
     maximized: bool,
     display: Option<&Screen>,
 ) -> Option<WindowState> {
-    let origin = display.map_or(point(px(0.), px(0.)), |display| display.bounds.origin);
+    let origin = display.map_or(Point::default(), |display| {
+        display.bounds.origin - display.workspace
+    });
     let state = WindowState {
         x: f32::from(normal.origin.x - origin.x).round() as i32,
         y: f32::from(normal.origin.y - origin.y).round() as i32,

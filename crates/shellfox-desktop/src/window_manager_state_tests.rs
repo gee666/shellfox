@@ -1,10 +1,21 @@
 use super::*;
 
 fn screen(uuid: &str, x: f32, y: f32, width: f32, height: f32) -> Screen {
-    Screen {
-        uuid: Some(uuid.into()),
-        bounds: Bounds::new(point(px(x), px(y)), size(px(width), px(height))),
+    Screen::full(
+        Some(uuid.into()),
+        Bounds::new(point(px(x), px(y)), size(px(width), px(height))),
+    )
+}
+
+/// A 1920x1080 display with a 48 px taskbar at the given edge.
+fn taskbar(top: bool, workspace: bool) -> Screen {
+    let mut screen = screen("primary", 0., 0., 1920., 1080.);
+    let offset = point(px(0.), px(if top { 48. } else { 0. }));
+    screen.work = Bounds::new(offset, size(px(1920.), px(1032.)));
+    if workspace {
+        screen.workspace = offset;
     }
+    screen
 }
 
 fn screens() -> Vec<Screen> {
@@ -104,7 +115,7 @@ fn without_a_record_opens_the_default_size_centered_on_the_primary() {
     );
     assert_eq!(
         origin(&placement),
-        ((1920 - width) as f32 / 2., (1080 - height) as f32 / 2.)
+        (((1920 - width) as f32 / 2.).round(), ((1080 - height) as f32 / 2.).round())
     );
     assert!(!placement.maximized);
     assert_eq!(place(None, &[], 0), None);
@@ -130,4 +141,53 @@ fn imported_electron_bounds_restore_on_the_primary_display() {
         (x, y, f32::from(bounds.width), f32::from(bounds.height)),
         expected
     );
+}
+
+#[test]
+fn never_restores_under_a_bottom_taskbar() {
+    let screens = [taskbar(false, true)];
+    let state = saved(300, 600, Some("primary"));
+    let placement = place(Some(&state), &screens, 0).unwrap();
+    assert_eq!(origin(&placement), (300., 332.));
+    let tall = WindowState {
+        height: 1070,
+        ..saved(0, 0, None)
+    };
+    assert_eq!(
+        place(Some(&tall), &screens, 0).unwrap().bounds.size.height,
+        px(1032.)
+    );
+}
+
+#[test]
+fn a_top_taskbar_keeps_records_in_screen_coordinates() {
+    // Windows window coordinates start below a top taskbar; macOS-style ones do not.
+    for workspace in [true, false] {
+        let screens = [taskbar(true, workspace)];
+        let state = saved(300, 200, Some("primary"));
+        let placement = place(Some(&state), &screens, 0).unwrap();
+        let shift = if workspace { 48. } else { 0. };
+        assert_eq!(origin(&placement), (300., 200. - shift));
+        assert_eq!(record(placement.bounds, false, Some(&screens[0])), Some(state));
+        // Screen y 10 is under the taskbar, so the window moves just below it.
+        let under = saved(300, 10, Some("primary"));
+        assert_eq!(
+            origin(&place(Some(&under), &screens, 0).unwrap()),
+            (300., 48. - shift)
+        );
+    }
+}
+
+#[test]
+fn electron_bounds_on_a_top_taskbar_primary_stay_below_the_taskbar() {
+    // Electron stored screen DIPs, the same space as the record.
+    let state = WindowState::parse_electron(
+        br#"{"x":100,"y":60,"width":1220,"height":820,"maximized":false}"#,
+    )
+    .unwrap();
+    let screens = [taskbar(true, cfg!(windows))];
+    let placement = place(Some(&state), &screens, 0).unwrap();
+    let (x, y) = origin(&placement);
+    let shift = if cfg!(windows) { 48. } else { 0. };
+    assert_eq!((x, y + shift), (state.x as f32, state.y as f32));
 }
