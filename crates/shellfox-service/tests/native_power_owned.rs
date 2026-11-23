@@ -5,19 +5,20 @@ mod power_linux_prerequisites;
 #[path = "support/native_bootstrap_owned.rs"]
 mod support;
 use anyhow::{ensure, Result};
-use shellfox_service::{local::LocalClient, native::NativeClient, power::PowerStatus};
+use shellfox_service::{local::LocalClient, power::PowerStatus};
 
 #[test]
 #[cfg_attr(windows, ignore = "changes Windows lid policy; use an explicitly approved live run")]
-fn local_clients_and_native_windows_share_power_and_shutdown_releases() -> Result<()> {
+fn local_clients_share_power_and_shutdown_releases() -> Result<()> {
     let fixture = support::Fixture::new()?;
     let data = fixture.data("shared-power");
     let helper = fixture.helper.clone();
     let digest = fixture.digest;
     let client_data = data.clone();
-    support::cycle(&fixture, &data, |owner, stop| async move {
-        let first = NativeClient::new(owner);
-        let second = first.fork();
+    support::cycle(&fixture, &data, |_, stop| async move {
+        // Two windows and two CLI clients.
+        let first = LocalClient::connect(&client_data, &helper, digest).await?;
+        let second = LocalClient::connect(&client_data, &helper, digest).await?;
         let local = LocalClient::connect(&client_data, &helper, digest).await?;
         let other_local = LocalClient::connect(&client_data, &helper, digest).await?;
         ensure!(first.power_status().await?.status == PowerStatus::Inactive);

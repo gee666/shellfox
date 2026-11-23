@@ -7,12 +7,23 @@ use shellfox_core::{CreateSession, ProfileId, SessionId};
 use shellfox_host::HostRequest;
 use shellfox_protocol::{ProfileEnvironment, Validate};
 use shellfox_service::native::{
-    NativeAction, NativeClient, NativeCommand, NativeInputContext, NativeResponse,
+    NativeAction, NativeCommand, NativeInputContext, NativeResponse,
 };
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
+
+
+async fn creation_receipt(
+    owner: &shellfox_service::OwnerClient,
+    request_id: SessionId,
+) -> Result<shellfox_host::CreationRequestReceipt> {
+    match owner.native(NativeAction::CreationRequestReceipt { request_id }).await? {
+        NativeResponse::CreationRequestReceipt { request_id: actual, receipt } if actual == request_id => Ok(receipt),
+        _ => anyhow::bail!("Creation receipt reply does not match its request."),
+    }
+}
 
 #[test]
 fn actual_catalog_local_first_pty_uses_explicit_cli_and_stops_original_owner() -> Result<()> {
@@ -34,10 +45,9 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
     let cwd = data.to_string_lossy().into_owned();
     // cycle_remote retains the SAME bootstrap and confirms actual Stop/drain/
     // NoOwner before returning any driver error, including an Attach failure.
-    support::cycle_remote(&fixture, &data, remote, |owner, stop| async move {
-        let client = NativeClient::new(owner);
+    support::cycle_remote(&fixture, &data, remote, |client, stop| async move {
         let state = client
-            .execute(NativeAction::Remote(
+            .native(NativeAction::Remote(
                 shellfox_service::remote::RemoteRequest::State,
             ))
             .await?;
@@ -48,7 +58,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
             !state.enabled,
             "Acceptance must not start tailnet networking"
         );
-        let catalog = client.execute(NativeAction::TerminalProfiles).await?;
+        let catalog = client.native(NativeAction::TerminalProfiles).await?;
         let NativeResponse::TerminalProfiles(catalog) = catalog else {
             anyhow::bail!("Actual owner catalog absent")
         };
@@ -79,7 +89,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
         );
         let request_id = SessionId::new();
         let snapshot = client
-            .execute(NativeAction::Metadata(HostRequest::CreateSession(
+            .native(NativeAction::Metadata(HostRequest::CreateSession(
                 CreateSession {
                     request_id,
                     title: Some("actual first PTY".into()),
@@ -92,7 +102,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
             anyhow::bail!("CreateSnapshot absent")
         };
         let shellfox_host::CreationRequestReceipt::SessionCreated { session_id } =
-            client.creation_request_receipt(request_id).await?
+            creation_receipt(&client, request_id).await?
         else {
             anyhow::bail!("Actual creation receipt unavailable")
         };
@@ -110,7 +120,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
             hint: false,
         };
         let attached = client
-            .execute(NativeAction::Attach {
+            .native(NativeAction::Attach {
                 tab,
                 takeover: false,
             })
@@ -120,7 +130,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
             anyhow::bail!("Actual attachment absent")
         };
         client
-            .execute(NativeAction::Terminal {
+            .native(NativeAction::Terminal {
                 tab,
                 attachment: attachment.clone(),
                 command: NativeCommand::Paste("echo SHELLFOX_ACTUAL_FIRST_PTY".into()),
@@ -128,7 +138,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
             })
             .await?;
         client
-            .execute(NativeAction::Terminal {
+            .native(NativeAction::Terminal {
                 tab,
                 attachment: attachment.clone(),
                 command: NativeCommand::Key(shellfox_ghostty_vt::key::KeyEvent::press(
@@ -143,7 +153,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
         let mut credited = false;
         while Instant::now() < deadline && !(seen && credited) {
             if let NativeResponse::Frame(Some(frame)) = client
-                .execute(NativeAction::Frame {
+                .native(NativeAction::Frame {
                     tab,
                     attachment: attachment.clone(),
                 })
@@ -162,7 +172,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
                             == "SHELLFOX_ACTUAL_FIRST_PTY"
                     });
                 let accepted = client
-                    .execute(NativeAction::AcceptFrame {
+                    .native(NativeAction::AcceptFrame {
                         tab,
                         attachment: attachment.clone(),
                         frame_id: frame.frame_id,
@@ -187,7 +197,7 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
 }
 
 #[test]
-fn outgoing_native_and_private_clients_share_disabled_host_without_implicit_pair() -> Result<()> {
+fn outgoing_on_a_disabled_host_is_unavailable_and_never_pairs() -> Result<()> {
     use shellfox_protocol::{AuthenticatedPeerId, CancellationToken, RequestLimits, TransportError};
     use shellfox_service::remote::OutgoingV2Endpoint;
     let fixture = support::Fixture::new()?;
@@ -199,7 +209,6 @@ fn outgoing_native_and_private_clients_share_disabled_host_without_implicit_pair
     let remote = application::NativeApplicationConfig::new(&data, None, Some("owned-outgoing".into()), application::SourceFactory::Local)?
         .remote_options(supervisor, false)?;
     support::cycle_remote(&fixture, &data, remote, |owner, _| async move {
-        let native = NativeClient::new(owner);
         let local = shellfox_service::local::LocalClient::connect(&local_data, &helper, digest).await?;
         let peer = AuthenticatedPeerId::new("n-peer")?;
         let limits = || RequestLimits {
@@ -208,16 +217,13 @@ fn outgoing_native_and_private_clients_share_disabled_host_without_implicit_pair
             max_response_bytes: shellfox_protocol::MAX_RESPONSE_BYTES,
         };
         for endpoint in [OutgoingV2Endpoint::DiscoverV1, OutgoingV2Endpoint::PairV1, OutgoingV2Endpoint::RequestV1, OutgoingV2Endpoint::EventsV1, OutgoingV2Endpoint::DisconnectV1] {
-            assert_eq!(native.outgoing_v2_with_status(&peer, endpoint, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
             assert_eq!(local.outgoing_v2_with_status(&peer, endpoint, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
         }
         let cancelled = limits(); cancelled.cancel.cancel();
-        assert_eq!(native.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), cancelled.clone()).await, Err(TransportError::Cancelled));
         assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), cancelled).await, Err(TransportError::Cancelled));
         let expired = RequestLimits { deadline:Instant::now()-Duration::from_millis(1), ..limits() };
-        assert_eq!(native.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), expired.clone()).await, Err(TransportError::Deadline));
         assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), expired).await, Err(TransportError::Deadline));
-        let state = native.execute(NativeAction::Remote(shellfox_service::remote::RemoteRequest::State)).await?;
+        let state = owner.native(NativeAction::Remote(shellfox_service::remote::RemoteRequest::State)).await?;
         let NativeResponse::Remote(state) = state else { anyhow::bail!("Remote state absent") };
         ensure!(!state.enabled && state.attempts.is_empty() && state.pending.is_empty() && state.approvals.is_empty(), "Opaque outgoing operation implicitly changed authority/networking");
         local.disconnect().await?;

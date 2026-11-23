@@ -4,7 +4,7 @@ pub use shellfox_service::app_composition as application;
 pub mod support;
 use anyhow::{ensure, Context, Result};
 use shellfox_service::{
-    native::{NativeAction, NativeClient, NativeResponse},
+    native::{NativeAction, NativeResponse},
     remote::{AuthKey, RemoteBootResources, RemoteRequest},
 };
 use std::path::PathBuf;
@@ -60,7 +60,6 @@ fn headless_operator_and_native_use_same_manager_and_original_lifetime() -> Resu
     )?;
     support::cycle_remote(&fixture, &data, options, |owner, _| async move {
         let repository = owner.approval_repository(shellfox_protocol::CancellationToken::new());
-        let native = NativeClient::new(owner);
         let local =
             shellfox_service::local::LocalClient::connect(&local_data, &helper, digest).await?;
         let initial = local.remote_control(RemoteRequest::State).await?;
@@ -72,8 +71,8 @@ fn headless_operator_and_native_use_same_manager_and_original_lifetime() -> Resu
             })
             .await?;
         ensure!(!changed.enabled && changed.hostname == "operator-from-cli");
-        let reply = native
-            .execute(NativeAction::Remote(RemoteRequest::State))
+        let reply = owner
+            .native(NativeAction::Remote(RemoteRequest::State))
             .await?;
         let NativeResponse::Remote(state) = reply else {
             anyhow::bail!("Native operator absent")
@@ -82,8 +81,8 @@ fn headless_operator_and_native_use_same_manager_and_original_lifetime() -> Resu
             state.hostname == changed.hostname,
             "Local route did not reach original Manager"
         );
-        native
-            .execute(NativeAction::Remote(RemoteRequest::Configure {
+        owner
+            .native(NativeAction::Remote(RemoteRequest::Configure {
                 enabled: false,
                 hostname: "operator-from-native".into(),
             }))

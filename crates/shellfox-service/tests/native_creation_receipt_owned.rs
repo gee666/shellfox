@@ -4,15 +4,24 @@ mod support;
 use anyhow::{ensure, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId};
 use shellfox_host::{CreationRequestReceipt, HostRequest};
-use shellfox_service::native::{NativeAction, NativeClient, NativeResponse};
+use shellfox_service::native::{NativeAction, NativeResponse};
+
+async fn creation_receipt(
+    owner: &shellfox_service::OwnerClient,
+    request_id: SessionId,
+) -> Result<shellfox_host::CreationRequestReceipt> {
+    match owner.native(NativeAction::CreationRequestReceipt { request_id }).await? {
+        NativeResponse::CreationRequestReceipt { request_id: actual, receipt } if actual == request_id => Ok(receipt),
+        _ => anyhow::bail!("Creation receipt reply does not match its request."),
+    }
+}
 
 #[test]
 fn original_creation_receipt_survives_other_selection_and_deleted_is_unavailable() -> Result<()> {
     let fixture = support::Fixture::new()?;
     let data = fixture.data("creation-receipt");
     let cwd = data.to_string_lossy().into_owned();
-    support::cycle(&fixture, &data, |owner, _| async move {
-        let client = NativeClient::new(owner);
+    support::cycle(&fixture, &data, |client, _| async move {
         let original = SessionId::new();
         let make = |request_id| CreateSession {
             request_id,
@@ -22,7 +31,7 @@ fn original_creation_receipt_survives_other_selection_and_deleted_is_unavailable
         };
         let first = make(original);
         let created = client
-            .execute(NativeAction::Metadata(HostRequest::CreateSession(
+            .native(NativeAction::Metadata(HostRequest::CreateSession(
                 first.clone(),
             )))
             .await?;
@@ -35,12 +44,12 @@ fn original_creation_receipt_survives_other_selection_and_deleted_is_unavailable
             .ok_or_else(|| anyhow::anyhow!("Created selection absent"))?;
         ensure!(actual != original, "Host ID contract changed");
         ensure!(
-            client.creation_request_receipt(original).await?
+            creation_receipt(&client, original).await?
                 == CreationRequestReceipt::SessionCreated { session_id: actual },
             "Authoritative original receipt missing"
         );
         let second = client
-            .execute(NativeAction::Metadata(HostRequest::CreateSession(make(
+            .native(NativeAction::Metadata(HostRequest::CreateSession(make(
                 SessionId::new(),
             ))))
             .await?;
@@ -49,7 +58,7 @@ fn original_creation_receipt_survives_other_selection_and_deleted_is_unavailable
         };
         ensure!(second.selection.session_id != Some(actual));
         let retry = client
-            .execute(NativeAction::Metadata(HostRequest::CreateSession(first)))
+            .native(NativeAction::Metadata(HostRequest::CreateSession(first)))
             .await?;
         let NativeResponse::Snapshot(retry) = retry else {
             anyhow::bail!("Retry snapshot absent");
@@ -59,19 +68,19 @@ fn original_creation_receipt_survives_other_selection_and_deleted_is_unavailable
             "Test must exercise unrelated selection"
         );
         ensure!(
-            client.creation_request_receipt(original).await?
+            creation_receipt(&client, original).await?
                 == CreationRequestReceipt::SessionCreated { session_id: actual },
             "Retry incorrectly followed selection"
         );
         ensure!(
-            client.creation_request_receipt(SessionId::new()).await?
+            creation_receipt(&client, SessionId::new()).await?
                 == CreationRequestReceipt::ReceiptUnavailable
         );
         client
-            .execute(NativeAction::DeleteSession { session: actual })
+            .native(NativeAction::DeleteSession { session: actual })
             .await?;
         ensure!(
-            client.creation_request_receipt(original).await?
+            creation_receipt(&client, original).await?
                 == CreationRequestReceipt::ReceiptUnavailable,
             "Deleted receipt invented a focus target"
         );

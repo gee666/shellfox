@@ -79,7 +79,7 @@ fn public_native_messages_cross_owner_thread_without_gui_types() {
     send::<NativeAction>();
     send::<NativeResponse>();
     shared::<NativeFrame>();
-    shared::<NativeClient>();
+    shared::<crate::OwnerClient>();
 }
 
 #[test]
@@ -282,7 +282,7 @@ fn native_metadata_uses_real_core_snapshot_and_safe_close_path() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn cloneable_native_proxy_uses_the_same_owner_and_metadata() {
+async fn owner_clients_share_the_same_owner_and_metadata() {
     let data = scratch();
     let mut owner = crate::owner::ServiceOwner::start(
         data.path().to_owned(),
@@ -292,8 +292,8 @@ async fn cloneable_native_proxy_uses_the_same_owner_and_metadata() {
     )
     .await
     .unwrap();
-    let first = NativeClient::new(owner.client(uuid::Uuid::new_v4()));
-    let second = NativeClient::new(owner.client(uuid::Uuid::new_v4()));
+    let first = owner.client(uuid::Uuid::new_v4());
+    let second = owner.client(uuid::Uuid::new_v4());
     let input = CreateSession {
         request_id: SessionId::new(),
         title: Some("shared owner".into()),
@@ -301,20 +301,20 @@ async fn cloneable_native_proxy_uses_the_same_owner_and_metadata() {
         profile_id: crate::tests::default_catalog_profile(),
     };
     first
-        .execute(NativeAction::Metadata(HostRequest::CreateSession(input)))
+        .native(NativeAction::Metadata(HostRequest::CreateSession(input)))
         .await
         .unwrap();
     let NativeResponse::Snapshot(snapshot) = second
-        .execute(NativeAction::Metadata(HostRequest::GetSnapshot {}))
+        .native(NativeAction::Metadata(HostRequest::GetSnapshot {}))
         .await
         .unwrap()
     else {
         panic!("snapshot")
     };
     assert_eq!(snapshot.sessions.len(), 1);
-    first.execute(NativeAction::DetachAll).await.unwrap();
+    first.native(NativeAction::DetachAll).await.unwrap();
     let NativeResponse::Snapshot(snapshot) = second
-        .execute(NativeAction::Metadata(HostRequest::GetSnapshot {}))
+        .native(NativeAction::Metadata(HostRequest::GetSnapshot {}))
         .await
         .unwrap()
     else {

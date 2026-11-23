@@ -39,7 +39,7 @@ pub(super) enum PrivateTask {
     },
     OutgoingFence {
         client_id: uuid::Uuid,
-        epoch: Option<uuid::Uuid>,
+        epoch: uuid::Uuid,
         reply: oneshot::Sender<Result<shellfox_protocol::CancellationToken>>,
     },
     Request {
@@ -80,7 +80,6 @@ pub(super) struct PrivateOwner {
     launches: DesktopLaunchRouter,
     attached_desktop: Option<attached_launch::AttachedRegistration>,
     lifetimes: HashMap<uuid::Uuid, PrivateLifetime>,
-    outgoing_native: shellfox_protocol::CancellationToken,
 }
 impl PrivateOwner {
     pub fn new() -> Self {
@@ -88,7 +87,6 @@ impl PrivateOwner {
             launches: DesktopLaunchRouter::new(),
             attached_desktop: None,
             lifetimes: HashMap::new(),
-            outgoing_native: shellfox_protocol::CancellationToken::new(),
         }
     }
     /// Runs every owner pass, after any task, so receipt changes from tasks are published here too.

@@ -10,7 +10,7 @@ mod lease_tests;
 mod support;
 use anyhow::{ensure, Result};
 use shellfox_service::{
-    native::{NativeAction, NativeClient, NativeResponse},
+    native::{NativeAction, NativeResponse},
     ssh,
     system::*,
 };
@@ -57,10 +57,9 @@ fn producer_verified_read_returns_exact_bounded_bytes_and_retains_its_guard() ->
 fn compatibility_local_boot_stays_available_without_provider_resources() -> Result<()> {
     let fixture = support::Fixture::new()?;
     let data = fixture.data("compatibility-no-providers");
-    support::cycle(&fixture, &data, |owner, _| async move {
-        let client = NativeClient::new(owner);
+    support::cycle(&fixture, &data, |client, _| async move {
         ensure!(
-            matches!(client.execute(NativeAction::Status).await?, NativeResponse::Status(status) if status.active_terminals == 0)
+            matches!(client.native(NativeAction::Status).await?, NativeResponse::Status(status) if status.active_terminals == 0)
         );
         Ok(())
     })?;
@@ -77,10 +76,9 @@ fn query_only_startup_needs_no_ssh_executables() -> Result<()> {
     let remote = config.remote_options(supervisor.path().to_owned(), false)?;
     let ssh_path = data.join("rust-service-v1/ssh");
     ensure!(!ssh_path.exists(), "planning created SSH storage");
-    support::cycle_remote(&fixture, &data, remote, |owner, _| async move {
-        let client = NativeClient::new(owner);
+    support::cycle_remote(&fixture, &data, remote, |client, _| async move {
         let NativeResponse::System(SystemNativeResponse::Status(status)) = client
-            .execute(NativeAction::System(SystemNativeRequest::Status {
+            .native(NativeAction::System(SystemNativeRequest::Status {
                 scope: SystemScope::User,
             }))
             .await?
@@ -108,14 +106,14 @@ fn query_only_startup_needs_no_ssh_executables() -> Result<()> {
             SystemCapability::Unavailable(_)
         ));
         ensure!(client
-            .execute(NativeAction::System(SystemNativeRequest::SetCli {
+            .native(NativeAction::System(SystemNativeRequest::SetCli {
                 scope: SystemScope::User,
                 installed: true
             }))
             .await
             .is_err());
         ensure!(ssh_path.is_dir(), "SSH settings should work without OpenSSH");
-        ensure!(matches!(client.execute(NativeAction::Ssh(ssh::Request::List)).await?,
+        ensure!(matches!(client.native(NativeAction::Ssh(ssh::Request::List)).await?,
             NativeResponse::Ssh(ssh::Response::Profiles(rows)) if rows.is_empty()));
         Ok(())
     })?;

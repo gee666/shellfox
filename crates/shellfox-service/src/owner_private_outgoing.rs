@@ -3,7 +3,6 @@ use crate::remote::{outgoing, outgoing_wire, OutgoingV2Endpoint, OutgoingV2Respo
 use shellfox_protocol::{AuthenticatedPeerId, CancellationToken, RequestLimits, TransportError};
 impl PrivateOwner {
     pub(super) fn cancel_outgoing_fences(&self) {
-        self.outgoing_native.cancel();
         for lifetime in self.lifetimes.values() {
             lifetime.cancel.cancel();
         }
@@ -12,21 +11,16 @@ impl PrivateOwner {
         &self,
         service: &Service,
         client_id: uuid::Uuid,
-        epoch: Option<uuid::Uuid>,
+        epoch: uuid::Uuid,
     ) -> Result<CancellationToken> {
         service.assert_accepting()?;
         anyhow::ensure!(!client_id.is_nil(), "Outgoing caller identity unavailable");
-        match epoch {
-            Some(epoch) => {
-                let lifetime = self
-                    .lifetimes
-                    .get(&client_id)
-                    .filter(|l| l.epoch == epoch)
-                    .context("Original private client lifetime is stale or closed")?;
-                Ok(lifetime.cancel.clone())
-            }
-            None => Ok(self.outgoing_native.clone()),
-        }
+        let lifetime = self
+            .lifetimes
+            .get(&client_id)
+            .filter(|l| l.epoch == epoch)
+            .context("Original private client lifetime is stale or closed")?;
+        Ok(lifetime.cancel.clone())
     }
 }
 impl Drop for PrivateOwner {
@@ -41,7 +35,7 @@ impl OwnerClient {
         endpoint: OutgoingV2Endpoint,
         body: Vec<u8>,
         limits: RequestLimits,
-        epoch: Option<uuid::Uuid>,
+        epoch: uuid::Uuid,
     ) -> std::result::Result<OutgoingV2Response, TransportError> {
         let limits = outgoing::validate(&body, limits)?;
         let remote = self.remote.as_ref().ok_or(TransportError::Unavailable)?;
@@ -74,7 +68,7 @@ impl OwnerClient {
             .map_err(|_| anyhow::anyhow!("Invalid private outgoing request"))?;
         let maximum = limits.max_response_bytes;
         let result = self
-            .outgoing_v2_with_status(&peer, endpoint, body, limits, Some(epoch))
+            .outgoing_v2_with_status(&peer, endpoint, body, limits, epoch)
             .await;
         let reply: outgoing_wire::Reply = result
             .and_then(|r| outgoing_wire::Response::from_http(r, maximum))

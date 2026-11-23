@@ -1,8 +1,8 @@
 use super::*;
 use std::time::Duration;
 
-async fn step(client: &NativeClient, action: NativeAction, phase: &str) -> Result<NativeResponse> {
-    tokio::time::timeout(Duration::from_secs(20), client.execute(action))
+async fn step(client: &shellfox_service::OwnerClient, action: NativeAction, phase: &str) -> Result<NativeResponse> {
+    tokio::time::timeout(Duration::from_secs(20), client.native(action))
         .await
         .map_err(|_| anyhow::anyhow!("{phase} timed out"))?
 }
@@ -27,8 +27,7 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
     let home = data.clone();
     let helper = fixture.helper.clone();
     let digest = fixture.digest;
-    support::cycle_remote(&fixture, &data, remote, |owner, _| async move {
-        let client = NativeClient::new(owner);
+    support::cycle_remote(&fixture, &data, remote, |client, _| async move {
         let second = client.fork();
         ensure!(
             ssh_path.is_dir(),

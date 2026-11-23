@@ -1,5 +1,6 @@
-//! Typed in-process desktop access to the SAME service used by local/remote IPC.
-//! These capabilities are not a mobile/network wire protocol and contain no GPUI.
+//! The owner's typed desktop actions and replies. Desktop windows reach them
+//! through the local API (local_desktop.rs). Not a mobile or network wire
+//! protocol, and no GPUI.
 #[path = "native_cache.rs"]
 mod cache;
 #[path = "native_commands.rs"]
@@ -16,12 +17,6 @@ mod watches;
 pub use watches::{FrameWakes, NativeWatches};
 #[path = "native_validation.rs"]
 mod validation;
-#[path = "native_launch_client.rs"]
-mod launch_client;
-#[path = "native_creation_client.rs"]
-mod creation_client;
-#[path = "native_outgoing_client.rs"]
-mod outgoing_client;
 pub use validation::NativeAdmissionError;
 #[cfg(test)]
 #[path = "native_integration_tests.rs"]
@@ -36,7 +31,7 @@ mod startup_tests;
 #[path = "native_tests.rs"]
 mod tests;
 
-use crate::{Attachment, OwnerClient};
+use crate::Attachment;
 pub(crate) use cache::NativeState;
 use shellfox_core::{ChangedEvent, Generation, SessionId, Snapshot, TabId};
 use shellfox_ghostty_vt::{
@@ -228,37 +223,4 @@ pub enum NativeResponse {
     Terminal(Response),
     Accepted { sequence: u64 },
     Applied,
-}
-
-/// Async admission uses the owner's bounded queue. There is no second host,
-/// parser, runtime registry or thread-blocking UI wait in this proxy.
-#[derive(Clone)]
-pub struct NativeClient {
-    owner: OwnerClient,
-}
-impl NativeClient {
-    pub fn new(owner: OwnerClient) -> Self {
-        Self { owner }
-    }
-    /// A new window gets its own UUID. Only the owner maps it to a controller.
-    pub fn fork(&self) -> Self {
-        Self::new(self.owner.fork())
-    }
-    pub async fn source_facts_watch(&self) -> anyhow::Result<crate::activity_integration::SourceFactsWatch> {
-        self.owner.source_facts_watch().await
-    }
-    pub async fn watches(&self) -> anyhow::Result<NativeWatches> {
-        self.owner.native_watches().await
-    }
-    /// None when this owner has no remote control installed.
-    pub fn remote_state(&self) -> Option<tokio::sync::watch::Receiver<crate::remote::native::RemoteControlState>> {
-        self.owner.remote_state()
-    }
-
-    pub async fn execute(&self, action: NativeAction) -> anyhow::Result<NativeResponse> {
-        action
-            .validate()
-            .map_err(|error| NativeAdmissionError::Invalid(error.to_string()))?;
-        self.owner.native(action).await
-    }
 }

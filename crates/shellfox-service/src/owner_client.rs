@@ -104,7 +104,8 @@ impl OwnerClient {
             remote: self.remote.clone(),
         }
     }
-    pub fn client_id(&self) -> uuid::Uuid {
+    #[cfg(test)]
+    pub(crate) fn client_id(&self) -> uuid::Uuid {
         self.client_id
     }
     pub fn try_execute(&self, request: ExperimentRequest) -> Result<super::ExperimentAccepted> {

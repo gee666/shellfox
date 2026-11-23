@@ -26,7 +26,7 @@ impl PrivateOwner {
             return;
         }
         let result = self
-            .caller_fence(service, task.client_id, Some(task.epoch))
+            .caller_fence(service, task.client_id, task.epoch)
             .and_then(|fence| {
                 anyhow::ensure!(
                     !fence.is_cancelled(),
