@@ -2,22 +2,50 @@
 use super::WslProfiles;
 use shellfox_protocol::CancellationToken;
 use std::{
-    sync::{Arc, OnceLock},
+    future::Future,
+    sync::{Arc, Condvar, Mutex, OnceLock},
+    task::{Context, Wake, Waker},
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
+#[derive(Default)]
+struct Slot {
+    value: OnceLock<Option<Arc<WslProfiles>>>,
+    lock: Mutex<()>,
+    changed: Condvar,
+}
+
+impl Slot {
+    fn notify(&self) {
+        let _guard = self.lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        self.changed.notify_all();
+    }
+}
+
+/// Wakes `wait` when its cancellation token fires.
+impl Wake for Slot {
+    fn wake(self: Arc<Self>) {
+        self.notify();
+    }
+}
+
 #[derive(Clone, Default)]
-pub(crate) struct WslCatalogCache(Arc<OnceLock<Option<Arc<WslProfiles>>>>);
+pub(crate) struct WslCatalogCache(Arc<Slot>);
 
 impl WslCatalogCache {
     pub(crate) fn current(&self) -> Option<Arc<WslProfiles>> {
-        self.0.get().and_then(Clone::clone)
+        self.0.value.get().and_then(Clone::clone)
+    }
+
+    /// First result wins, as with `OnceLock::set`.
+    fn set(&self, profiles: Option<Arc<WslProfiles>>) {
+        let _ = self.0.value.set(profiles);
+        self.0.notify();
     }
 
     pub(crate) fn ready(&self) -> anyhow::Result<Arc<WslProfiles>> {
         anyhow::ensure!(
-            self.0.get().is_some(),
+            self.0.value.get().is_some(),
             "WSL profile discovery is still pending."
         );
         self.current()
@@ -25,9 +53,16 @@ impl WslCatalogCache {
     }
 
     pub(crate) fn wait(&self, cancelled: &CancellationToken) -> Option<Arc<WslProfiles>> {
-        while self.0.get().is_none() && !cancelled.is_cancelled() {
-            thread::sleep(Duration::from_millis(15));
+        let mut cancelled = std::pin::pin!(cancelled.clone().cancelled_owned());
+        let waker = Waker::from(self.0.clone());
+        let mut cx = Context::from_waker(&waker);
+        let mut guard = self.0.lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        // Checks run under the lock that `set` and cancellation take to notify,
+        // so neither wake-up can slip in between a check and the wait.
+        while self.0.value.get().is_none() && cancelled.as_mut().poll(&mut cx).is_pending() {
+            guard = self.0.changed.wait(guard).unwrap_or_else(|poison| poison.into_inner());
         }
+        drop(guard);
         self.current()
     }
 }
@@ -66,11 +101,11 @@ impl WslCatalogWorker {
         self.thread = thread::Builder::new()
             .name("shellfox-wsl-catalog".into())
             .spawn(move || {
-                let _ = cache.0.set(discover(worker));
+                cache.set(discover(worker));
             })
             .ok();
         if self.thread.is_none() {
-            let _ = self.cache.0.set(None);
+            self.cache.set(None);
         }
     }
 
@@ -90,7 +125,7 @@ impl WslCatalogWorker {
             let _ = thread.join();
         }
         // A failed worker must not leave catalog readers waiting indefinitely.
-        let _ = self.cache.0.set(None);
+        self.cache.set(None);
         true
     }
 
@@ -115,7 +150,7 @@ impl Drop for WslCatalogWorker {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn negative_discovery_is_cached_for_repeated_reads_and_start_calls() {
@@ -147,5 +182,27 @@ mod tests {
         );
         assert!(worker.cache.current().is_none());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn wait_wakes_on_cancellation_and_on_result() {
+        let cache = WslCatalogCache::default();
+        let cancel = CancellationToken::new();
+        let waiter = {
+            let (cache, cancel) = (cache.clone(), cancel.clone());
+            thread::spawn(move || cache.wait(&cancel))
+        };
+        thread::sleep(Duration::from_millis(20));
+        cancel.cancel();
+        assert!(waiter.join().unwrap().is_none());
+
+        let waiter = {
+            let cache = cache.clone();
+            thread::spawn(move || cache.wait(&CancellationToken::new()))
+        };
+        thread::sleep(Duration::from_millis(20));
+        cache.set(None);
+        assert!(waiter.join().unwrap().is_none());
+        assert!(cache.ready().is_err_and(|error| error.to_string().contains("No installed")));
     }
 }
