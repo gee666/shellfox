@@ -2,6 +2,7 @@ use super::{
     session::ConnectionError,
     terminal::Terminal,
 };
+use crate::keys::{Encoded, Encoder};
 use anyhow::Result;
 use russh::{client, Channel, ChannelMsg, Sig};
 use std::io::{self, Read, Write};
@@ -39,39 +40,24 @@ fn redirected_input() -> Result<mpsc::Receiver<io::Result<Vec<u8>>>> {
         })?;
     Ok(recv)
 }
-/// Follows the remote application's modes so keys and pastes are encoded by
-/// Ghostty exactly as the remote terminal state expects. Its replies are
-/// discarded: the user's terminal answers queries.
-struct Mirror(Mutex<shellfox_ghostty_vt::Terminal>);
+/// The encoder, shared by the output and input halves of one exchange.
+struct Mirror(Mutex<Encoder>);
 impl Mirror {
-    fn new() -> Result<Self> {
-        let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-        Ok(Self(Mutex::new(shellfox_ghostty_vt::Terminal::new(cols.max(1), rows.max(1))?)))
-    }
-    fn with<T>(&self, f: impl FnOnce(&mut shellfox_ghostty_vt::Terminal) -> shellfox_ghostty_vt::Result<T>) -> Result<T> {
-        let mut terminal = self.0.lock().map_err(|_| anyhow::anyhow!("terminal state lock poisoned"))?;
-        Ok(f(&mut terminal)?)
-    }
-    fn feed(&self, bytes: &[u8]) -> Result<()> {
-        self.with(|t| {
-            for chunk in bytes.chunks(1 << 20) {
-                t.feed(chunk)?;
-                t.drain_replies()?;
-            }
-            Ok(())
-        })
+    fn with<T>(&self, f: impl FnOnce(&mut Encoder) -> Result<T>) -> Result<T> {
+        f(&mut *self.0.lock().map_err(|_| anyhow::anyhow!("terminal state lock poisoned"))?)
     }
 }
 pub(super) async fn exchange(channel: Channel<client::Msg>, terminal: &Terminal) -> Result<i32> {
     let (mut read, write) = channel.split();
-    let mirror = Mirror::new()?;
+    let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let mirror = Mirror(Mutex::new(Encoder::ssh(cols, rows)?));
     let remote = async {
         let mut exit = None;
         while let Some(message) = read.wait().await {
             match message {
                 ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. } => {
                     output(&data)?;
-                    mirror.feed(&data)?;
+                    mirror.with(|m| m.feed(&data))?;
                 }
                 ChannelMsg::ExitStatus { exit_status } => exit = Some(exit_status as i32),
                 ChannelMsg::ExitSignal { signal_name, .. } => {
@@ -109,26 +95,13 @@ async fn forward_input(
         write.eof().await?;
         return Ok(());
     }
-    let mut keys = crate::keys::Keys::default();
     loop {
-        match terminal.next_event().await? {
-            Event::Resize(cols, rows) => {
-                mirror.with(|t| t.resize(cols.max(1), rows.max(1)))?;
-                write.window_change(cols.into(), rows.into(), 0, 0).await?
-            }
-            Event::Paste(text) => {
-                let bytes = mirror.with(|t| t.encode_paste(&text))?;
-                write.data_bytes(bytes).await?
-            }
-            // SSH has no local detach key: Ctrl+] reaches the remote shell.
-            Event::Key(key) => {
-                let Some(event) = keys.key(key) else { continue };
-                let bytes = mirror.with(|t| t.encode_key_event(&event))?;
-                if !bytes.is_empty() {
-                    write.data_bytes(bytes).await?
-                }
-            }
-            _ => {}
+        let event = terminal.next_event().await?;
+        if let Event::Resize(cols, rows) = event {
+            mirror.with(|m| m.resize(cols, rows))?;
+            write.window_change(cols.into(), rows.into(), 0, 0).await?;
+        } else if let Encoded::Bytes(bytes) = mirror.with(|m| m.input(event))? {
+            write.data_bytes(bytes).await?;
         }
     }
 }

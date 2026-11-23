@@ -2,7 +2,11 @@
 //! v1 view. Output streams from the peer's event poll; keys and pastes are
 //! encoded by a local Ghostty terminal that follows the remote modes, as the
 //! SSH client does. Input is never retried, and only the owner may write.
-use crate::{output::CliError, queries::QueryFilter};
+use crate::{
+    keys::{Encoded, Encoder},
+    output::CliError,
+    queries::QueryFilter,
+};
 use anyhow::Result;
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use futures_util::{Stream, StreamExt};
@@ -22,10 +26,8 @@ struct View<W> {
     cursor: Option<ViewCursor>,
     generation: Option<Generation>,
     owned: bool,
-    /// Follows the remote modes so keys and pastes encode as its terminal expects.
-    mirror: shellfox_ghostty_vt::Terminal,
+    encoder: Encoder,
     queries: QueryFilter,
-    keys: crate::keys::Keys,
     size: (u16, u16),
 }
 impl<W: Write> View<W> {
@@ -33,9 +35,7 @@ impl<W: Write> View<W> {
         let visible = self.queries.push(bytes, historical);
         self.output.write_all(&visible)?;
         self.output.flush()?;
-        self.mirror.feed(bytes)?;
-        self.mirror.drain_replies()?;
-        Ok(())
+        self.encoder.feed(bytes)
     }
     fn blocked(&mut self) -> Result<()> {
         self.owned = false;
@@ -118,13 +118,13 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
                     view.queries.reset();
                     view.output.write_all(crate::presentation::RESET)?;
                     view.output.write_all(b"\x1b[2J\x1b[H")?;
-                    view.mirror.resize(owned.cols, owned.rows)?;
+                    view.encoder.resize(owned.cols, owned.rows)?;
                     for chunk in &owned.chunks {
                         view.show(chunk.data.as_bytes(), true)?;
                     }
                     let ack = cursor.consumed(owned.last_sequence, connection).ok();
                     let (cols, rows) = view.size;
-                    view.mirror.resize(cols, rows)?;
+                    view.encoder.resize(cols, rows)?;
                     let resize = cursor.resize(cols, rows, connection).ok();
                     view.cursor = Some(cursor);
                     (ack.filter(|_| owned.last_sequence > 0), resize)
@@ -215,7 +215,7 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
             let request = {
                 let mut view = self.view.borrow_mut();
                 view.size = size;
-                view.mirror.resize(size.0, size.1)?;
+                view.encoder.resize(size.0, size.1)?;
                 let owned = view.owned;
                 view.cursor.as_ref().filter(|_| owned).and_then(|c| c.resize(size.0, size.1, self.connection()).ok())
             };
@@ -234,15 +234,11 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
                 return Ok(true);
             }
         }
-        let input = self.view.borrow_mut().keys.input(event);
-        let bytes = match input {
-            crate::keys::Input::Detach => return Ok(false),
-            crate::keys::Input::Key(event) => self.view.borrow_mut().mirror.encode_key_event(&event)?,
-            crate::keys::Input::Paste(text) => self.view.borrow_mut().mirror.encode_paste(&text)?,
-            crate::keys::Input::Ignore => return Ok(true),
-        };
-        if !bytes.is_empty() {
-            self.write(bytes).await?;
+        let encoded = self.view.borrow_mut().encoder.input(event)?;
+        match encoded {
+            Encoded::Detach => return Ok(false),
+            Encoded::Bytes(bytes) => self.write(bytes).await?,
+            Encoded::Ignore => {}
         }
         Ok(true)
     }
@@ -265,9 +261,8 @@ where
             cursor: None,
             generation: None,
             owned: false,
-            mirror: shellfox_ghostty_vt::Terminal::new(size.0, size.1)?,
+            encoder: Encoder::attach(size.0, size.1)?,
             queries: QueryFilter::default(),
-            keys: crate::keys::Keys::default(),
             size,
         }),
     };

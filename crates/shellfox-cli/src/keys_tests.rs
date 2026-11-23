@@ -25,6 +25,33 @@ fn detach_is_local_but_ctrl_c_is_remote_input() {
     assert_eq!(sent(&mut t, KeyCode::Char(']'), KeyModifiers::NONE), b"]");
 }
 
+fn encoded(encoder: &mut Encoder, code: KeyCode, modifiers: KeyModifiers) -> Encoded {
+    encoder.input(Event::Key(Crossterm::new(code, modifiers))).unwrap()
+}
+
+#[test]
+fn attach_encoder_detaches_and_ssh_encoder_sends_ctrl_bracket() {
+    let mut attach = Encoder::attach(80, 24).unwrap();
+    assert_eq!(encoded(&mut attach, KeyCode::Char(']'), KeyModifiers::CONTROL), Encoded::Detach);
+    assert_eq!(encoded(&mut attach, KeyCode::Char('c'), KeyModifiers::CONTROL), Encoded::Bytes(b"\x03".to_vec()));
+    let mut ssh = Encoder::ssh(80, 24).unwrap();
+    assert_eq!(encoded(&mut ssh, KeyCode::Char(']'), KeyModifiers::CONTROL), Encoded::Bytes(b"\x1d".to_vec()));
+    let release = kind(KeyCode::Char(']'), KeyModifiers::CONTROL, KeyEventKind::Release);
+    assert_eq!(ssh.input(release).unwrap(), Encoded::Ignore);
+    assert_eq!(encoded(&mut ssh, KeyCode::Null, KeyModifiers::NONE), Encoded::Ignore);
+}
+
+#[test]
+fn encoder_follows_fed_modes_and_leaves_resize_to_the_caller() {
+    let mut t = Encoder::attach(80, 24).unwrap();
+    assert_eq!(t.input(Event::Paste("x".into())).unwrap(), Encoded::Bytes(b"x".to_vec()));
+    t.feed(b"\x1b[?2004h\x1b[?1h").unwrap();
+    assert_eq!(t.input(Event::Paste("x".into())).unwrap(), Encoded::Bytes(b"\x1b[200~x\x1b[201~".to_vec()));
+    assert_eq!(encoded(&mut t, KeyCode::Up, KeyModifiers::NONE), Encoded::Bytes(b"\x1bOA".to_vec()));
+    assert_eq!(t.input(Event::Resize(100, 30)).unwrap(), Encoded::Ignore);
+    t.resize(0, 0).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn unix_group_separator_decoded_by_crossterm_detaches() {

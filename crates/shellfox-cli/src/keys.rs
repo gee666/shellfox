@@ -1,7 +1,9 @@
-//! Crossterm events as Ghostty key events. A Ghostty terminal that knows the
-//! application's modes encodes them; nothing here produces terminal bytes.
+//! Crossterm events as Ghostty key events. Bytes come only from a Ghostty
+//! terminal that knows the application's modes: the host's for local attach,
+//! a local [`Encoder`] for ssh and peer attach.
 use crossterm::event::{Event, KeyCode, KeyEvent as Crossterm, KeyEventKind, KeyModifiers};
 use shellfox_ghostty_vt::key::{us_key, HeldKeys, KeyAction, KeyEvent, KeyModifiers as Mods, PhysicalKey as P};
+use shellfox_ghostty_vt::Terminal;
 
 #[derive(Debug, PartialEq)]
 pub enum Input {
@@ -30,7 +32,7 @@ impl Keys {
         }
     }
     /// One key for the terminal, with no local detach key (ssh).
-    pub fn key(&mut self, key: Crossterm) -> Option<KeyEvent> {
+    fn key(&mut self, key: Crossterm) -> Option<KeyEvent> {
         let event = key_event(key)?;
         if self.0.admit(&event) {
             return Some(event);
@@ -43,6 +45,60 @@ impl Keys {
             }
             _ => None,
         }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Encoded {
+    Detach,
+    Bytes(Vec<u8>),
+    Ignore,
+}
+
+/// A local Ghostty terminal fed the remote output, so keys and pastes encode
+/// as the remote application expects. Its replies are discarded: the user's
+/// own terminal answers queries.
+pub struct Encoder {
+    terminal: Terminal,
+    keys: Keys,
+    detach: bool,
+}
+impl Encoder {
+    /// Ctrl+] reaches the remote shell: ssh has no local detach key.
+    pub fn ssh(cols: u16, rows: u16) -> anyhow::Result<Self> {
+        Self::new(cols, rows, false)
+    }
+    /// Ctrl+] detaches.
+    pub fn attach(cols: u16, rows: u16) -> anyhow::Result<Self> {
+        Self::new(cols, rows, true)
+    }
+    fn new(cols: u16, rows: u16, detach: bool) -> anyhow::Result<Self> {
+        let terminal = Terminal::new(cols.max(1), rows.max(1))?;
+        Ok(Self { terminal, keys: Keys::default(), detach })
+    }
+    pub fn feed(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
+        for chunk in bytes.chunks(1 << 20) {
+            self.terminal.feed(chunk)?;
+            self.terminal.drain_replies()?;
+        }
+        Ok(())
+    }
+    pub fn resize(&mut self, cols: u16, rows: u16) -> anyhow::Result<()> {
+        Ok(self.terminal.resize(cols.max(1), rows.max(1))?)
+    }
+    /// Resize events are ignored here; the caller resizes both ends.
+    pub fn input(&mut self, event: Event) -> anyhow::Result<Encoded> {
+        let input = match event {
+            Event::Key(key) if !self.detach => self.keys.key(key).map_or(Input::Ignore, Input::Key),
+            event => self.keys.input(event),
+        };
+        let bytes = match input {
+            Input::Detach => return Ok(Encoded::Detach),
+            Input::Ignore => return Ok(Encoded::Ignore),
+            Input::Key(event) => self.terminal.encode_key_event(&event)?,
+            Input::Paste(text) => self.terminal.encode_paste(&text)?,
+        };
+        Ok(if bytes.is_empty() { Encoded::Ignore } else { Encoded::Bytes(bytes) })
     }
 }
 
