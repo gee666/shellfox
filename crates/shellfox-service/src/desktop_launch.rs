@@ -9,7 +9,7 @@ mod router;
 mod service;
 #[path = "desktop_launch_types.rs"]
 mod types;
-pub use service::{LaunchDirectoryPolicy, ServiceLaunchResolver};
+pub use service::{folder_profile, LaunchDirectoryPolicy, ServiceLaunchResolver};
 #[cfg(test)]
 #[path = "desktop_launch_tests.rs"]
 mod tests;

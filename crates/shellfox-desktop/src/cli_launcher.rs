@@ -206,6 +206,52 @@ fn posix_router() -> String {
     )
 }
 
+/// From WSL, the folder of `start|add|new|create [PATH]` and `session create
+/// [PATH]` (default: the current one) goes to Windows as wslpath -w spells it,
+/// `\\wsl.localhost\<distro>\...`, as 0.9 did. Windows paths pass unchanged.
+#[cfg(any(windows, test))]
+const WSL_FOLDER: &str = r#"  windows_path() {
+    case "$1" in
+      [A-Za-z]:[\\/]*|\\\\*) printf '%s\n' "$1" ;;
+      *)
+        case "$1" in /*) path=$1 ;; *) path=$PWD/$1 ;; esac
+        wslpath -w "$(realpath -ms -- "$path" 2>/dev/null || printf '%s' "$path")"
+        ;;
+    esac
+  }
+  verbs=0
+  case "${1:-}" in
+    start|add|new|create) verbs=1 ;;
+    session|sessions|ss) [ "${2:-}" != create ] || verbs=2 ;;
+  esac
+  if [ "$verbs" -gt 0 ]; then
+    count=$# index=0 folder= value=
+    for arg; do
+      index=$((index + 1))
+      if [ "$index" -le "$verbs" ] || [ -n "$value" ]; then
+        value=
+      elif [ "$verbs" = 2 ] && [ "${arg#--}" != "$arg" ] && [ "${arg#*=}" = "$arg" ]; then
+        value=1
+      elif [ "${arg#-}" = "$arg" ]; then
+        folder=$index
+        break
+      fi
+    done
+    index=0
+    while [ "$index" -lt "$count" ]; do
+      arg=$1
+      shift
+      index=$((index + 1))
+      if [ "$index" = "$folder" ]; then arg=$(windows_path "$arg") || exit 1; fi
+      set -- "$@" "$arg"
+      if [ -z "$folder" ] && [ "$index" = "$verbs" ]; then
+        here=$(windows_path .) || exit 1
+        set -- "$@" "$here"
+      fi
+    done
+  fi
+"#;
+
 #[cfg(any(windows, test))]
 fn windows_shims(exe: &str, cli: &str) -> WindowsShims {
     let cmd_quote = |s: &str| s.replace('%', "%%");
@@ -228,7 +274,7 @@ fn windows_shims(exe: &str, cli: &str) -> WindowsShims {
         // Git Bash and MSYS run C:/ paths directly. WSL reaches this file
         // through the PATH block Electron added to its startup files.
         posix: format!(
-            "#!/bin/sh\n# Shellfox/rust-cli-v1\nexe={exe_sh}\ncli={cli_sh}\nif [ -n \"${{WSL_DISTRO_NAME:-}}\" ]; then\n  exe=$(wslpath -u \"$exe\") && cli=$(wslpath -u \"$cli\") || exit 1\nfi\n{}",
+            "#!/bin/sh\n# Shellfox/rust-cli-v1\nexe={exe_sh}\ncli={cli_sh}\nif [ -n \"${{WSL_DISTRO_NAME:-}}\" ]; then\n  exe=$(wslpath -u \"$exe\") && cli=$(wslpath -u \"$cli\") || exit 1\n{WSL_FOLDER}fi\n{}",
             posix_router()
         ),
     }
@@ -274,71 +320,5 @@ pub(crate) fn install_mac() -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn shims_run_the_cli_and_open_desktop_launches_in_the_gui() {
-        let shims = windows_shims(
-            r"C:\Program Files\Shellfox.exe",
-            r"C:\O'Brien%\bin\shellfox-cli.exe",
-        );
-        assert!(
-            shims
-                .cmd
-                .contains(r#"start "" "C:\Program Files\Shellfox.exe" %*"#)
-        );
-        assert!(shims.cmd.ends_with(concat!(
-            r#""C:\O'Brien%%\bin\shellfox-cli.exe" %*"#,
-            "\r\nexit /b %errorlevel%\r\n"
-        )));
-        assert!(
-            shims
-                .powershell
-                .contains(r"& 'C:\O''Brien%\bin\shellfox-cli.exe' @args")
-        );
-        assert!(shims.powershell.ends_with("exit $LASTEXITCODE\n"));
-        assert!(shims.posix.contains(
-            "exe='C:/Program Files/Shellfox.exe'\ncli='C:/O'\\''Brien%/bin/shellfox-cli.exe'\n"
-        ));
-        assert!(shims.posix.contains(r#"exe=$(wslpath -u "$exe")"#));
-        assert!(shims.posix.ends_with("exec \"$cli\" \"$@\"\n"));
-    }
-
-    /// Runs the generated cmd and PowerShell shims against a stand-in CLI.
-    #[cfg(windows)]
-    #[test]
-    fn windows_shims_forward_cli_output_and_exit_status() {
-        let root = tempfile::tempdir().unwrap();
-        let cli = root.path().join("fake cli%.cmd");
-        std::fs::write(&cli, "@echo off\r\necho cli:%*\r\nexit /b 7\r\n").unwrap();
-        let shims = windows_shims(r"C:\missing\Shellfox.exe", cli.to_str().unwrap());
-        std::fs::write(root.path().join("shellfox.cmd"), &shims.cmd).unwrap();
-        std::fs::write(root.path().join("shellfox.ps1"), &shims.powershell).unwrap();
-        let system =
-            std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32");
-        let cmd = Command::new(system.join("cmd.exe"))
-            .arg("/d")
-            .arg("/c")
-            .arg(root.path().join("shellfox.cmd"))
-            .args(["session", "list"])
-            .output()
-            .unwrap();
-        assert_eq!(cmd.status.code(), Some(7));
-        assert_eq!(
-            String::from_utf8_lossy(&cmd.stdout).trim(),
-            "cli:session list"
-        );
-        let ps = Command::new(system.join("WindowsPowerShell/v1.0/powershell.exe"))
-            .env_remove("PSModulePath")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(root.path().join("shellfox.ps1"))
-            .args(["session", "list"])
-            .output()
-            .unwrap();
-        assert_eq!(ps.status.code(), Some(7));
-        assert_eq!(
-            String::from_utf8_lossy(&ps.stdout).trim(),
-            "cli:session list"
-        );
-    }
-}
+#[path = "cli_launcher_tests.rs"]
+mod tests;

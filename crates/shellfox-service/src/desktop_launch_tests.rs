@@ -313,3 +313,21 @@ fn ownership_loss_during_resolution_is_uncertain_not_a_second_launch() {
     );
     assert!(registration.receiver.try_recv().is_err());
 }
+
+#[test]
+fn wsl_folders_open_in_their_distro() {
+    let profile = |cwd: &str| folder_profile(cwd).map(|id| id.as_str().to_owned());
+    assert_eq!(
+        profile(r"\\wsl.localhost\Ubuntu-24.04\home\a b").as_deref(),
+        Some("wsl:Ubuntu-24.04")
+    );
+    assert_eq!(profile(r"\\WSL$\Debian").as_deref(), Some("wsl:Debian"));
+    for other in [
+        r"C:\work",
+        r"\\server\share\x",
+        r"\\wsl.localhost\",
+        "/home/a",
+    ] {
+        assert_eq!(profile(other), None, "{other}");
+    }
+}
