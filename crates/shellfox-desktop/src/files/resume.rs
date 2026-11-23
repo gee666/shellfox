@@ -1,7 +1,7 @@
 use super::{FileOperation, Files, Preview, image_editor::ImageEditor};
 use crate::{
     root::Root,
-    root::source::{Phase, Source},
+    peers::source::{Phase, Source},
 };
 use gpui::Context;
 use shellfox_files::{EditorCancellation, ErrorCode, FileError, ReadResult};

@@ -15,8 +15,8 @@ impl Root {
         let mut root = Self {
             host: None,
             tab_activity: Default::default(),
-            peers: crate::root::source::PeerSources::default(),
-            peer_ui: crate::root::peer::PeerUi::default(),
+            peers: crate::peers::source::PeerSources::default(),
+            peer_ui: crate::peers::PeerUi::default(),
             semantic_context: crate::accessibility::WindowSemanticContext::new(
                 crate::accessibility::SemanticId(1),
             ),
@@ -34,7 +34,7 @@ impl Root {
             close_failed: false,
             snapshot: None,
             navigation: crate::window_manager::WindowSelection::new(initial),
-            tab_scroll: crate::chrome::TabScroll::default(),
+            tab_scroll: crate::workspace::tabs::TabScroll::default(),
             pending_recent: None,
             activating_session: None,
             views: HashMap::new(),
@@ -162,7 +162,7 @@ impl Root {
                                 let power = root.watch_power(client.clone(), window, cx);
                                 let peers = root.watch_peer_inventory(client.clone(), window, cx);
                                 root.watches.extend([workspace, power, peers]);
-                                crate::update_view::read_initial_preference(client.clone(), cx);
+                                crate::update::view::read_initial_preference(client.clone(), cx);
                                 root.host = Some(client);
                                 root.refresh_snapshot(window, cx);
                             }

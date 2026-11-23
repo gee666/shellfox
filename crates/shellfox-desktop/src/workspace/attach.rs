@@ -1,5 +1,5 @@
 use super::*;
-use crate::{app::{TerminalRecovery, TerminalView}, host_client::HostClient, root::StartupError};
+use crate::{terminal::{TerminalRecovery, TerminalView}, host_client::HostClient, root::StartupError};
 use shellfox_core::Generation;
 use shellfox_service::native::NativeViewAttachment;
 
@@ -174,7 +174,7 @@ impl Root {
         }).detach();
         if matches!(cx.try_global::<crate::editor_composition::EditorOutcome>(), Some(crate::editor_composition::EditorOutcome::Ready(_))) {
             view.update(cx, |view, _| view.enable_file_links());
-            cx.subscribe_in(&view, window, move |root, emitter, event: &crate::app::TerminalFileLink, window, cx| {
+            cx.subscribe_in(&view, window, move |root, emitter, event: &crate::terminal::TerminalFileLink, window, cx| {
                 if root.views.get(&id) == Some(&emitter) {
                     root.open_terminal_file_link(id, event, window, cx);
                 }

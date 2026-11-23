@@ -1,4 +1,4 @@
-use crate::{app::TerminalFileLink, root::Root};
+use crate::{terminal::TerminalFileLink, root::Root};
 use gpui::{AnyWindowHandle, Context, Window};
 use shellfox_core::TabId;
 use shellfox_protocol::AuthenticatedPeerId;

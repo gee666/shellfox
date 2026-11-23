@@ -57,7 +57,7 @@ impl Root {
     }
 
     pub(super) fn peer_file_backend_for(&self, use_tab: bool) -> anyhow::Result<(DocumentBackend, Option<String>)> {
-        use crate::root::source::PeerCycle;
+        use crate::peers::source::PeerCycle;
         let (peer, state) = self
             .peers
             .selected_peer()

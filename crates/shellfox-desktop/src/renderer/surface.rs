@@ -1,5 +1,5 @@
 use super::cursor;
-use crate::app::TerminalView;
+use crate::terminal::TerminalView;
 use gpui::{
     Bounds, ElementInputHandler, Entity, FocusHandle, IntoElement, Pixels, canvas, fill, point,
     prelude::*, px, rgb, size,

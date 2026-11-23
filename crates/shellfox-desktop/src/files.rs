@@ -52,7 +52,7 @@ fn same_ui_source(captured: u64, current: u64, backend_local: bool, selected_loc
 pub struct Files {
     pub(crate) backend: DocumentBackend,
     pub(crate) source_epoch: u64,
-    pub(crate) source: crate::root::source::Source,
+    pub(crate) source: crate::peers::source::Source,
     pub(crate) operation: Option<FileOperation>,
     pub(crate) resume_conflict: bool,
     check_cached_revision: bool,
@@ -82,7 +82,7 @@ pub struct Files {
     pub(crate) resize: Option<resizer::FileResize>,
     pub(crate) width_focus: gpui::FocusHandle,
     pub(crate) height_focus: gpui::FocusHandle,
-    pub(crate) confirm_focus: crate::files_view::confirmation::ConfirmationFocus,
+    pub(crate) confirm_focus: crate::files::view::confirmation::ConfirmationFocus,
     pub busy: bool,
     pub request: u64,
     pub(crate) pending_file_action: Option<pending::FileAction>,
@@ -153,7 +153,7 @@ impl Root {
                 self.is_local_source(),
             ) && f.source == self.peers.selected
                 && (f.backend.is_local() || self.peers.selected_peer().is_some_and(|(_, state)| {
-                    state.phase == crate::root::source::Phase::Connected
+                    state.phase == crate::peers::source::Phase::Connected
                 }))
                 && self.active_file_tab(&f.backend) && f.backend.check_current().is_ok()
         })
@@ -288,7 +288,7 @@ impl Root {
             resize: None,
             width_focus: cx.focus_handle(),
             height_focus: cx.focus_handle(),
-            confirm_focus: crate::files_view::confirmation::ConfirmationFocus::new(cx),
+            confirm_focus: crate::files::view::confirmation::ConfirmationFocus::new(cx),
             busy: false,
             request: 0,
             pending_file_action: None,
@@ -318,3 +318,5 @@ impl Root {
 }
 #[cfg(test)]
 mod tests;
+pub(crate) mod view;
+pub(crate) mod navigation;

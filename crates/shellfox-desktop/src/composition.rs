@@ -1,4 +1,4 @@
-use crate::app::TerminalView;
+use crate::terminal::TerminalView;
 use shellfox_ghostty_vt::key::{validate_text, KeyEvent, KeyModifiers, PhysicalKey};
 use gpui::{
     Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, px, size,

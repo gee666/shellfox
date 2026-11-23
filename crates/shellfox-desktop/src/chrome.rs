@@ -6,15 +6,6 @@ pub(crate) use notifications::Notifications;
 
 #[cfg(target_os = "linux")]
 mod linux_chrome;
-mod tab_close;
-mod tab_reorder;
-mod tab_scroll;
-mod tab_focus;
-mod tab_menu;
-mod terminal_chrome;
-mod terminal_tabs;
-pub(crate) use tab_menu::TabMenu;
-pub(crate) use tab_scroll::TabScroll;
 
 pub(crate) fn button(
     id: impl Into<gpui::SharedString>,

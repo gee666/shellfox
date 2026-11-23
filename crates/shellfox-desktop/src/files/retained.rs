@@ -140,7 +140,7 @@ impl Root {
         peer: &shellfox_protocol::AuthenticatedPeerId,
         cx: &mut Context<Self>,
     ) {
-        use crate::root::source::{Source, viewable_tab};
+        use crate::peers::source::{Source, viewable_tab};
         let Some(snapshot) = self.peers.peers.get(peer).and_then(|state| state.snapshot.as_ref()) else { return };
         let source = Source::Peer(peer.clone());
         let removable = |files: &Files| {

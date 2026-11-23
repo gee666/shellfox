@@ -2,6 +2,8 @@ use crate::root::Root;
 mod attach;
 mod reply;
 mod selection;
+pub(crate) mod tabs;
+pub(crate) mod visibility;
 use gpui::{Context, Window};
 use shellfox_host::{AddTab, HostRequest, ProfileId, SessionId, TabId};
 use shellfox_service::native::{NativeAction, NativeResponse};

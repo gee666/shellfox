@@ -46,7 +46,7 @@ impl SettingsPanel {
         settings: &shellfox_core::Settings,
         cx: &mut Context<Self>,
     ) {
-        crate::update_view::preference(settings.auto_update, cx);
+        crate::update::view::preference(settings.auto_update, cx);
     }
 
     pub(super) fn general(&mut self, cx: &mut Context<Self>) -> AnyElement {

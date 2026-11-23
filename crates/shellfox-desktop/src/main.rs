@@ -1,7 +1,6 @@
 // A GUI binary: no console window. Shells run in shellfox-cli, a console binary.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 mod accessibility;
-mod app;
 mod app_exit;
 pub mod app_host;
 mod app_launch;
@@ -17,13 +16,9 @@ mod startup_chrome;
 mod desktop_windows;
 mod device_prefs;
 mod dialogs;
-mod directory;
-mod directory_view;
 mod editor_composition;
 mod field;
 mod files;
-mod files_navigation;
-mod files_view;
 mod frontend_composition;
 mod frontend_retention;
 mod host_client;
@@ -31,16 +26,10 @@ mod host_lost;
 mod host_process;
 mod input;
 mod launch_runtime;
-mod layout;
-mod layout_shortcuts;
 mod app_menu;
 mod options;
-mod profile_menu;
 mod renderer;
 mod root;
-mod session_environment;
-mod session_menu;
-mod session_visibility;
 #[cfg(target_os = "macos")]
 mod macos_terminate;
 #[cfg(target_os = "macos")]
@@ -53,17 +42,16 @@ mod system_end;
 mod squirrel;
 #[cfg(test)]
 mod startup_dispatch_tests;
-mod tab_activity;
-mod terminal_semantics;
 mod theme;
 mod ui_font;
 #[cfg(target_os = "linux")]
 mod linux_fontconfig;
 mod update;
-mod update_view;
 pub mod window_manager;
 mod workspace;
 
+pub(crate) mod peers;
+pub(crate) mod terminal;
 use anyhow::Result;
 use gpui::{App, Application};
 use options::{Mode, Options};
@@ -244,11 +232,11 @@ fn run_graphics(
             cx.set_global(app_errors);
             cx.set_global(device_prefs::DevicePrefs(device_colors));
             cx.set_global(editors);
-            layout_shortcuts::bind_keys(cx);
+            root::shortcuts::bind_keys(cx);
             #[cfg(target_os = "macos")]
             app_menu::install(cx);
             if let Some(updater) = updater {
-                cx.set_global(update_view::Updates(updater));
+                cx.set_global(update::view::Updates(updater));
             }
             trace_ui_init(trace, "prestarted adapter install begin");
             if let Some((config, host)) = retained {

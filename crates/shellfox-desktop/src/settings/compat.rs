@@ -88,7 +88,7 @@ impl Root {
                 view.apply_preferences(
                     &prefs.font_family,
                     prefs.font_size,
-                    crate::app::TerminalTheme::from_colors(
+                    crate::terminal::TerminalTheme::from_colors(
                         palette.background_rgb,
                         palette.foreground_rgb,
                         palette.accent_rgb,

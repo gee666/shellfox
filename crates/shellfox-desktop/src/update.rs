@@ -3,6 +3,7 @@ mod feed;
 mod platform;
 pub(crate) mod cli;
 
+pub(crate) mod view;
 use anyhow::Result;
 use feed::{Feed, Release};
 use platform::{Platform, Prepared};

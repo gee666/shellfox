@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     assets::{ellipsis, inline_ellipsis},
     root::Dialog,
-    tab_activity::status_dot,
+    workspace::tabs::activity::status_dot,
 };
 use gpui::{KeyDownEvent, MouseButton, Window};
 

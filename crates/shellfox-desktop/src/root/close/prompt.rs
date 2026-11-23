@@ -50,7 +50,7 @@ impl Root {
         let restart = restart && !system_end;
         let restart_request = if restart {
             let Some(request) = cx
-                .try_global::<crate::update_view::Updates>()
+                .try_global::<crate::update::view::Updates>()
                 .and_then(|updates| updates.0.request_restart())
             else {
                 return false;

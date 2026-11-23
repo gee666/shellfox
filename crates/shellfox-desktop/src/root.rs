@@ -1,5 +1,5 @@
 use crate::{
-    app::TerminalView,
+    terminal::TerminalView,
     app_host::{AppHost, CloseConfirmation, CloseTicket, WindowId},
     field::Field,
     host_client::HostClient,
@@ -19,10 +19,9 @@ mod launch;
 pub(crate) mod power;
 mod semantics;
 mod startup;
-mod peer_close;
-pub(crate) mod source;
-pub(crate) mod peer;
 
+pub(crate) mod layout;
+pub(crate) mod shortcuts;
 pub struct StartupError {
     pub message: String,
     pub control_required: bool,
@@ -37,10 +36,10 @@ impl From<anyhow::Error> for StartupError {
     }
 }
 pub enum Dialog {
-    Create(crate::directory::Draft),
+    Create(crate::dialogs::directory::Draft),
     RenameSession { id: SessionId, title: Entity<Field> },
     SessionEnvironment { id: SessionId, text: Entity<Field> },
-    PeerSession(peer::session_dialog::PeerSessionDialog),
+    PeerSession(crate::peers::session_dialog::PeerSessionDialog),
     RenameTab { id: TabId, title: Entity<Field>, _blur: gpui::Subscription },
     DeleteSession(SessionId),
     CloseTab(shellfox_core::TerminalIdentity),
@@ -48,9 +47,9 @@ pub enum Dialog {
 }
 pub struct Root {
     pub(crate) host: Option<HostClient>,
-    pub(crate) tab_activity: crate::tab_activity::TabActivity,
-    pub(crate) peers: source::PeerSources,
-    pub(crate) peer_ui: peer::PeerUi,
+    pub(crate) tab_activity: crate::workspace::tabs::activity::TabActivity,
+    pub(crate) peers: crate::peers::source::PeerSources,
+    pub(crate) peer_ui: crate::peers::PeerUi,
     pub(crate) semantic_context: crate::accessibility::WindowSemanticContext,
     pub(crate) native_accessibility: Option<crate::accessibility::NativeAccessibility>,
     pub(crate) pending_boot: Option<crate::host_client::HostEndpointConfig>,
@@ -61,12 +60,12 @@ pub struct Root {
     pub(crate) window_tracker: Option<crate::desktop_geometry::WindowTracker>,
     pub(crate) close_ticket: Option<CloseTicket>,
     pub(crate) update_restart: bool,
-    pub(crate) update_ui: crate::update_view::UpdateUi,
+    pub(crate) update_ui: crate::update::view::UpdateUi,
     pub(crate) close_check_pending: bool,
     pub(crate) close_failed: bool,
     pub(crate) snapshot: Option<Snapshot>,
     pub(crate) navigation: crate::window_manager::WindowSelection,
-    pub(crate) tab_scroll: crate::chrome::TabScroll,
+    pub(crate) tab_scroll: crate::workspace::tabs::TabScroll,
     pub(crate) pending_recent: Option<(crate::workspace::RecentSelection, u64)>,
     pub(crate) activating_session: Option<(SessionId, crate::workspace::ActivationFence)>,
     pub(crate) views: HashMap<TabId, Entity<TerminalView>>,
@@ -91,8 +90,8 @@ pub struct Root {
     pub(crate) history_page_size: usize,
     pub(crate) session_pages: usize,
     pub(crate) sidebar_ui: crate::sidebar::SidebarUi,
-    pub(crate) session_menu: Option<crate::session_menu::SessionMenu>,
-    pub(crate) tab_menu: Option<crate::chrome::TabMenu>,
+    pub(crate) session_menu: Option<crate::sidebar::session_menu::SessionMenu>,
+    pub(crate) tab_menu: Option<crate::workspace::tabs::TabMenu>,
     pub(crate) modal_focus: FocusHandle,
     pub(crate) closing_window: bool,
     pub(crate) action_pending: bool,
@@ -100,14 +99,14 @@ pub struct Root {
     pub(crate) background: crate::workspace::Background,
     pub(crate) profiles: Vec<crate::settings::api::Profile>,
     pub(crate) catalog_epoch: u64,
-    pub(crate) profile_menu: Option<crate::profile_menu::ProfileMenu>,
+    pub(crate) profile_menu: Option<crate::workspace::tabs::profile_menu::ProfileMenu>,
     pub(crate) power: power::PowerUi,
     /// Host change subscriptions; dropped with the window.
     pub(crate) watches: Vec<gpui::Task<()>>,
 }
 impl Root {
     pub(crate) fn is_local_source(&self)->bool{
-        self.peers.selected==source::Source::Local
+        self.peers.selected == crate::peers::source::Source::Local
     }
     /// UI publication cancellation, NOT a Manager/file authority epoch.
     pub(crate) fn source_selection_epoch(&self)->u64{

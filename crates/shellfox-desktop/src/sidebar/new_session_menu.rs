@@ -1,5 +1,5 @@
 use super::*;
-use crate::root::source::{Phase, Source};
+use crate::peers::source::{Phase, Source};
 use gpui::{Bounds, KeyDownEvent, KeyUpEvent, Pixels, Point, Window};
 use shellfox_protocol::AuthenticatedPeerId;
 
@@ -61,7 +61,7 @@ impl Root {
                     state: Some(state),
                     enabled: connected || peer.online,
                     selected: self.peers.selected == Source::Peer(id.clone()),
-                    color: crate::root::peer::sidebar::connection_color(peer, palette),
+                    color: crate::peers::sidebar::connection_color(peer, palette),
                 }
             }))
             .collect()

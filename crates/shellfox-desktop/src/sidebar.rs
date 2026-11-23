@@ -36,7 +36,7 @@ impl RowFocus {
 }
 
 pub(crate) struct SidebarUi {
-    pub(crate) visibility: crate::session_visibility::SessionVisibility,
+    pub(crate) visibility: crate::workspace::visibility::SessionVisibility,
     row_focus: HashMap<SessionId, RowFocus>,
     pub(crate) list: list::SidebarList,
     scrollbar: crate::files::scrollbar::Scrollbar,
@@ -50,7 +50,7 @@ pub(crate) struct SidebarUi {
     pub(crate) toggle: FocusHandle,
     pub(crate) resizer: FocusHandle,
     pub(crate) delete_cancel: FocusHandle,
-    pub(crate) environment_resize: crate::session_environment::resize::EnvironmentResize,
+    pub(crate) environment_resize: crate::dialogs::environment::resize::EnvironmentResize,
     pub(crate) resize_origin: Option<SidebarDrag>,
     pub(crate) keyboard_focus: bool,
 }
@@ -245,3 +245,4 @@ impl Root {
 
 #[cfg(test)]
 mod tests;
+pub(crate) mod session_menu;

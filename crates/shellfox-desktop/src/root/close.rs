@@ -143,7 +143,7 @@ impl Root {
         let restart = self.update_restart;
         let restart_request = self.update_ui.restart_request.take();
         let updater = cx
-            .try_global::<crate::update_view::Updates>()
+            .try_global::<crate::update::view::Updates>()
             .map(|updates| updates.0.clone())
             .filter(|update| matches!(update.notice(), Some(crate::update::Notice::Ready)));
         let settings_client = self.host.clone();
@@ -153,7 +153,7 @@ impl Root {
             let result = async {
                 if !restart
                     && let (Some(updater), Some(client)) = (&updater, &settings_client)
-                    && let Some(enabled) = crate::update_view::read_preference(client).await
+                    && let Some(enabled) = crate::update::view::read_preference(client).await
                 {
                     updater.preference(enabled);
                 }

@@ -1,5 +1,5 @@
 use super::{Files, list::ListingError};
-use crate::{directory::completion::Completion, field::Field, root::Root, theme::Palette};
+use crate::{dialogs::directory::completion::Completion, field::Field, root::Root, theme::Palette};
 use gpui::{
     App, Context, Entity, FocusHandle, ScrollHandle, Subscription, Window, div, prelude::*, px,
 };

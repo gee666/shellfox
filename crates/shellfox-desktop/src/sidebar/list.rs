@@ -2,7 +2,7 @@
 //! peer. Only entries near the viewport are rendered. Each row passes a focus
 //! handle to the list, so a focused row stays rendered while scrolled away.
 use super::*;
-use crate::session_visibility::PollingTarget;
+use crate::workspace::visibility::PollingTarget;
 use gpui::{Bounds, FocusHandle, ListAlignment, ListState, Pixels};
 use shellfox_protocol::AuthenticatedPeerId;
 use std::{
@@ -112,7 +112,7 @@ impl SidebarList {
             if bounds.top() >= viewport.bottom() {
                 break;
             }
-            if !crate::session_visibility::intersects(bounds, viewport) {
+            if !crate::workspace::visibility::intersects(bounds, viewport) {
                 continue;
             }
             match &entries[index] {

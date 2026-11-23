@@ -108,7 +108,7 @@ impl Root {
         files.transfer = Some(state.clone());
         match direction {
             TransferDirection::Upload => {
-                let picker = crate::files_view::picker::open(window, cx, PathPromptOptions {
+                let picker = crate::files::view::picker::open(window, cx, PathPromptOptions {
                     files: true,
                     directories: false,
                     multiple: false,

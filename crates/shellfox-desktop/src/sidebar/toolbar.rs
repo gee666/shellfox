@@ -89,7 +89,7 @@ impl Root {
                     .w(px(24.))
                     .track_focus(&self.sidebar_ui.toggle)
                     .focus(|style| style.border_1().border_color(palette.accent))
-                    .tooltip(tooltip(crate::layout::sessions_tooltip(true), palette))
+                    .tooltip(tooltip(crate::root::layout::sessions_tooltip(true), palette))
                     .on_click(cx.listener(|root, _, window, cx| {
                         root.sidebar_ui.toggle.focus(window);
                         root.toggle_sessions_layout(window, cx);
