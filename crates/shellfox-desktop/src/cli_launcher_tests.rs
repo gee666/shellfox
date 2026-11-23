@@ -188,6 +188,6 @@ fn wsl_folders_reach_windows_as_wsl_paths() {
         .unwrap();
     assert_eq!(
         String::from_utf8_lossy(&forwarded.stdout).trim(),
-        "KEEP/p:NO_COLOR:SHELLFOX_TERMINAL_MARKER"
+        "KEEP/p:NO_COLOR:SHELLFOX_TERMINAL_MARKER:SHELLFOX_CLI_DISTRO:SHELLFOX_CLI_WSL_CWD"
     );
 }

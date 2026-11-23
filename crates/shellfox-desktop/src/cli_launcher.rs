@@ -227,6 +227,10 @@ const WSL_FOLDER: &str = r#"  # Windows programs see only the WSLENV names. Repl
   }
   if [ "${NO_COLOR+x}" = x ]; then shellfox_wsl_env NO_COLOR; fi
   if [ -n "${SHELLFOX_TERMINAL_MARKER:-}" ]; then shellfox_wsl_env SHELLFOX_TERMINAL_MARKER; fi
+  # shellfox cmd resolves and runs scripts in the caller's distro and folder.
+  export SHELLFOX_CLI_DISTRO="$WSL_DISTRO_NAME" SHELLFOX_CLI_WSL_CWD="$PWD"
+  shellfox_wsl_env SHELLFOX_CLI_DISTRO
+  shellfox_wsl_env SHELLFOX_CLI_WSL_CWD
   windows_path() {
     case "$1" in
       [A-Za-z]:[\\/]*|\\\\*) printf '%s\n' "$1" ;;
@@ -269,6 +273,14 @@ const WSL_FOLDER: &str = r#"  # Windows programs see only the WSLENV names. Repl
   fi
 "#;
 
+/// Git Bash: shellfox cmd runs .sh scripts with this bash, from this folder.
+#[cfg(any(windows, test))]
+const GIT_BASH: &str = r#"elif command -v cygpath >/dev/null 2>&1; then
+  shellfox_bash=$(cygpath -w "$(command -v bash)") || exit 1
+  case "$shellfox_bash" in *.exe) ;; *) shellfox_bash=$shellfox_bash.exe ;; esac
+  export SHELLFOX_CLI_GIT_BASH="$shellfox_bash" SHELLFOX_CLI_GIT_CWD="$(cygpath -w "$PWD")"
+"#;
+
 #[cfg(any(windows, test))]
 fn windows_shims(exe: &str, cli: &str) -> WindowsShims {
     let cmd_quote = |s: &str| s.replace('%', "%%");
@@ -291,7 +303,7 @@ fn windows_shims(exe: &str, cli: &str) -> WindowsShims {
         // Git Bash and MSYS run C:/ paths directly. WSL reaches this file
         // through the PATH block Electron added to its startup files.
         posix: format!(
-            "#!/bin/sh\n# Shellfox/rust-cli-v1\nexe={exe_sh}\ncli={cli_sh}\nif [ -n \"${{WSL_DISTRO_NAME:-}}\" ]; then\n  exe=$(wslpath -u \"$exe\") && cli=$(wslpath -u \"$cli\") || exit 1\n{WSL_FOLDER}fi\n{}",
+            "#!/bin/sh\n# Shellfox/rust-cli-v1\nexe={exe_sh}\ncli={cli_sh}\nif [ -n \"${{WSL_DISTRO_NAME:-}}\" ]; then\n  exe=$(wslpath -u \"$exe\") && cli=$(wslpath -u \"$cli\") || exit 1\n{WSL_FOLDER}{GIT_BASH}fi\n{}",
             posix_router()
         ),
     }
