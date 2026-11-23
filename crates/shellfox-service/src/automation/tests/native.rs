@@ -1,5 +1,7 @@
 use super::*;
 mod credits;
+// Windows exit codes are full DWORDs; Unix has 8-bit statuses.
+#[cfg(windows)]
 mod exit_status;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -114,7 +116,7 @@ impl Drop for Fixture {
     }
 }
 #[test]
-#[ignore = "Explicit owned Windows raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
+#[ignore = "Explicit owned raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
 fn binary_pipe_owner_idempotency_cursor_and_source_order() {
     let mut f = Fixture::new();
     let input = f.input(&["echo"], false);
@@ -241,7 +243,7 @@ fn binary_pipe_owner_idempotency_cursor_and_source_order() {
     assert_eq!(source_err, stderr);
 }
 #[test]
-#[ignore = "Explicit owned Windows raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
+#[ignore = "Explicit owned raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
 fn retained_credit_replays_exact_frames_and_large_output() {
     let mut f = Fixture::new();
     let input = f.input(&["flood"], false);
@@ -276,7 +278,7 @@ fn retained_credit_replays_exact_frames_and_large_output() {
     assert_eq!(code, 0);
 }
 #[test]
-#[ignore = "Explicit owned Windows raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
+#[ignore = "Explicit owned raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
 fn disconnect_detached_and_lease_expiry_are_eof_not_kill() {
     let mut f = Fixture::new();
     let input = f.input(&["eof"], false);
@@ -314,7 +316,7 @@ fn disconnect_detached_and_lease_expiry_are_eof_not_kill() {
     assert_eq!(f.manager.active_processes(), 0);
 }
 #[test]
-#[ignore = "Explicit owned Windows raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
+#[ignore = "Explicit owned raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
 fn explicit_stop_and_shutdown_have_actual_raw_cleanup_proof() {
     let mut f = Fixture::new();
     let input = f.input(&["idle"], false);

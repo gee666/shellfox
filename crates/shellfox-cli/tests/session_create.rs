@@ -1,6 +1,6 @@
 //! `shellfox session create [PATH]` through the real CLI against a real host
 //! on isolated data, then `session list` shows it (docs/cli.md#session).
-#![cfg(any(windows, target_os = "macos"))]
+#![cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 mod support;

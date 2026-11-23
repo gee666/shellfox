@@ -1,5 +1,5 @@
 use super::*;
-use shellfox_core::{CreateSession, ProfileId, SessionId};
+use shellfox_core::{CreateSession, SessionId};
 #[test]
 #[ignore = "explicit owned raw/PTy fixture only; Windows native proof"]
 fn hidden_raw_does_not_poison_normal_facts_and_show_adds_exact_external_kind() {
@@ -10,7 +10,7 @@ fn hidden_raw_does_not_poison_normal_facts_and_show_adds_exact_external_kind() {
             request_id: SessionId::new(),
             title: Some("normal owned fixture".into()),
             cwd: scratch.path().to_str().unwrap().into(),
-            profile_id: ProfileId::new("cmd").unwrap(),
+            profile_id: crate::tests::default_catalog_profile(),
         })
         .unwrap();
     let tab = snapshot.sessions[0].tabs[0].id;

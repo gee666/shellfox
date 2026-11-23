@@ -119,7 +119,7 @@ impl AutomationViewer for Viewer {
     }
 }
 #[test]
-#[ignore = "Explicit owned Windows raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
+#[ignore = "Explicit owned raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
 fn receipt_survives_natural_cleanup_and_published_parser_retirement_without_new_handles() {
     let mut run = Launched::new(true);
     run.finish();
@@ -162,7 +162,7 @@ fn receipt_survives_natural_cleanup_and_published_parser_retirement_without_new_
     assert_eq!(run.runtime.launch_privilege_facts(), facts);
 }
 #[test]
-#[ignore = "Explicit owned Windows raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
+#[ignore = "Explicit owned raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
 fn wrong_runtime_receipt_rejected_and_unbound_start_stays_unknown() {
     let mut captured = Launched::new(true);
     let mut other = Launched::new(false);

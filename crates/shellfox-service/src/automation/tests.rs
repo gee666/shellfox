@@ -99,9 +99,7 @@ fn authoritative_eofs_and_exit_follow_final_data() {
     assert!(!publisher.alive());
 }
 mod display;
-#[cfg(windows)]
 mod launch;
-#[cfg(windows)]
 mod native;
 mod relay;
 mod retirement;

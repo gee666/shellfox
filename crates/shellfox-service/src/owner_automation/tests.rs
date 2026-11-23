@@ -1,4 +1,3 @@
-#![cfg(windows)]
 mod activity_tests;
 mod attach_tests;
 mod close_tests;

@@ -1,4 +1,4 @@
-#![cfg(any(windows, target_os = "macos"))]
+#![cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 #[path = "support/settings.rs"]

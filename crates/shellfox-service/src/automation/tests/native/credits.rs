@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-#[ignore = "Explicit owned Windows raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
+#[ignore = "Explicit owned raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
 fn another_client_stop_releases_capture_credit_but_preserves_final_source() {
     let mut f = Fixture::new();
     let input = f.input(&["flood"], false);

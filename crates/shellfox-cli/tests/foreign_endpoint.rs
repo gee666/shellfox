@@ -1,6 +1,6 @@
 //! An endpoint.json this build can't read is another build's host while that
 //! host answers, and stale once it has gone.
-#![cfg(any(windows, target_os = "macos"))]
+#![cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 mod support;

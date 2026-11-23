@@ -1,5 +1,5 @@
 //! The desktop host process outlives its UI and survives the loss of one shell.
-#![cfg(any(windows, target_os = "macos"))]
+#![cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 mod support;

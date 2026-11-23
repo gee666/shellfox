@@ -1,7 +1,7 @@
 //! `shellfox session settle` with no ID, typed into a real host terminal: the
 //! tab's SHELLFOX_TERMINAL_MARKER selects its session, as in 0.9. Then
 //! `terminals write` refuses an occupied terminal unless --take.
-#![cfg(any(windows, target_os = "macos"))]
+#![cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 #[path = "support/fixture.rs"]

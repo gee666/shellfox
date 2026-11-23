@@ -1,6 +1,6 @@
 //! The 0.9 session, terminals, profiles, path, api, completion and cmd commands
 //! through the real CLI against a real host on isolated data (docs/cli.md).
-#![cfg(any(windows, target_os = "macos"))]
+#![cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 #[path = "support/fixture.rs"]
