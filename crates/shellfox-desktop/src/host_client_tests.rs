@@ -60,16 +60,6 @@ fn native_admission_is_bounded_and_cancellation_returns_capacity() {
 }
 
 #[test]
-fn hidden_frame_poll_budget_leaves_admission_capacity_for_ordered_input() {
-    let slots = Arc::new(tokio::sync::Semaphore::new(MAX_FRAME_REQUESTS));
-    let first = slots.clone().try_acquire_owned().unwrap();
-    let second = slots.clone().try_acquire_owned().unwrap();
-    assert!(slots.clone().try_acquire_owned().is_err());
-    drop((first, second));
-    assert_eq!(slots.available_permits(), MAX_FRAME_REQUESTS);
-}
-
-#[test]
 fn frame_admission_is_fair_and_bounded_while_waiting() {
     use std::{
         future::Future,

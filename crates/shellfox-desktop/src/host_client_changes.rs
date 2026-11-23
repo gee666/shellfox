@@ -125,18 +125,11 @@ where
 }
 
 impl HostClient {
-    fn feeds(&self) -> Option<&Feeds> {
-        Some(self.attached_feeds(self.local()?))
-    }
-    pub(super) fn attached_feeds(&self, local: &AttachedLocal) -> &Feeds {
-        self.feeds.get_or_init(|| Feeds::start(local))
+    pub(super) fn feeds(&self) -> &Feeds {
+        self.feeds.get_or_init(|| Feeds::start(self.local()))
     }
     fn changes<T>(&self, pick: impl FnOnce(&Feeds) -> &watch::Receiver<Option<T>>) -> Changes<T> {
-        let changes = match self.feeds() {
-            Some(feeds) => pick(feeds).clone(),
-            // No attached host: a closed stream that yields nothing.
-            None => watch::channel(None).1,
-        };
+        let changes = pick(self.feeds()).clone();
         Changes { changes, started: false }
     }
     /// Host metadata revisions (sessions, tabs, settings).

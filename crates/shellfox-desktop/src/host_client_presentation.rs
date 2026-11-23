@@ -10,8 +10,8 @@ impl HostClient {
         attachment: Attachment,
         focused: bool,
     ) -> Result<Option<NativeFrame>> {
-        // A bounded fair queue avoids starving later hidden tabs, while only
-        // two frame cycles compete with ordered key/release admission.
+        // The host holds each read until the tab changes; a bounded fair queue
+        // keeps later hidden tabs from starving.
         NativeAction::Presentation {
             tab,
             attachment: NativeViewAttachment::Controller(attachment.clone()),
@@ -30,14 +30,8 @@ impl HostClient {
                     .into());
                 }
             };
-        let _permit = self.frame_slot().await.map_err(|_| {
-            NativeAdmissionError::Stopped(Box::new(NativeAction::Frame {
-                tab,
-                attachment: attachment.clone(),
-            }))
-        })?;
         let NativeResponse::Frame(frame) = self
-            .execute_frame_read(NativeAction::Presentation {
+            .dispatch(NativeAction::Presentation {
                 tab,
                 attachment: NativeViewAttachment::Controller(attachment.clone()),
                 action: NativePresentation::Frame { focused },
@@ -100,14 +94,8 @@ impl HostClient {
                     .into());
                 }
             };
-        let _permit = self.frame_slot().await.map_err(|_| {
-            NativeAdmissionError::Stopped(Box::new(NativeAction::ObserverFrame {
-                tab,
-                attachment: attachment.clone(),
-            }))
-        })?;
         let NativeResponse::Frame(frame) = self
-            .execute_frame_read(NativeAction::Presentation {
+            .dispatch(NativeAction::Presentation {
                 tab,
                 attachment: NativeViewAttachment::Observer(attachment.clone()),
                 action: NativePresentation::Frame { focused },
@@ -138,16 +126,6 @@ impl HostClient {
             .await?;
         }
         Ok(Some(frame))
-    }
-    /// In process, two frame cycles compete with key admission. An attached
-    /// host holds each read per tab, so every view keeps one read waiting.
-    async fn frame_slot(
-        &self,
-    ) -> std::result::Result<Option<tokio::sync::OwnedSemaphorePermit>, tokio::sync::AcquireError> {
-        if self.local().is_some() {
-            return Ok(None);
-        }
-        self.frame_slots.clone().acquire_owned().await.map(Some)
     }
     pub fn latest(&self, tab: TabId, observer: bool) -> Result<Option<NativeFrame>> {
         Ok(self

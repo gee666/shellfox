@@ -6,17 +6,14 @@ use shellfox_protocol::{
     OutboundTransport, PairResponse, PollResponse, Reply, Request, RequestLimits, TransportError,
     TransportFuture,
 };
-use shellfox_service::{native::NativeClient, remote::OutgoingV2Endpoint};
+use shellfox_service::remote::OutgoingV2Endpoint;
 use std::sync::Arc;
 
 #[cfg(test)]
 #[path = "peer_v1_interop_tests.rs"]
 mod interop_tests;
 
-enum Transport {
-    Native(NativeClient),
-    Attached(super::attached::AttachedLocal),
-}
+struct Transport(super::attached::AttachedLocal);
 
 impl OutboundTransport for Transport {
     fn send<'a>(
@@ -35,18 +32,7 @@ impl OutboundTransport for Transport {
                 Endpoint::Disconnect => OutgoingV2Endpoint::DisconnectV1,
                 _ => return Err(TransportError::InvalidRequest),
             };
-            let response = match self {
-                Self::Native(client) => {
-                    client
-                        .outgoing_v2_with_status(peer, endpoint, body, limits)
-                        .await?
-                }
-                Self::Attached(client) => {
-                    client
-                        .outgoing(peer.clone(), endpoint, body, limits)
-                        .await?
-                }
-            };
+            let response = self.0.outgoing(peer.clone(), endpoint, body, limits).await?;
             if !(200..300).contains(&response.status) {
                 return Err(TransportError::Rejected {
                     status: response.status,
@@ -157,10 +143,7 @@ impl super::HostClient {
         let client = Client::new(
             peer,
             ClientId::new_v4(),
-            match &self.port {
-                super::HostPort::Native(client) => Transport::Native(client.clone()),
-                super::HostPort::Attached(client) => Transport::Attached(client.clone()),
-            },
+            Transport(self.port.clone()),
         );
         let wake = changes.clone();
         client.set_state_waker(Some(Arc::new(move || {
