@@ -142,13 +142,21 @@ async fn psreadline(s: &mut Shell<'_>) -> Result<()> {
     s.key(P::ArrowUp, M::NONE).await?;
     s.key(P::Enter, M::NONE).await?;
     s.wait_rows("SFW SFV", 2).await?;
-    // Ctrl+C abandons the line.
-    s.text("Write-Host SFBAD").await?;
-    s.ctrl('c').await?;
-    s.text("Write-Host SFOK").await?;
-    s.key(P::Enter, M::NONE).await?;
-    s.wait_row("SFOK").await?;
-    ensure!(!s.has_row("SFBAD")?, "Ctrl+C did not cancel the line");
+    // Ctrl+C abandons the line. Shellfox sends ETX on any layout and ConPTY
+    // turns it into a Ctrl+C key record, but PSReadLine maps that record
+    // through the shell's keyboard layout. With a layout that has no Latin C
+    // active when the shell starts (Russian, Greek...), it types that layout's
+    // letter instead, in any terminal.
+    if latin_layout() {
+        s.text("Write-Host SFBAD").await?;
+        s.ctrl('c').await?;
+        s.text("Write-Host SFOK").await?;
+        s.key(P::Enter, M::NONE).await?;
+        s.wait_row("SFOK").await?;
+        ensure!(!s.has_row("SFBAD")?, "Ctrl+C did not cancel the line");
+    } else {
+        eprintln!("active keyboard layout has no Latin C; PSReadLine Ctrl+C skipped");
+    }
     // A multi-line paste runs each line.
     s.paste("Write-Host SFP1\r\nWrite-Host SFP2\r\n").await?;
     s.wait_row("SFP2").await?;
@@ -332,6 +340,15 @@ async fn connect(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 
         ensure!(Instant::now() < deadline, "host startup deadline");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+}
+
+fn latin_layout() -> bool {
+    #[link(name = "user32")]
+    extern "system" {
+        fn VkKeyScanW(ch: u16) -> i16;
+    }
+    // SAFETY: a plain lookup in this thread's current keyboard layout.
+    unsafe { VkKeyScanW(u16::from(b'c')) != -1 }
 }
 
 fn which(exe: &str) -> bool {
