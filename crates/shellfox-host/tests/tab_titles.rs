@@ -35,10 +35,8 @@ fn saving_the_same_title_disables_live_titles_and_survives_reopen() {
     drop(host);
     let snapshot = Host::open(directory.path()).unwrap().snapshot().unwrap();
     assert_eq!(snapshot.sessions[0].tabs[0].title, tab.title);
-    assert!(
-        snapshot.sessions[0]
-            .tabs
-            .iter()
-            .all(|tab| !tab.use_process_title)
-    );
+    assert!(snapshot.sessions[0]
+        .tabs
+        .iter()
+        .all(|tab| !tab.use_process_title));
 }

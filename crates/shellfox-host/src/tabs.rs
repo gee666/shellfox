@@ -20,7 +20,8 @@ impl Host {
                 .map_err(|_| Error::new(ErrorCode::Validation, "Too many tabs."))?;
             let use_process_title = input.title.is_none();
             let title = input.title.unwrap_or_else(|| {
-                let occupied: HashSet<_> = session.tabs.iter().map(|tab| tab.title.as_str()).collect();
+                let occupied: HashSet<_> =
+                    session.tabs.iter().map(|tab| tab.title.as_str()).collect();
                 let mut number = u64::from(ordinal) + 1;
                 let mut title = default_title(ordinal);
                 while occupied.contains(title.as_str()) {

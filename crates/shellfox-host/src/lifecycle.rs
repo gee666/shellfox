@@ -33,7 +33,10 @@ impl Host {
     ) -> Result<()> {
         self.update(ChangeReason::Sessions, |data, registry| {
             if registry.live.get(&identity.tab_id) != Some(&identity.generation) {
-                return Err(Error::new(ErrorCode::Conflict, "Terminal generation is no longer current."));
+                return Err(Error::new(
+                    ErrorCode::Conflict,
+                    "Terminal generation is no longer current.",
+                ));
             }
             let tab = data.tab_mut(identity.tab_id)?;
             ensure_not_prepared(registry, &[tab.id], Some(tab.session_id))?;
@@ -42,8 +45,13 @@ impl Host {
                     tab.wsl_launch = Some(WslLaunchBinding::Bound { account });
                     Ok(true)
                 }
-                Some(WslLaunchBinding::Bound { account: current }) if *current == account => Ok(false),
-                _ => Err(Error::new(ErrorCode::Conflict, "This tab cannot change its WSL launch account.")),
+                Some(WslLaunchBinding::Bound { account: current }) if *current == account => {
+                    Ok(false)
+                }
+                _ => Err(Error::new(
+                    ErrorCode::Conflict,
+                    "This tab cannot change its WSL launch account.",
+                )),
             }
         })?;
         Ok(())
@@ -73,7 +81,11 @@ impl Host {
     pub fn prepare_delete_session(&self, id: SessionId) -> Result<PreparedClose> {
         self.prepare_close(CloseTarget::Session(id), None)
     }
-    fn prepare_close(&self, target: CloseTarget, expected: Option<TerminalIdentity>) -> Result<PreparedClose> {
+    fn prepare_close(
+        &self,
+        target: CloseTarget,
+        expected: Option<TerminalIdentity>,
+    ) -> Result<PreparedClose> {
         let mut inner = self.lock()?;
         let data = storage::read(&inner.db)?;
         let (tabs, session) = match target {
@@ -95,7 +107,10 @@ impl Host {
             })
             .collect::<Vec<_>>();
         if expected.is_some_and(|expected| terminals.as_slice() != [expected]) {
-            return Err(Error::new(ErrorCode::Conflict, "Terminal generation is no longer current."));
+            return Err(Error::new(
+                ErrorCode::Conflict,
+                "Terminal generation is no longer current.",
+            ));
         }
         let token = CleanupToken::new();
         inner.registry.pending.insert(

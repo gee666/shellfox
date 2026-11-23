@@ -48,7 +48,15 @@ fn new_shell_titles_use_session_ordinals_and_allow_explicit_names() {
     host.close_tab(first.id).unwrap();
     let next = host.add_tab(session, add()).unwrap();
     assert_eq!(next.sessions[0].tabs[1].title, "Shell 3");
-    let named = host.add_tab(session, AddTab { title: Some("Logs".into()), ..add() }).unwrap();
+    let named = host
+        .add_tab(
+            session,
+            AddTab {
+                title: Some("Logs".into()),
+                ..add()
+            },
+        )
+        .unwrap();
     assert_eq!(named.sessions[0].tabs[2].title, "Logs");
 }
 

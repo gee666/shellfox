@@ -111,7 +111,10 @@ impl Host {
                 let tab = Tab {
                     id: input.tab_id,
                     session_id: input.session_id,
-                    title: input.title.clone().unwrap_or_else(|| crate::tabs::default_title(0)),
+                    title: input
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| crate::tabs::default_title(0)),
                     use_process_title: false,
                     cwd: input.cwd.clone(),
                     ordinal: 0,

@@ -58,7 +58,9 @@ fn old_isolated_v1_and_v2_rows_remain_unknown_without_settings_or_first_tab_back
         let changed = host.changed_since(0).unwrap();
         drop(host);
         let db = scratch.db();
-        let current_version: i32 = db.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        let current_version: i32 = db
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
         db.execute_batch("DROP TABLE desktop_preferences; DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; DROP TABLE session_creation_facts")
             .unwrap();
         if version == 1 {
