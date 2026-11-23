@@ -262,14 +262,23 @@ impl Watch {
         let mut reason = (!snapshot.complete).then_some("Process enumeration was incomplete.");
         if root == RootState::Alive {
             if let Some(row) = root_row.filter(|row| row.accessible && row.executable.is_some()) {
-                let actual =
-                    matching::basename(row.executable.as_deref().unwrap_or_default(), windows);
                 let expected = matching::basename(&self.expected_shell, windows);
-                let same_shell = if windows {
-                    actual.to_lowercase() == expected.to_lowercase()
-                } else {
-                    actual == expected
+                let same = |name: &str| {
+                    let actual = matching::basename(name, windows);
+                    if windows {
+                        actual.to_lowercase() == expected.to_lowercase()
+                    } else {
+                        actual == expected
+                    }
                 };
+                // macOS /bin/sh is a shim that hands off to bash; argv[0] keeps the name.
+                let same_shell = same(row.executable.as_deref().unwrap_or_default())
+                    || (!windows
+                        && row
+                            .argv
+                            .as_ref()
+                            .and_then(|argv| argv.first())
+                            .is_some_and(|first| same(first.trim_start_matches('-'))));
                 if !same_shell
                     || self
                         .root
