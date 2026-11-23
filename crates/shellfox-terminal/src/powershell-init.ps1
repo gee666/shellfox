@@ -1,7 +1,7 @@
-$env:PSModulePath = Join-Path $PSHOME 'Modules'
-if ((Get-Module PSReadLine) -or (Get-Module -ListAvailable PSReadLine)) {
-  Import-Module PSReadLine
-  Set-PSReadLineOption -HistorySavePath $env:PSREADLINE_HISTORYFILE
+# PSReadLine reads no history-path variable by itself.
+if ($env:PSREADLINE_HISTORYFILE) {
+  if (-not (Get-Module PSReadLine)) { Import-Module PSReadLine -ErrorAction Ignore }
+  if (Get-Module PSReadLine) { Set-PSReadLineOption -HistorySavePath $env:PSREADLINE_HISTORYFILE }
 }
 
 if (-not (Get-Variable -Name ShellfoxOriginalPrompt -Scope Global -ErrorAction Ignore)) {

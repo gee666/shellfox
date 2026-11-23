@@ -4,6 +4,8 @@ pub mod elevated;
 mod environment;
 #[cfg(windows)]
 mod environment_paths;
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
+mod environment_user;
 mod error;
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod input;
@@ -37,9 +39,9 @@ mod unsupported;
 mod windows;
 
 pub use config::{PtyCommand, PtyConfig, UnixPrivilegeMode};
-pub use environment::EnvironmentPolicy;
+pub use environment::{EnvironmentPolicy, TerminalEnvironment};
 pub use error::SpawnError;
-pub use isolation::{validate_isolated_path, IsolationPathKind};
+pub(crate) use isolation::{validate_isolated_path, IsolationPathKind};
 pub use output::{PtyOutput, OUTPUT_CHUNK_BYTES, OUTPUT_QUEUE_CHUNKS};
 pub use portable_pty::ExitStatus;
 pub use wake::{ExitSignal, Wake};

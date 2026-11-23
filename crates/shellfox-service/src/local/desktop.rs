@@ -283,11 +283,7 @@ impl crate::Service {
     ) -> anyhow::Result<NativeResponse> {
         use crate::system::{NativeSystemFiles, SystemFiles};
         let window_file = || -> anyhow::Result<std::path::PathBuf> {
-            Ok(self
-                .isolation
-                .parent()
-                .ok_or_else(|| anyhow::anyhow!("Host root missing"))?
-                .join("desktop-window.json"))
+            Ok(self.directory.join("desktop-window.json"))
         };
         match action {
             NativeAction::ReadWindowState => {

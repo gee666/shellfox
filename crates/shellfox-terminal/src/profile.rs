@@ -74,7 +74,13 @@ impl ShellProfile {
     pub fn unavailable_reason(&self) -> Option<&str> {
         self.unavailable_reason
     }
+    /// The command a user terminal runs: profiles and rc files load.
     pub fn command(&self) -> Result<PtyCommand> {
+        self.command_for(&crate::TerminalEnvironment::User)
+    }
+    /// Isolated terminals skip account startup files.
+    pub fn command_for(&self, environment: &crate::TerminalEnvironment) -> Result<PtyCommand> {
+        let user = *environment == crate::TerminalEnvironment::User;
         if let Some(reason) = self.unavailable_reason {
             bail!("{} unavailable: {reason}", self.label);
         }
@@ -87,14 +93,16 @@ impl ShellProfile {
             "shell executable disappeared: {}",
             program.display()
         );
+        const INIT: &str = include_str!("powershell-init.ps1");
         let args: &[&str] = match self.id {
-            ShellProfileId::Pwsh | ShellProfileId::WindowsPowerShell => &[
-                "-NoLogo",
-                "-NoProfile",
-                "-NoExit",
-                "-Command",
-                include_str!("powershell-init.ps1"),
-            ],
+            ShellProfileId::Pwsh | ShellProfileId::WindowsPowerShell if user => {
+                &["-NoLogo", "-NoExit", "-Command", INIT]
+            }
+            ShellProfileId::Pwsh | ShellProfileId::WindowsPowerShell => {
+                &["-NoLogo", "-NoProfile", "-NoExit", "-Command", INIT]
+            }
+            // /D skips the AutoRun commands in the registry.
+            ShellProfileId::Cmd if user => &[],
             ShellProfileId::Cmd => &["/D", "/Q"],
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             ShellProfileId::LoginShell
@@ -108,6 +116,8 @@ impl ShellProfile {
                     program.display()
                 );
                 match program.file_name().and_then(|s| s.to_str()) {
+                    // A login shell, as 0.9 and other terminals start it.
+                    _ if user => &["-l", "-i"],
                     Some("bash") => &["--noprofile", "--norc", "-i"],
                     Some("zsh") => &["-f", "-i"],
                     Some("fish") => &["--no-config", "-i"],
@@ -174,10 +184,10 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
             })
             .collect::<Vec<_>>();
         // Keep the persisted default ID, even when its executable is also listed by name.
-        let executable = installed.iter()
+        let executable = account_shell().or_else(|| installed.iter()
             .find(|profile| cfg!(target_os = "macos") && profile.id == Zsh)
             .or_else(|| installed.first())
-            .and_then(|profile| profile.executable.clone());
+            .and_then(|profile| profile.executable.clone()));
         let default = ShellProfile {
             id: LoginShell,
             label: "Shell",
@@ -195,6 +205,28 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
             (ShellProfileId::Wsl, "WSL")].into_iter().map(|(id, label)| ShellProfile { id, label, executable: None,
                 unavailable_reason: Some("Local shell launch requires a platform process-tree supervisor; no unsafe fallback is allowed.") }).collect())
     }
+}
+
+/// The account's login shell from the user database, then $SHELL, as 0.9 chose it.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn account_shell() -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut found = std::ptr::null_mut();
+    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+    // SAFETY: all pointers are valid for the call; the strings it fills live in `buffer`.
+    let status = unsafe {
+        libc::getpwuid_r(libc::getuid(), &mut entry, buffer.as_mut_ptr(), buffer.len(), &mut found)
+    };
+    let database = (status == 0 && !found.is_null() && !entry.pw_shell.is_null()).then(|| {
+        // SAFETY: getpwuid_r succeeded, so pw_shell is a NUL-terminated string in `buffer`.
+        let shell = unsafe { std::ffi::CStr::from_ptr(entry.pw_shell) };
+        PathBuf::from(std::ffi::OsStr::from_bytes(shell.to_bytes()))
+    });
+    database
+        .into_iter()
+        .chain(std::env::var_os("SHELL").map(PathBuf::from))
+        .find(|path| path.is_absolute() && unix_executable(path))
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]

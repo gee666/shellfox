@@ -15,7 +15,7 @@ use std::time::Duration;
 pub struct SupervisorLaunch {
     pub file: PathBuf,
     pub args: Vec<OsString>,
-    /// Merge only into the validated isolated environment built by the host.
+    /// Merged over the terminal environment built by the host.
     pub env: BTreeMap<OsString, OsString>,
 }
 

@@ -1,13 +1,30 @@
-//! Executable discovery and writable state are deliberately separate.
+//! Terminal environment modes, executable discovery and path spelling.
 #[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 use anyhow::{ensure, Result};
 #[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
-    path::{Path, PathBuf},
+    path::Path,
 };
+use std::path::PathBuf;
 
+/// Where a terminal's environment comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TerminalEnvironment {
+    /// The signed-in user's own environment. Shells run their profiles and rc files.
+    User,
+    /// A fresh environment with all writable state under `root`, and shells
+    /// that skip account startup files. For tests and fixtures.
+    Isolated {
+        root: PathBuf,
+        policy: EnvironmentPolicy,
+        /// Extra executable directories; requires InstalledTools.
+        tool_directories: Vec<PathBuf>,
+    },
+}
+
+/// Executable search for an isolated environment.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EnvironmentPolicy {
     #[default]
@@ -115,64 +132,8 @@ fn same_path(a: &Path, b: &Path) -> bool {
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
-pub(crate) fn protected(key: &OsStr) -> bool {
-    let name = key.to_string_lossy().to_ascii_uppercase();
-    name.starts_with("PI_")
-        || name.starts_with("SHELLFOX_")
-        || name.starts_with("NPM_CONFIG_")
-        || name.starts_with("PNPM_")
-        || name.starts_with("XDG_")
-        || name.starts_with("DOTNET_")
-        || name.starts_with("CORECLR_")
-        || name.starts_with("COR_")
-        || name.starts_with("COMPLUS_")
-        || [
-            "PATH",
-            "PATHEXT",
-            "HOME",
-            "USERPROFILE",
-            "HOMEDRIVE",
-            "HOMEPATH",
-            "APPDATA",
-            "LOCALAPPDATA",
-            "PROGRAMDATA",
-            "SYSTEMROOT",
-            "WINDIR",
-            "COMSPEC",
-            "TMP",
-            "TEMP",
-            "TMPDIR",
-            "HISTFILE",
-            "PSMODULEPATH",
-            "PSREADLINE_HISTORYFILE",
-            "ZDOTDIR",
-            "BASH_ENV",
-            "ENV",
-            "SSH_AUTH_SOCK",
-            "SSH_AGENT_PID",
-            "NODE_OPTIONS",
-            "NODE_PATH",
-            "PYTHONHOME",
-            "PYTHONPATH",
-            "RUSTUP_HOME",
-            "CARGO_HOME",
-            "GIT_CONFIG_GLOBAL",
-            "GIT_CONFIG_SYSTEM",
-            "GIT_CONFIG_COUNT",
-            "GIT_CONFIG",
-            "GIT_CONFIG_PARAMETERS",
-            "GIT_SSH",
-            "GIT_SSH_COMMAND",
-            "LD_PRELOAD",
-            "LD_LIBRARY_PATH",
-            "DYLD_INSERT_LIBRARIES",
-            "TERM",
-            "COLORTERM",
-        ]
-        .contains(&name.as_str())
-}
-
-#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
+/// Settings and session variables may set anything a shell could, including
+/// PATH, HOME or PSModulePath. Only malformed entries are refused.
 pub(crate) fn validate_extra(env: &BTreeMap<OsString, OsString>) -> Result<()> {
     for (key, value) in env {
         ensure!(
@@ -181,11 +142,6 @@ pub(crate) fn validate_extra(env: &BTreeMap<OsString, OsString>) -> Result<()> {
                 && !has_nul(key)
                 && !has_nul(value),
             "invalid environment entry"
-        );
-        ensure!(
-            !protected(key),
-            "environment entry {} is controlled by the isolation policy",
-            key.to_string_lossy()
         );
     }
     Ok(())
@@ -254,29 +210,13 @@ mod tests {
     }
 
     #[test]
-    fn reserved_environment_aliases_cannot_restore_account_state_or_hooks() {
-        for key in [
-            "Path",
-            "home",
-            "PI_CODING_AGENT_DIR",
-            "pi_package_dir",
-            "SHELLFOX_USER_DATA",
-            "npm_config_userconfig",
-            "PNPM_HOME",
-            "NODE_OPTIONS",
-            "COMPLUS_Version",
-            "COMPLUS_ProfAPI_ProfilerCompatibilitySetting",
-            "PSModulePath",
-            "SSH_AUTH_SOCK",
-            "BASH_ENV",
-        ] {
-            assert!(
-                validate_extra(&BTreeMap::from([(key.into(), "bad".into())])).is_err(),
-                "{key}"
-            );
+    fn configured_variables_may_set_any_well_formed_name() {
+        for key in ["Path", "HOME", "PSModulePath", "NODE_OPTIONS", "PI_CODING_AGENT_DIR"] {
+            assert!(validate_extra(&BTreeMap::from([(key.into(), "ok".into())])).is_ok(), "{key}");
         }
-        assert!(validate_extra(&BTreeMap::from([("CUSTOM_VALUE".into(), "ok".into())])).is_ok());
         assert!(validate_extra(&BTreeMap::from([("BAD".into(), "a\0b".into())])).is_err());
+        assert!(validate_extra(&BTreeMap::from([("A=B".into(), "x".into())])).is_err());
+        assert!(validate_extra(&BTreeMap::from([("".into(), "x".into())])).is_err());
     }
     #[test]
     fn search_paths_drop_empty_relative_missing_and_duplicate_directories() {

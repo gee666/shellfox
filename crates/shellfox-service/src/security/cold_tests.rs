@@ -104,7 +104,7 @@ async fn cold_root_cycle(replaced: bool) {
                 .unwrap();
             assert!(
                 root.join("rust-service-v1/endpoint.json").is_file()
-                    && root.join("terminal-home").is_dir()
+                    && !root.join("terminal-home").exists()
             );
             let client = crate::local::LocalClient::connect(&root, &helper, digest)
                 .await

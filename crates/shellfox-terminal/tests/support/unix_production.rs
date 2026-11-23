@@ -26,7 +26,7 @@ impl Fixture {
         }
     }
     pub fn config(&self, program: &Path, args: &[&str]) -> PtyConfig {
-        let mut config = PtyConfig::new(&self.root);
+        let mut config = PtyConfig::isolated(&self.root);
         config.supervisor = Some(helper());
         config.command = Some(PtyCommand {
             program: program.into(),

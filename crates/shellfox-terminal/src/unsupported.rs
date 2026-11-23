@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn unsupported_platform_never_falls_back_to_a_direct_child() {
-        let config = PtyConfig::new("not-even-an-existing-cwd");
+        let config = PtyConfig::isolated("not-even-an-existing-cwd");
         let error = PtySession::spawn(config).unwrap_err();
         assert!(error.to_string().contains("owned process-tree boundary"));
         assert!(error.take_session().is_none());

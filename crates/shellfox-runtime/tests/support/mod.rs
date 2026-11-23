@@ -27,7 +27,7 @@ impl Harness {
             .join(format!("runtime-test-{}", Generation::new()));
         std::fs::create_dir_all(&root).unwrap();
         let executable = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-runtime-fixture"));
-        let mut config = PtyConfig::new(&root);
+        let mut config = PtyConfig::isolated(&root);
         config.supervisor = Some(executable.clone());
         config.command = Some(PtyCommand {
             program: executable.into_os_string(),

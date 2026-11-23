@@ -83,7 +83,7 @@ impl PtySession {
                 Some(id) => crate::shell_profile(id)?,
                 None => crate::default_shell_profile()?,
             }
-            .command()?,
+            .command_for(&config.environment)?,
         };
         let supervisor = super::private::helper_path(
             config
@@ -106,14 +106,16 @@ impl PtySession {
         let mut builder = config.builder(&argv)?;
         if config.command.is_none()
             && std::path::Path::new(&command.program).file_name().is_some_and(|name| name == "bash")
-            && !config.env.contains_key(std::ffi::OsStr::new("PROMPT_COMMAND"))
+            && builder.get_env("PROMPT_COMMAND").is_none()
         {
             builder.env("PROMPT_COMMAND", include_str!("../bash-prompt.sh"));
         }
-        builder.env(
-            "DBUS_SESSION_BUS_ADDRESS",
-            format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() }),
-        );
+        if builder.get_env("DBUS_SESSION_BUS_ADDRESS").is_none() {
+            builder.env(
+                "DBUS_SESSION_BUS_ADDRESS",
+                format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() }),
+            );
+        }
         let pair = portable_pty::native_pty_system().openpty(size(config.cols, config.rows)?)?;
         let writer = InputWriter::start(pair.master.take_writer()?).context("start PTY input")?;
         let output =

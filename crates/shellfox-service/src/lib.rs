@@ -93,7 +93,8 @@ pub(crate) use shellfox_terminal::elevated::ADMINISTRATOR_PROFILE_ID as ADMIN_PO
 pub struct Service {
     host: Host,
     terminals: HashMap<TabId, terminals::OwnedTerminal>,
-    isolation: PathBuf,
+    /// The host data root.
+    directory: PathBuf,
     supervisor: PathBuf,
     next_request: u64,
     grants: grant::custody::GrantCustody,

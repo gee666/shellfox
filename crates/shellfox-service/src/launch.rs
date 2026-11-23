@@ -2,27 +2,12 @@ use crate::terminals::OwnedTerminal;
 use crate::*;
 use shellfox_core::{Generation, TerminalIdentity};
 use shellfox_runtime::{Identity, Runtime};
-use shellfox_terminal::{
-    validate_isolated_path, EnvironmentPolicy, IsolationPathKind, PtyConfig, ShellProfileId,
-};
+use shellfox_terminal::{PtyConfig, ShellProfileId};
 
 impl Service {
-    fn prepare_launch_config(
-        &self,
-        launch: shellfox_core::TerminalLaunch,
-        generation: Generation,
-    ) -> Result<PtyConfig> {
-        let tab = launch.tab_id;
-        let mut config = self.catalog_launch_config(launch)?;
-        config.isolation_root = self.generation_home(tab, generation)?;
-        Ok(config)
-    }
-    fn catalog_launch_config(&self, launch: shellfox_core::TerminalLaunch) -> Result<PtyConfig> {
-        let mut config = PtyConfig::new(self.isolation.clone());
-        // Interactive app launches opt into executables, never installed account
-        // state. PtyConfig::new remains Minimal for callers that do not opt in.
-        config.environment = EnvironmentPolicy::InstalledTools;
-        config.cwd = PathBuf::from(launch.cwd);
+    /// A user terminal: the user's own environment plus Settings and session variables.
+    fn launch_config(&self, launch: shellfox_core::TerminalLaunch) -> Result<PtyConfig> {
+        let mut config = PtyConfig::user(launch.cwd);
         config.supervisor = Some(self.supervisor.clone());
         config.terminal_marker = Some(launch.tab_id.to_string());
         config.env = launch
@@ -47,13 +32,6 @@ impl Service {
                 .context("Unsupported local shell profile.")?,
         );
         Ok(config)
-    }
-    pub(crate) fn generation_home(&self, tab: TabId, generation: Generation) -> Result<PathBuf> {
-        let tab_home = self.isolation.join(tab.to_string());
-        private_child_directory(&tab_home, &self.isolation, false)?;
-        let home = tab_home.join(generation.to_string());
-        private_child_directory(&home, &tab_home, true)?;
-        Ok(home)
     }
     pub(crate) fn start_terminal(&mut self, tab: TabId) -> Result<()> {
         self.start_terminal_policy(tab, false)
@@ -91,7 +69,7 @@ impl Service {
             generation,
         };
         #[cfg_attr(not(windows), allow(unused_mut))]
-        let mut config = self.prepare_launch_config(launch, generation)?;
+        let mut config = self.launch_config(launch)?;
         #[cfg(windows)]
         let wsl_account = match wsl_launch {
             Some((profile, binding, cwd)) => self.catalog.wsl.cache.ready()?
@@ -166,83 +144,36 @@ impl Service {
     }
 }
 
-fn private_child_directory(path: &Path, parent: &Path, must_create: bool) -> Result<()> {
-    validate_isolated_path(parent, parent, IsolationPathKind::Directory)?;
-    validate_isolated_path(path, parent, IsolationPathKind::Directory)?;
-    let builder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    let builder = {
-        use std::os::unix::fs::DirBuilderExt;
-        let mut builder = builder;
-        builder.mode(0o700);
-        builder
-    };
-    match builder.create(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && !must_create => {}
-        Err(error) => return Err(error).context("Create private terminal generation directory."),
-    }
-    // Windows inherits the proven private ancestor's current-user-only ACL.
-    // Never follow an old generation, junction or symlink into account state.
-    validate_isolated_path(path, parent, IsolationPathKind::Directory)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shellfox_core::{CreateSession, ProfileId, SessionId};
+    use shellfox_core::{CreateSession, EnvVar, ProfileId, SessionId};
+    use shellfox_terminal::TerminalEnvironment;
 
     #[test]
-    fn each_tab_and_generation_has_its_own_home_and_explicit_tool_policy() {
+    fn tabs_get_the_user_environment_and_settings_variables() {
         let data = crate::tests::scratch();
         let service = Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
-        let create = || {
-            service
-                .host()
-                .create_session(CreateSession {
-                    request_id: SessionId::new(),
-                    title: None,
-                    cwd: data.path().to_string_lossy().into_owned(),
-                    profile_id: ProfileId::new("cmd").unwrap(),
-                })
-                .unwrap()
-                .selection
-                .tab_id
-                .unwrap()
-        };
-        let a = create();
-        let b = create();
-        let first_generation = Generation::new();
-        let first = service
-            .prepare_launch_config(service.host().terminal_launch(a).unwrap(), first_generation)
+        let session = service
+            .host()
+            .create_session(CreateSession {
+                request_id: SessionId::new(),
+                title: None,
+                cwd: data.path().to_string_lossy().into_owned(),
+                profile_id: ProfileId::new("cmd").unwrap(),
+            })
             .unwrap();
-        let second = service
-            .prepare_launch_config(
-                service.host().terminal_launch(b).unwrap(),
-                Generation::new(),
-            )
-            .unwrap();
-        let replacement = service
-            .prepare_launch_config(
-                service.host().terminal_launch(a).unwrap(),
-                Generation::new(),
-            )
-            .unwrap();
-        assert_ne!(first.isolation_root, second.isolation_root);
-        assert_ne!(first.isolation_root, replacement.isolation_root);
-        assert_eq!(
-            first.isolation_root.parent().unwrap().file_name().unwrap(),
-            a.to_string().as_str()
-        );
-        assert!(first.isolation_root.starts_with(&service.isolation));
-        assert_eq!(first.environment, EnvironmentPolicy::InstalledTools);
-        assert_eq!(
-            PtyConfig::new(data.path()).environment,
-            EnvironmentPolicy::Minimal
-        );
-        assert_eq!(std::fs::read_dir(&first.isolation_root).unwrap().count(), 0);
-        assert!(service
-            .prepare_launch_config(service.host().terminal_launch(a).unwrap(), first_generation)
-            .is_err());
+        let tab = session.selection.tab_id.unwrap();
+        let env = vec![
+            EnvVar { name: "PATH".into(), value: "/tools".into() },
+            EnvVar { name: "NODE_OPTIONS".into(), value: "--max-old-space-size=64".into() },
+        ];
+        service.host().set_terminal_env(env).unwrap();
+        let config = service.launch_config(service.host().terminal_launch(tab).unwrap()).unwrap();
+        assert_eq!(config.environment, TerminalEnvironment::User);
+        assert_eq!(config.cwd, data.path());
+        assert_eq!(config.env.get(std::ffi::OsStr::new("PATH")).unwrap(), "/tools");
+        assert_eq!(config.terminal_marker.as_deref(), Some(tab.to_string().as_str()));
+        assert!(!data.path().join("terminal-home").exists());
     }
 }

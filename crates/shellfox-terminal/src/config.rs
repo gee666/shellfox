@@ -1,6 +1,6 @@
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use crate::environment::has_nul;
-use crate::{EnvironmentPolicy, ShellProfileId};
+use crate::{EnvironmentPolicy, ShellProfileId, TerminalEnvironment};
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use anyhow::{ensure, Context, Result};
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -28,19 +28,15 @@ pub enum UnixPrivilegeMode {
 pub struct PtyConfig {
     pub cols: u16,
     pub rows: u16,
-    /// Existing, caller-owned experiment directory. This crate never deletes it.
+    /// Existing working directory. This crate never deletes it.
     pub cwd: PathBuf,
-    /// Writable home/config/history root, independent of the project cwd.
-    pub isolation_root: PathBuf,
     /// None selects the first available safe local profile.
     pub profile: Option<ShellProfileId>,
-    pub environment: EnvironmentPolicy,
+    pub environment: TerminalEnvironment,
     pub unix_privilege: UnixPrivilegeMode,
-    /// Additional explicit executable directories under InstalledTools policy.
-    pub tool_directories: Vec<PathBuf>,
     /// Controlled fixture command, mutually exclusive with an explicit profile.
     pub command: Option<PtyCommand>,
-    /// Explicit additions. Isolation and executable-policy keys cannot be overridden.
+    /// Settings and session variables, applied over the base environment.
     pub env: BTreeMap<OsString, OsString>,
     /// Trusted executable calling `supervisor_entry` before all other work.
     /// None is rejected before acquiring a PTY.
@@ -51,17 +47,28 @@ pub struct PtyConfig {
 }
 
 impl PtyConfig {
-    pub fn new(isolation_root: impl Into<PathBuf>) -> Self {
-        let isolation_root = isolation_root.into();
+    /// A user terminal: the user's own environment, starting in `cwd`.
+    pub fn user(cwd: impl Into<PathBuf>) -> Self {
+        Self::with(cwd.into(), TerminalEnvironment::User)
+    }
+    /// A test or fixture terminal whose state lives under `root`, which is also its cwd.
+    pub fn isolated(root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
+        let environment = TerminalEnvironment::Isolated {
+            root: root.clone(),
+            policy: EnvironmentPolicy::Minimal,
+            tool_directories: Vec::new(),
+        };
+        Self::with(root, environment)
+    }
+    fn with(cwd: PathBuf, environment: TerminalEnvironment) -> Self {
         Self {
             cols: 80,
             rows: 24,
-            cwd: isolation_root.clone(),
-            isolation_root,
+            cwd,
             profile: None,
-            environment: EnvironmentPolicy::Minimal,
+            environment,
             unix_privilege: UnixPrivilegeMode::Local,
-            tool_directories: Vec::new(),
             command: None,
             env: BTreeMap::new(),
             supervisor: None,
@@ -74,14 +81,29 @@ impl PtyConfig {
         size(self.cols, self.rows)?;
         ensure!(
             self.cwd.is_absolute() && self.cwd.is_dir(),
-            "PTY cwd must be an existing absolute experiment directory"
+            "PTY cwd must be an existing absolute directory"
         );
-        ensure!(
-            self.isolation_root.is_absolute()
-                && self.isolation_root.is_dir()
-                && !has_nul(self.isolation_root.as_os_str()),
-            "isolation root must be an existing absolute experiment directory"
-        );
+        if let TerminalEnvironment::Isolated {
+            root,
+            policy,
+            tool_directories,
+        } = &self.environment
+        {
+            ensure!(
+                root.is_absolute() && root.is_dir() && !has_nul(root.as_os_str()),
+                "isolation root must be an existing absolute directory"
+            );
+            ensure!(
+                tool_directories.is_empty() || *policy == EnvironmentPolicy::InstalledTools,
+                "explicit tool directories require InstalledTools policy"
+            );
+            for path in tool_directories {
+                ensure!(
+                    path.is_absolute() && path.is_dir() && !has_nul(path.as_os_str()),
+                    "tool directory must be an existing absolute path"
+                );
+            }
+        }
         ensure!(
             self.command.is_none() || self.profile.is_none(),
             "custom command and shell profile are mutually exclusive"
@@ -109,17 +131,6 @@ impl PtyConfig {
             !has_nul(self.cwd.as_os_str()) && !has_nul(supervisor.as_os_str()),
             "PTY path contains NUL"
         );
-        ensure!(
-            self.tool_directories.is_empty()
-                || self.environment == EnvironmentPolicy::InstalledTools,
-            "explicit tool directories require InstalledTools policy"
-        );
-        for path in &self.tool_directories {
-            ensure!(
-                path.is_absolute() && path.is_dir() && !has_nul(path.as_os_str()),
-                "tool directory must be an existing absolute path"
-            );
-        }
         if let Some(marker) = &self.terminal_marker {
             ensure!(
                 marker.len() == 36
@@ -141,64 +152,35 @@ impl PtyConfig {
         let mut command = CommandBuilder::from_argv(argv.to_vec());
         command.env_clear();
         command.cwd(crate::environment::lookup_path(self.cwd.clone()));
+        for (key, value) in self.environment_entries()? {
+            command.env(key, value);
+        }
+        Ok(command)
+    }
+
+    /// The complete child environment.
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+    pub(crate) fn environment_entries(&self) -> Result<Vec<(OsString, OsString)>> {
         #[cfg(windows)]
         use crate::environment_paths as paths;
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         use crate::unix::environment as paths;
-        for (key, value) in paths::build(
-            &self.isolation_root,
-            self.environment,
-            &self.tool_directories,
-        )? {
-            command.env(key, value);
-        }
-        for (key, value) in &self.env {
-            command.env(key, value);
-        }
-        if let Some(marker) = &self.terminal_marker {
-            const MARKER: &str = "SHELLFOX_TERMINAL_MARKER";
-            command.env(MARKER, marker);
-            #[cfg(windows)]
-            {
-                // wsl.exe forwards only the names WSLENV lists into the guest.
-                let user = self
-                    .env
-                    .iter()
-                    .find(|(key, _)| key.eq_ignore_ascii_case("WSLENV"))
-                    .map(|(_, value)| value.to_string_lossy().into_owned());
-                command.env(
-                    "WSLENV",
-                    forward(user.as_deref().unwrap_or_default(), MARKER),
-                );
-            }
-        }
-        Ok(command)
+        let base = match &self.environment {
+            TerminalEnvironment::User => crate::environment_user::user_base()?,
+            TerminalEnvironment::Isolated {
+                root,
+                policy,
+                tool_directories,
+            } => paths::build(root, *policy, tool_directories)?
+                .into_iter()
+                .collect(),
+        };
+        Ok(crate::environment_user::compose(
+            base,
+            &self.env,
+            self.terminal_marker.as_deref(),
+        ))
     }
-}
-
-/// WSLENV listing `name` once, without flags, keeping every other entry.
-#[cfg(any(windows, test))]
-fn forward(wslenv: &str, name: &str) -> String {
-    let mut entries: Vec<&str> = wslenv
-        .split(':')
-        .filter(|entry| {
-            let key = entry.split('/').next().unwrap_or_default();
-            !entry.is_empty() && !key.eq_ignore_ascii_case(name)
-        })
-        .collect();
-    entries.push(name);
-    entries.join(":")
-}
-
-#[cfg(test)]
-#[test]
-fn the_marker_replaces_any_flagged_wslenv_entry() {
-    let name = "SHELLFOX_TERMINAL_MARKER";
-    assert_eq!(forward("", name), name);
-    assert_eq!(
-        forward("A/p:shellfox_terminal_marker/w::B", name),
-        format!("A/p:B:{name}")
-    );
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]

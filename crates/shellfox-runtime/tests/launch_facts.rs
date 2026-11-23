@@ -47,7 +47,7 @@ fn fixture() -> (PathBuf, PtyConfig) {
         ));
     std::fs::create_dir_all(&root).unwrap();
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-runtime-fixture"));
-    let mut config = PtyConfig::new(&root);
+    let mut config = PtyConfig::isolated(&root);
     config.supervisor = Some(exe.clone());
     config.command = Some(PtyCommand {
         program: exe.into_os_string(),
@@ -103,7 +103,7 @@ fn retained_fact_receipt_and_token_queries_hold_no_job_process_or_token_handles(
         ));
     std::fs::create_dir_all(&root).unwrap();
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-runtime-fixture"));
-    let mut config = PtyConfig::new(&root);
+    let mut config = PtyConfig::isolated(&root);
     config.supervisor = Some(exe.clone());
     config.command = Some(PtyCommand {
         program: exe.into_os_string(),

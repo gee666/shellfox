@@ -53,7 +53,7 @@ impl Fixture {
             .prefix("activity-native-")
             .tempdir_in(root)
             .unwrap();
-        let mut config = PtyConfig::new(std::fs::canonicalize(scratch.path()).unwrap());
+        let mut config = PtyConfig::isolated(std::fs::canonicalize(scratch.path()).unwrap());
         config.supervisor = Some(executable.clone());
         config.command = Some(PtyCommand {
             program: executable.clone().into_os_string(),

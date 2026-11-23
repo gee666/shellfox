@@ -18,7 +18,7 @@ fn unbound_and_failed_startups_never_expose_runtime_bound_fact_receipts() {
                 .as_nanos()
         ));
     std::fs::create_dir_all(&root).unwrap();
-    let mut config = PtyConfig::new(&root);
+    let mut config = PtyConfig::isolated(&root);
     config.supervisor = Some(helper.clone());
     config.command = Some(PtyCommand {
         program: helper.into_os_string(),

@@ -73,7 +73,7 @@ impl PtySession {
                 Some(id) => crate::shell_profile(id)?,
                 None => crate::default_shell_profile()?,
             }
-            .command()?,
+            .command_for(&config.environment)?,
         };
         let supervisor = config
             .supervisor

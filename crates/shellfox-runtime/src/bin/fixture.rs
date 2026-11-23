@@ -156,7 +156,7 @@ fn run_check(root: PathBuf) -> Result<()> {
         return Err("isolated root must exist and be absolute".into());
     }
     let executable = std::env::current_exe()?;
-    let mut config = PtyConfig::new(root);
+    let mut config = PtyConfig::isolated(root);
     config.supervisor = Some(executable.clone());
     config.command = Some(PtyCommand {
         program: executable.into_os_string(),

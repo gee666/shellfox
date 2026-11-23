@@ -83,11 +83,16 @@ impl Launch {
         if !cwd.is_dir() {
             return Err(AdapterError::InvalidLaunch);
         }
-        // The legacy shell loads the account's PowerShell profile, like Electron.
+        // The user's own environment and profile, like 0.9. Settings and session
+        // variables can come from a remote device, so they never reach an
+        // elevated shell.
         let mut env = BTreeMap::new();
-        // Session metadata (including env) can come from a remote device.
-        // Do not cross that trust boundary when building an elevated environment.
-        for (key, value) in std::env::vars_os() {
+        let user = crate::environment_user::compose(
+            crate::environment_user::user_base().map_err(|_| AdapterError::InvalidLaunch)?,
+            &BTreeMap::new(),
+            config.terminal_marker.as_deref(),
+        );
+        for (key, value) in user {
             let (Some(key), Some(value)) = (key.to_str(), value.to_str()) else {
                 continue;
             };
@@ -202,9 +207,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn interactive_launch_uses_the_electron_frame_without_session_environment() {
+    fn interactive_launch_gets_the_user_environment_without_session_variables() {
         let cwd = std::env::current_dir().unwrap();
-        let mut config = crate::PtyConfig::new(&cwd);
+        let mut config = crate::PtyConfig::user(&cwd);
+        config.terminal_marker = Some("12345678-1234-4234-8234-123456789abc".into());
         config
             .env
             .insert("SHELLFOX_TEST_UNTRUSTED_OVERRIDE".into(), "remote".into());
@@ -217,5 +223,12 @@ mod tests {
         let env = frame["env"].as_object().unwrap();
         assert!(!env.contains_key("SHELLFOX_TEST_UNTRUSTED_OVERRIDE"));
         assert!(env.keys().all(|key| !runtime_hook(key)));
+        assert_eq!(env["TERM"], "xterm-256color");
+        assert_eq!(env["SHELLFOX_TERMINAL_MARKER"], "12345678-1234-4234-8234-123456789abc");
+        let profile = env["USERPROFILE"].as_str().unwrap();
+        assert!(std::path::Path::new(profile).is_dir());
+        // The registry value, not one inherited from whichever shell started the test.
+        let modules = env.get("PSMODULEPATH").and_then(|v| v.as_str()).unwrap_or_default();
+        assert!(!modules.to_ascii_lowercase().contains(r"\powershell\7"), "{modules}");
     }
 }

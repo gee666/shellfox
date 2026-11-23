@@ -23,7 +23,7 @@ fn production_input_output_resize_and_original_exit() {
 #[test]
 fn production_default_shell_is_interactive() {
     let fixture = Fixture::new();
-    let mut config = PtyConfig::new(&fixture.root);
+    let mut config = PtyConfig::isolated(&fixture.root);
     config.supervisor = Some(helper());
     let mut session = PtySession::spawn(config).unwrap();
     session

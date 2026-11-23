@@ -33,7 +33,7 @@ impl Scratch {
     }
 
     fn config(&self, executable: &Path, args: &[&str]) -> PtyConfig {
-        let mut config = PtyConfig::new(&self.0);
+        let mut config = PtyConfig::isolated(&self.0);
         config.supervisor = Some(std::env::current_exe().unwrap());
         config.command = Some(PtyCommand {
             program: executable.into(),

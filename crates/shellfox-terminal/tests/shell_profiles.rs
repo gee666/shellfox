@@ -3,6 +3,7 @@
 mod support;
 use shellfox_terminal::{
     default_shell_profile, discover_shell_profiles, EnvironmentPolicy, PtySession, ShellProfileId,
+    TerminalEnvironment,
 };
 use std::path::PathBuf;
 
@@ -77,9 +78,11 @@ fn interactive_powershell(id: ShellProfileId) {
         // Host stores often canonicalize paths. Both shell families must still
         // receive ordinary DOS paths rather than verbatim provider paths.
         config.cwd = std::fs::canonicalize(&project.0).unwrap();
-        config.isolation_root = std::fs::canonicalize(&scratch.0).unwrap();
-        config.environment = EnvironmentPolicy::InstalledTools;
-        config.tool_directories = vec![tools];
+        config.environment = TerminalEnvironment::Isolated {
+            root: std::fs::canonicalize(&scratch.0).unwrap(),
+            policy: EnvironmentPolicy::InstalledTools,
+            tool_directories: vec![tools],
+        };
         let pi_launcher = std::env::var_os("PNPM_HOME")
             .map(PathBuf::from)
             .map(|p| p.join("pi.cmd"))
@@ -140,15 +143,24 @@ fn interactive_powershell(id: ShellProfileId) {
                 "{output}"
             );
         }
+        // Installation and isolated module directories, never the account's.
         let expected_modules = profile
             .executable()
             .unwrap()
             .parent()
             .unwrap()
             .join("Modules");
-        assert_eq!(
-            std::fs::canonicalize(&probe.module_path).unwrap(),
-            std::fs::canonicalize(expected_modules).unwrap()
+        let expected_modules = std::fs::canonicalize(expected_modules).unwrap();
+        let modules: Vec<_> = std::env::split_paths(&probe.module_path)
+            .filter_map(|path| std::fs::canonicalize(path).ok())
+            .collect();
+        assert!(modules.contains(&expected_modules), "{}", probe.module_path);
+        let account = std::path::Path::new(&std::env::var("USERPROFILE").unwrap()).join("Documents");
+        let account = account.to_string_lossy().to_ascii_lowercase();
+        assert!(
+            !probe.module_path.to_ascii_lowercase().contains(&account),
+            "{}",
+            probe.module_path
         );
         if pi_launcher.is_some() {
             assert!(
@@ -191,32 +203,14 @@ fn interactive_powershell(id: ShellProfileId) {
 }
 
 #[test]
-fn protected_environment_aliases_and_invalid_lookup_directories_fail_before_spawn() {
+fn invalid_lookup_directories_fail_before_spawn() {
     let scratch = Scratch::new();
-    for key in [
-        "Path",
-        "HOME",
-        "userprofile",
-        "PI_CODING_AGENT_DIR",
-        "SHELLFOX_USER_DATA",
-        "NODE_OPTIONS",
-        "COMPLUS_Version",
-        "PSModulePath",
-    ] {
-        let mut config = scratch.config("--idle");
-        config
-            .env
-            .insert(key.into(), scratch.0.as_os_str().to_owned());
-        let error = PtySession::spawn(config).unwrap_err();
-        assert!(error.take_session().is_none(), "{key}");
-        assert!(
-            format!("{error:#}").contains("isolation policy"),
-            "{key}: {error:#}"
-        );
-    }
     let mut config = scratch.config("--idle");
-    config.environment = EnvironmentPolicy::InstalledTools;
-    config.tool_directories = vec![PathBuf::from("relative")];
+    config.environment = TerminalEnvironment::Isolated {
+        root: scratch.0.clone(),
+        policy: EnvironmentPolicy::InstalledTools,
+        tool_directories: vec![PathBuf::from("relative")],
+    };
     assert!(PtySession::spawn(config)
         .unwrap_err()
         .take_session()
@@ -295,8 +289,11 @@ fn explicit_cmd_retains_autorun_disabled_and_can_find_owned_executable() {
     let mut config = scratch.config("--idle");
     config.command = None;
     config.profile = Some(ShellProfileId::Cmd);
-    config.environment = EnvironmentPolicy::InstalledTools;
-    config.tool_directories = vec![tools];
+    config.environment = TerminalEnvironment::Isolated {
+        root: scratch.0.clone(),
+        policy: EnvironmentPolicy::InstalledTools,
+        tool_directories: vec![tools],
+    };
     let mut session = PtySession::spawn(config).unwrap();
     session
         .write(b"owned-command --short & echo CMD_PASS & exit 0\r")

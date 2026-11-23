@@ -26,7 +26,7 @@ impl Scratch {
         Self(std::path::absolute(path).unwrap())
     }
     pub fn config(&self, mode: &str) -> PtyConfig {
-        let mut config = PtyConfig::new(&self.0);
+        let mut config = PtyConfig::isolated(&self.0);
         let executable = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-pty-test-helper"));
         config.supervisor = Some(executable.clone());
         config.command = Some(PtyCommand {

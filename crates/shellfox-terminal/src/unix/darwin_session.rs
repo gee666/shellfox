@@ -70,7 +70,7 @@ impl PtySession {
                 Some(id) => crate::shell_profile(id)?,
                 None => crate::default_shell_profile()?,
             }
-            .command()?,
+            .command_for(&config.environment)?,
         };
         let program = checked_executable(Path::new(&command.program))?;
         let argv = std::iter::once(program.into_os_string())

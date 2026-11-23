@@ -27,7 +27,7 @@ pub(crate) fn build(
     set("SystemRoot", windows.as_os_str());
     set("WINDIR", windows.as_os_str());
     // Inbox OpenSSH needs this before it can even parse its command line.
-    if let Some(directory) = program_data() {
+    if let Some(directory) = known_folder(COMMON_APPDATA) {
         set("PROGRAMDATA", &directory);
     }
     set("COMSPEC", system.join("cmd.exe").as_os_str());
@@ -50,6 +50,10 @@ pub(crate) fn build(
     // PowerShell KnownFolder lookup is not redirected by HOME. Explicitly limit
     // module lookup to the selected installations, never account modules.
     let mut modules = vec![system.join("WindowsPowerShell/v1.0/Modules")];
+    // Windows PowerShell's inbox PSReadLine lives here.
+    if let Some(programs) = known_folder(PROGRAM_FILES) {
+        modules.push(Path::new(&programs).join("WindowsPowerShell/Modules"));
+    }
     if let Some(pwsh) = crate::discover_shell_profiles()?
         .into_iter()
         .find(|p| p.id() == crate::ShellProfileId::Pwsh)
@@ -99,7 +103,10 @@ pub(crate) fn build(
     Ok(env)
 }
 
-fn program_data() -> Option<OsString> {
+const COMMON_APPDATA: i32 = 0x23;
+const PROGRAM_FILES: i32 = 0x26;
+
+fn known_folder(folder: i32) -> Option<OsString> {
     use std::os::windows::ffi::OsStringExt;
     #[link(name = "shell32")]
     extern "system" {
@@ -111,13 +118,12 @@ fn program_data() -> Option<OsString> {
             out: *mut u16,
         ) -> i32;
     }
-    const COMMON_APPDATA: i32 = 0x23;
     let mut chars = [0; 260];
     // SAFETY: the documented MAX_PATH buffer is writable, and the two optional handles are null.
     let status = unsafe {
         SHGetFolderPathW(
             std::ptr::null_mut(),
-            COMMON_APPDATA,
+            folder,
             std::ptr::null_mut(),
             0,
             chars.as_mut_ptr(),

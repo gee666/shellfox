@@ -37,6 +37,7 @@ impl PrivateDirectory {
                 let name = entry.file_name();
                 if !matches!(
                     name.to_str(),
+                    // terminal-home: left by earlier builds until Service::open_owned removes it.
                     Some(
                         "rust-service-v1"
                             | "terminal-home"
@@ -136,11 +137,9 @@ impl PrivateDirectory {
         self.root.bind_native_control(fence, ENDPOINT_DIRECTORY)
     }
     pub async fn prepare_owned_layout(&self, verifier: &PermissionVerifier) -> Result<()> {
-        for name in [ENDPOINT_DIRECTORY, "terminal-home"] {
-            self.root.create_child(name)?;
-            self.check(&self.root.path().join(name), true, false, verifier)
-                .await?;
-        }
+        self.root.create_child(ENDPOINT_DIRECTORY)?;
+        self.check(&self.root.path().join(ENDPOINT_DIRECTORY), true, false, verifier)
+            .await?;
         self.protect_artifacts(verifier).await
     }
     pub async fn protect_artifacts(&self, verifier: &PermissionVerifier) -> Result<()> {
