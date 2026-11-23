@@ -123,9 +123,13 @@ impl PtyConfig {
         if let Some(marker) = &self.terminal_marker {
             ensure!(
                 marker.len() == 36
-                    && marker
-                        .bytes()
-                        .all(|b| b.is_ascii_hexdigit() || b == b'-'),
+                    && marker.bytes().enumerate().all(|(i, b)| {
+                        if matches!(i, 8 | 13 | 18 | 23) {
+                            b == b'-'
+                        } else {
+                            b.is_ascii_hexdigit()
+                        }
+                    }),
                 "terminal marker must be a UUID"
             );
         }
@@ -162,15 +166,39 @@ impl PtyConfig {
                     .iter()
                     .find(|(key, _)| key.eq_ignore_ascii_case("WSLENV"))
                     .map(|(_, value)| value.to_string_lossy().into_owned());
-                let forwarded = match user.filter(|value| !value.is_empty()) {
-                    Some(value) => format!("{value}:{MARKER}"),
-                    None => MARKER.to_owned(),
-                };
-                command.env("WSLENV", forwarded);
+                command.env(
+                    "WSLENV",
+                    forward(user.as_deref().unwrap_or_default(), MARKER),
+                );
             }
         }
         Ok(command)
     }
+}
+
+/// WSLENV listing `name` once, without flags, keeping every other entry.
+#[cfg(any(windows, test))]
+fn forward(wslenv: &str, name: &str) -> String {
+    let mut entries: Vec<&str> = wslenv
+        .split(':')
+        .filter(|entry| {
+            let key = entry.split('/').next().unwrap_or_default();
+            !entry.is_empty() && !key.eq_ignore_ascii_case(name)
+        })
+        .collect();
+    entries.push(name);
+    entries.join(":")
+}
+
+#[cfg(test)]
+#[test]
+fn the_marker_replaces_any_flagged_wslenv_entry() {
+    let name = "SHELLFOX_TERMINAL_MARKER";
+    assert_eq!(forward("", name), name);
+    assert_eq!(
+        forward("A/p:shellfox_terminal_marker/w::B", name),
+        format!("A/p:B:{name}")
+    );
 }
 
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
