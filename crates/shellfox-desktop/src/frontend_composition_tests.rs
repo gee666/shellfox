@@ -135,7 +135,6 @@ fn multiple_missing_prefixes_and_for_window_keep_siblings_and_independent_issuer
     );
     assert_ne!(options.run_dir, another.run_dir);
     let mut first = FrontendDirectories::plan(&options).unwrap();
-    let original = first.plans.files.clone();
     first.prepare().unwrap();
     let colors = crate::device_prefs::prepare(&options, &mut first).unwrap();
     colors
@@ -147,7 +146,6 @@ fn multiple_missing_prefixes_and_for_window_keep_siblings_and_independent_issuer
     // A completed preparation must not revoke this independent derived scope.
     assert_eq!(colors.read().unwrap().accent, ["#123456"]);
     let mut second = FrontendDirectories::plan(&another).unwrap();
-    assert!(!Arc::ptr_eq(&original, &second.plans.files));
     second.prepare().unwrap();
     let reopened = crate::device_prefs::prepare(&another, &mut second).unwrap();
     assert_eq!(reopened.read().unwrap().accent, ["#123456"]);
@@ -184,50 +182,6 @@ fn options_rejects_ui_roots_inside_equal_to_or_ancestors_of_host_or_device() {
         );
         assert!(!host.exists());
     }
-}
-#[test]
-fn revocation_before_creation_cannot_create_any_frontend_root() {
-    let scratch = Scratch::new();
-    let options = Options::parse(scratch.args()).unwrap();
-    let mut frontend = FrontendDirectories::plan(&options).unwrap();
-    frontend.plans.files.revoke().unwrap();
-    assert!(frontend.prepare().is_err());
-    let _preserved = frontend.preserve();
-    assert!(!options.desktop_dir.exists());
-    assert!(!options.device_config_root.exists());
-    assert!(!options.data_dir.exists());
-}
-#[test]
-fn unrecorded_creation_cannot_be_adopted_by_an_original_missing_plan() {
-    let scratch = Scratch::new();
-    let options = Options::parse(scratch.args()).unwrap();
-    let mut frontend = prepare(&options).unwrap();
-    let device = &options.device_config_root;
-    std::fs::create_dir(device).unwrap();
-    assert!(frontend.device_root().is_err());
-    assert!(std::fs::read_dir(device).unwrap().next().is_none());
-    assert!(!options.desktop_dir.join("file-editor").exists());
-    assert!(!options.data_dir.exists());
-}
-#[test]
-fn device_keeps_original_authority_with_reviewed_editor_composition() {
-    let scratch = Scratch::new();
-    let options = Options::parse(scratch.args()).unwrap();
-    let mut frontend = prepare(&options).unwrap();
-    let authority = frontend.plans.files.clone();
-    let colors = crate::device_prefs::prepare(&options, &mut frontend).unwrap();
-    let editor_enabled = editor_if_reviewed(&mut frontend);
-    assert_eq!(
-        options.desktop_dir.join("file-editor").exists(),
-        editor_enabled
-    );
-    drop(frontend);
-    authority.revoke().unwrap();
-    assert!(
-        colors
-            .save(crate::settings::api::ColorKind::Accent, "#123456")
-            .is_err()
-    );
 }
 #[cfg(windows)]
 #[test]

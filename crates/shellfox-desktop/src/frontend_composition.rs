@@ -1,53 +1,24 @@
-//! Retained physical topology from the shared native producer, not path-string proof.
+//! The frontend's private state directories: UI, per-window run, device config and editor.
+//! `Options::parse` keeps them apart from the host root; `FileService::private_root`
+//! refuses links, junctions and name aliases while creating them.
 #[cfg(test)]
 #[path = "frontend_composition_tests.rs"]
 mod tests;
-use crate::{
-    frontend_retention::{FrontendRetention, PreservedFrontendOwner},
-    options::Options,
-};
+use crate::{frontend_retention::PreservedFrontendOwner, options::Options};
 use anyhow::{Context, Result, ensure};
-use shellfox_files::{Access, DirectoryPlan, DirectoryRelation, FileService, Location};
-use std::{path::Path, sync::Arc};
+use shellfox_files::{Access, FileService, Location};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 pub(crate) struct FrontendPlans {
-    host: DirectoryPlan,
-    ui: DirectoryPlan,
-    device: DirectoryPlan,
-    run: DirectoryPlan,
-    editor: DirectoryPlan,
+    ui: PathBuf,
+    device: PathBuf,
+    run: PathBuf,
+    editor: PathBuf,
+    /// Document authority for the editor; separate from the private metadata roots.
     files: Arc<FileService>,
-}
-impl FrontendPlans {
-    pub fn revalidate(&self) -> Result<()> {
-        for plan in [&self.host, &self.ui, &self.device, &self.run, &self.editor] {
-            plan.revalidate()?;
-        }
-        for (left, right) in [
-            (&self.host, &self.ui),
-            (&self.host, &self.device),
-            (&self.ui, &self.device),
-            (&self.host, &self.run),
-            (&self.host, &self.editor),
-            (&self.device, &self.run),
-            (&self.device, &self.editor),
-            (&self.run, &self.editor),
-        ] {
-            ensure!(
-                left.relation_to(right)? == DirectoryRelation::Disjoint,
-                "Frontend namespaces overlap or physical separation is unproven"
-            );
-        }
-        ensure!(
-            self.ui.relation_to(&self.run)? == DirectoryRelation::Ancestor,
-            "Run must be a proven strict UI descendant"
-        );
-        ensure!(
-            self.ui.relation_to(&self.editor)? == DirectoryRelation::Ancestor,
-            "Editor must be a proven strict UI descendant"
-        );
-        Ok(())
-    }
 }
 #[derive(Clone, Copy)]
 enum SensitiveRoot {
@@ -58,26 +29,24 @@ enum SensitiveRoot {
 }
 pub(crate) struct FrontendDirectories {
     plans: FrontendPlans,
-    retention: FrontendRetention,
     failed: bool,
     ui: Option<Arc<FileService>>,
     run: Option<Arc<FileService>>,
     device: Option<Arc<FileService>>,
     editor: Option<Arc<shellfox_files::EditorBackend>>,
+    metadata: Option<Arc<FileService>>,
 }
 impl FrontendDirectories {
-    /// Read-only construction. Keep this original issuer outside catch_unwind BEFORE prepare.
+    /// Validates the configured paths. Creates nothing.
     pub fn plan(options: &Options) -> Result<Self> {
-        let plans = inspect(options)?;
-        let retention = FrontendRetention::new(&plans.files);
         Ok(Self {
-            plans,
-            retention,
+            plans: inspect(options)?,
             failed: false,
             ui: None,
             run: None,
             device: None,
             editor: None,
+            metadata: None,
         })
     }
     pub fn prepare(&mut self) -> Result<()> {
@@ -97,37 +66,30 @@ impl FrontendDirectories {
     }
     fn create_private(&mut self, root: SensitiveRoot) -> Result<Arc<FileService>> {
         ensure!(
-            !self.failed && !self.retention.is_failed(),
-            "Frontend issuer already failed; no creation retry is admitted"
+            !self.failed,
+            "Frontend preparation already failed; it is not retried"
         );
-        self.revalidate()
-            .context("Validate frontend topology before private creation")?;
-        let plan = match root {
+        let path = match root {
             SensitiveRoot::Ui => &self.plans.ui,
             SensitiveRoot::Run => &self.plans.run,
             SensitiveRoot::Device => &self.plans.device,
             SensitiveRoot::Editor => &self.plans.editor,
         };
-        plan.repair_app_directory()
-            .context("Cannot make the Shellfox frontend state directory private")?;
-        let cap = match plan.create_private_approved_root() {
-            Ok(cap) => cap,
-            Err(failure) => {
-                self.failed = true;
-                return Err(self
-                    .retention
-                    .capture_directory_failure(failure)
-                    .context("Native private root creation/verification"));
-            }
-        };
-        if let Err(error) = self.revalidate() {
+        FileService::private_root(path).map_err(|error| {
             self.failed = true;
-            return Err(error.context("Validate frontend topology after private creation"));
-        }
-        Ok(cap)
+            anyhow::Error::new(error).context("Cannot prepare a private Shellfox frontend directory")
+        })
     }
+    /// Each prepared root still opens the directory it was created with.
     pub fn revalidate(&self) -> Result<()> {
-        self.plans.revalidate()
+        for root in [&self.ui, &self.run, &self.device, &self.metadata]
+            .into_iter()
+            .flatten()
+        {
+            let path = root.root_path().context("Frontend root has no path")?;
+            root.stat(&location(path)?)?;
+        }
+        Ok(())
     }
     pub fn device_root(&mut self) -> Result<Arc<FileService>> {
         self.revalidate()?;
@@ -142,18 +104,15 @@ impl FrontendDirectories {
             .cloned()
             .context("Device capability is unavailable")
     }
-    /// Metadata scope and document authority are separate. The original planning issuer already
-    /// grants local account RW; journal privacy does not mint that document authority.
+    /// The editor gets the local account document authority plus a private metadata root.
     pub fn prepare_editor(&mut self) -> Result<Arc<shellfox_files::EditorBackend>> {
-        ensure!(
-            !self.failed && !self.retention.is_failed(),
-            "Frontend preparation failed; no retry is admitted"
-        );
+        ensure!(!self.failed, "Frontend preparation failed; it is not retried");
         self.revalidate()?;
         if let Some(editor) = &self.editor {
             return Ok(editor.clone());
         }
         let metadata = self.create_private(SensitiveRoot::Editor)?;
+        self.metadata = Some(metadata.clone());
         match shellfox_files::EditorBackend::new_anchored(self.plans.files.clone(), metadata) {
             Ok(editor) => {
                 let editor = Arc::new(editor);
@@ -166,24 +125,21 @@ impl FrontendDirectories {
             }
         }
     }
-    /// Explicit disposition, retaining the same keeper and parent/evidence in the returned type.
+    /// Keeps the prepared scopes open for the caller's outcome reporting.
     pub fn preserve(self) -> PreservedFrontendOwner {
-        self.retention.preserve()
+        PreservedFrontendOwner::new(
+            [self.ui, self.run, self.device, self.metadata]
+                .into_iter()
+                .flatten()
+                .collect(),
+        )
     }
 }
 #[cfg(test)]
 pub(crate) fn prepare(options: &Options) -> Result<FrontendDirectories> {
     let mut frontend = FrontendDirectories::plan(options)?;
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| frontend.prepare()));
-    match outcome {
-        Ok(Ok(())) => Ok(frontend),
-        Ok(Err(error)) => Err(anyhow::Error::new(frontend.preserve().with_error(error))),
-        Err(_) => {
-            Err(anyhow::Error::new(frontend.preserve().with_error(
-                anyhow::anyhow!("Test frontend preparation panicked"),
-            )))
-        }
-    }
+    frontend.prepare()?;
+    Ok(frontend)
 }
 fn location(path: &Path) -> Result<Location> {
     Ok(Location {
@@ -191,15 +147,22 @@ fn location(path: &Path) -> Result<Location> {
     })
 }
 pub(crate) fn inspect(options: &Options) -> Result<FrontendPlans> {
-    let files = Arc::new(FileService::local_desktop(Access::ReadWrite));
-    let plans = FrontendPlans {
-        host: files.plan_directory(&location(&options.data_dir)?)?,
-        ui: files.plan_directory(&location(&options.desktop_dir)?)?,
-        device: files.plan_directory(&location(&options.device_config_root)?)?,
-        run: files.plan_directory(&location(&options.run_dir)?)?,
-        editor: files.plan_directory(&location(&options.desktop_dir.join("file-editor"))?)?,
-        files,
-    };
-    plans.revalidate()?;
-    Ok(plans)
+    let editor = options.desktop_dir.join("file-editor");
+    for path in [
+        &options.desktop_dir,
+        &options.device_config_root,
+        &options.run_dir,
+        &editor,
+    ] {
+        location(path)?;
+        FileService::check_private_root(path)
+            .with_context(|| format!("Unsafe frontend directory: {}", path.display()))?;
+    }
+    Ok(FrontendPlans {
+        ui: options.desktop_dir.clone(),
+        device: options.device_config_root.clone(),
+        run: options.run_dir.clone(),
+        editor,
+        files: Arc::new(FileService::local_desktop(Access::ReadWrite)),
+    })
 }

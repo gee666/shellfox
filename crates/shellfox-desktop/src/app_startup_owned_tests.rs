@@ -6,15 +6,13 @@ use crate::{
     host_client::HostEndpointStartupOutcome,
     options::app_composition::{NativeApplicationConfig, SourceFactory},
 };
-use shellfox_files::{Access, DirectoryPlan, DirectoryPreparationOwner, FileService, Location};
+use shellfox_files::FileService;
 use shellfox_service::native::{NativeAction, NativeResponse};
 use std::{path::PathBuf, sync::Arc};
 
 struct Fixture {
     root: PathBuf,
-    plan: DirectoryPlan,
-    keeper: DirectoryPreparationOwner,
-    _issuer: Arc<FileService>,
+    private_path: PathBuf,
     _private: Arc<FileService>,
     success: bool,
 }
@@ -30,39 +28,21 @@ impl Fixture {
             "fresh project tmp scope required"
         );
         std::fs::create_dir(&root)?;
-        let issuer = Arc::new(FileService::approved_root(&root, Access::ReadWrite)?);
-        let keeper = issuer.directory_preparation_owner();
-        let plan = issuer.plan_directory(&Location {
-            path: "private".into(),
-        })?;
-        let private = match plan.create_private_approved_root() {
-            Ok(private) => private,
-            Err(mut failure) => {
-                failure.preserve_stale()?;
-                anyhow::bail!(
-                    "owned fixture private preparation failed: {}",
-                    failure.error()
-                );
-            }
-        };
+        let private_path = root.join("private");
+        let private = FileService::private_root(&private_path)?;
         Ok(Self {
             root,
-            plan,
-            keeper,
-            _issuer: issuer,
+            private_path,
             _private: private,
             success: false,
         })
     }
     fn data(&self) -> PathBuf {
-        self.plan.configured_path().join("host")
+        self.private_path.join("host")
     }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        if self.keeper.preserve_stale().is_err() {
-            self.success = false;
-        }
         // Acceptance artifacts are deliberately retained, never cleanup-by-name on failure.
         if !self.success {
             eprintln!(
@@ -186,8 +166,7 @@ fn real_native_remote_composition_occupied_new_source_and_original_stop() -> Res
                         request_id: request,
                         title: Some("owned application composition".into()),
                         cwd: fixture
-                            .plan
-                            .configured_path()
+                            .private_path
                             .to_str()
                             .context("fixture cwd UTF8")?
                             .into(),
