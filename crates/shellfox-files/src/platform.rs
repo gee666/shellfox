@@ -158,7 +158,12 @@ fn rename_held_information(
         }
         (*info).RootDirectory = parent.as_raw_handle();
         (*info).FileNameLength = (name.len() * 2) as u32;
-        std::ptr::copy_nonoverlapping(name.as_ptr(), (*info).FileName.as_mut_ptr(), name.len());
+        // Address the trailing name through the raw buffer, not the one-element array field.
+        let target = info
+            .cast::<u8>()
+            .add(offset_of!(FILE_RENAME_INFO, FileName))
+            .cast::<u16>();
+        std::ptr::copy_nonoverlapping(name.as_ptr(), target, name.len());
         // Win32's FileRenameInfo rejects a non-null RootDirectory. Use the native
         // handle-relative form instead of converting either directory back to a string.
         let mut status = [0usize; 2];

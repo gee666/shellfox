@@ -31,7 +31,7 @@ impl Stage<'_> {
 
 impl Drop for Stage<'_> {
     fn drop(&mut self) {
-        // Once namespace publication may have occurred, neither failure nor Drop grants cleanup.
+        // After a successful rename the stage name belongs to the target; never delete it.
         if self.publication_entered {
             return;
         }
@@ -124,12 +124,12 @@ impl FileService {
             self.recheck_parent(path, &target)?;
             self.authorized(true)
         };
-        stage.publication_entered = true;
         if previous.is_some() {
             platform::rename_user_replace_checked(&source, &target, &stage.file, &check)?;
         } else {
             platform::rename_user_new_checked(&source, &target, &stage.file, &check)?;
         }
+        stage.publication_entered = true;
         crate::private::sync_dir(&target.parent);
         Ok(written)
     }

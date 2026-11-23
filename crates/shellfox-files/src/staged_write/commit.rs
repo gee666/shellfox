@@ -81,8 +81,8 @@ impl StagedWrite {
         // holds its approval guard through the rename.
         check()?;
         service.authorized(true)?;
-        self.publication_entered = true;
         self.publish_stage(service, check)?;
+        self.publication_entered = true;
         crate::private::sync_dir(&self.target.parent);
         Ok(written)
     }

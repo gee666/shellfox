@@ -108,7 +108,13 @@ fn nt_open(parent: &File, name: &OsStr, request: Request<'_>) -> Result<File> {
         let win32 = unsafe { RtlNtStatusToDosError(code) };
         return Err(std::io::Error::from_raw_os_error(win32 as i32).into());
     }
-    // SAFETY: a successful NtCreateFile returned this owned handle.
+    if handle.is_null() || handle as isize == -1 {
+        return Err(FileError::new(
+            crate::ErrorCode::Unsupported,
+            "The file system returned no handle.",
+        ));
+    }
+    // SAFETY: a successful NtCreateFile returned this owned, valid handle.
     let file = unsafe { File::from_raw_handle(handle) };
     if code != 0 || status[1] != expected {
         return Err(FileError::new(

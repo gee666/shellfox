@@ -15,7 +15,7 @@ fn normalized(path: &Path) -> Result<PathBuf> {
         .context("Device configuration paths must be UTF-8")?;
     Ok(crate::app_launch::path::normalize_launch_path(path)?.into())
 }
-// Early lexical rejection only. FrontendPlans supplies the native physical proof.
+// Early lexical rejection only; FileService::check_private_root refuses links and aliases.
 fn comparable(path: &Path) -> PathBuf {
     #[cfg(windows)]
     {

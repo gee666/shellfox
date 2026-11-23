@@ -91,10 +91,20 @@ impl PrivateVersion {
     }
 }
 
+/// A name like `PROGRA~1` may be a Windows 8.3 alias of another entry.
+pub(crate) fn short_name(name: &OsStr) -> bool {
+    cfg!(windows)
+        && name.to_str().is_some_and(|name| {
+            name.split('~')
+                .skip(1)
+                .any(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+        })
+}
+
 pub(crate) fn leaf(name: &OsStr) -> Result<()> {
     let value = name.to_str().ok_or_else(FileError::denied)?;
     paths::validate(value)?;
-    if value == "." || value == ".." || value.contains(['/', '\\', ':']) {
+    if value == "." || value == ".." || value.contains(['/', '\\', ':']) || short_name(name) {
         return Err(FileError::denied());
     }
     Ok(())
@@ -145,6 +155,7 @@ pub fn open_app_dir(parent: &File, name: &OsStr) -> Result<PrivateDir> {
 
 /// Makes the app's own existing data directory private. `original` is the caller's held
 /// handle; the name must still open that same object. The parent is never changed.
+/// On Windows the new DACL is also inherited by entries inside whose DACL is not protected.
 pub fn repair_app_dir(parent: &File, name: &OsStr, original: &File) -> Result<()> {
     leaf(name)?;
     native::trusted_parent(parent, Parent::App)?;

@@ -1,7 +1,7 @@
 use super::*;
 impl Drop for StagedWrite {
     fn drop(&mut self) {
-        // After the rename may have happened the stage name is no longer ours to delete.
+        // After a successful rename the stage name is the target; never delete it.
         if self.publication_entered {
             return;
         }

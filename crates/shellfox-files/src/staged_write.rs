@@ -20,8 +20,7 @@ pub(crate) struct StagedWrite {
     offset: u64,
     hash: Sha256,
     last: Option<(u64, usize, String)>,
-    /// Set just before the rename. From then on the stage may already be the target, so it
-    /// is never deleted.
+    /// Set after a successful rename; from then on the stage name is the target.
     publication_entered: bool,
 }
 fn invalid(message: &str) -> FileError {

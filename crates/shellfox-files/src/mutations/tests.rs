@@ -134,3 +134,31 @@ fn parent_replacement_during_save_never_redirects_commit() {
     assert!(!f.root.join("dir/new").exists());
     assert_eq!(fs::read_dir(f.root.join("moved")).unwrap().count(), 0);
 }
+
+#[cfg(windows)]
+#[test]
+fn a_rename_refused_by_another_handle_leaves_no_stage() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let f = Fixture::new();
+    fs::write(f.root.join("t.txt"), "old").unwrap();
+    let revision = content::revision(b"old");
+    // Another program holds the file open without delete sharing, so the rename fails.
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1 | 2)
+        .open(f.root.join("t.txt"))
+        .unwrap();
+    let result = f.service.write_text(&WriteText {
+        path: "t.txt".into(),
+        text: "new".into(),
+        revision,
+    });
+    assert!(result.is_err());
+    drop(held);
+    let names: Vec<_> = fs::read_dir(&f.root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["t.txt"]);
+    assert_eq!(fs::read(f.root.join("t.txt")).unwrap(), b"old");
+}
