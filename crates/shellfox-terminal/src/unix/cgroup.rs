@@ -48,8 +48,10 @@ impl Cgroup {
             unsafe { libc::fstatfs(parent.as_raw_fd(), stat.as_mut_ptr()) } == 0,
             "inspect cgroup filesystem"
         );
+        // f_type and the magic differ in type across gnu and musl; the magic fits all.
+        let filesystem = unsafe { stat.assume_init() }.f_type as u64;
         ensure!(
-            unsafe { stat.assume_init() }.f_type == libc::CGROUP2_SUPER_MAGIC
+            filesystem == libc::CGROUP2_SUPER_MAGIC as u64
                 && parent.metadata()?.uid() == uid,
             "not an owned cgroup-v2 delegation"
         );
