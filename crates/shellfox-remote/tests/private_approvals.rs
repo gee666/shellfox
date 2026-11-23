@@ -1,7 +1,7 @@
 //! Legacy approval metadata is inspectable but cannot grant access or be rewritten.
-use shellfox_test_support::native_metadata::Fixture;
 use shellfox_protocol::ErrorCode;
 use shellfox_remote::{Approval, ApprovalControl, PrivateApprovalStore, ViewPermission};
+use shellfox_test_support::native_metadata::Fixture;
 use std::{ffi::OsStr, sync::Arc};
 fn current() -> Vec<u8> {
     br#"{"version":2,"approvals":[{"peerId":"n-owned","hostname":"fixture","approvedAtMillis":1,"policy":"control-full-account-v1"}]}"#.to_vec()
@@ -21,9 +21,7 @@ fn store(f: &Fixture) -> PrivateApprovalStore {
     store
 }
 fn child(f: &Fixture) -> Arc<shellfox_files::FileService> {
-    f.files
-        .private_child(OsStr::new("remote-v1"))
-        .unwrap()
+    f.files.private_child(OsStr::new("remote-v1")).unwrap()
 }
 #[tokio::test]
 async fn readonly_v2_keeps_exact_namespace_and_explicit_full_account_policy() {

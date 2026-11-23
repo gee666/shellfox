@@ -25,8 +25,12 @@ impl RemoteTransfers {
     ) -> Result<serde_json::Value, AppError> {
         let transfer = transfer_bridge::decode(command)?;
         let capability = match &transfer {
-            files::TransferRequest::BeginRead(input) => Some(file_ops::capability(actor, &input.path)?.clone()),
-            files::TransferRequest::BeginWrite(input) => Some(file_ops::capability(actor, &input.path)?.clone()),
+            files::TransferRequest::BeginRead(input) => {
+                Some(file_ops::capability(actor, &input.path)?.clone())
+            }
+            files::TransferRequest::BeginWrite(input) => {
+                Some(file_ops::capability(actor, &input.path)?.clone())
+            }
             _ => None,
         };
         let identity = files::TransferActor::new(
@@ -38,18 +42,29 @@ impl RemoteTransfers {
             code: files::ErrorCode::AccessDenied,
             message: "Transfer authorization changed.".into(),
         };
-        let auth = |requester: &files::TransferActor, capability: &files::FileService, write: bool| {
-            if requester != &identity || (write && actor.permission != ViewPermission::Write)
-                || !actor.file_capabilities().iter().any(|cap| std::ptr::eq(cap.as_ref(), capability))
-                || capability.capability_kind() != files::CapabilityKind::ApprovedFullAccount
-            {
-                return Err(denied());
-            }
-            Ok(())
-        };
-        let reply = self.registry.execute(&identity, transfer, |_| capability.ok_or_else(denied), &auth)
+        let auth =
+            |requester: &files::TransferActor, capability: &files::FileService, write: bool| {
+                if requester != &identity
+                    || (write && actor.permission != ViewPermission::Write)
+                    || !actor
+                        .file_capabilities()
+                        .iter()
+                        .any(|cap| std::ptr::eq(cap.as_ref(), capability))
+                    || capability.capability_kind() != files::CapabilityKind::ApprovedFullAccount
+                {
+                    return Err(denied());
+                }
+                Ok(())
+            };
+        let reply = self
+            .registry
+            .execute(
+                &identity,
+                transfer,
+                |_| capability.ok_or_else(denied),
+                &auth,
+            )
             .map_err(file_ops::file_error)?;
         transfer_bridge::encode(reply)
     }
 }
-

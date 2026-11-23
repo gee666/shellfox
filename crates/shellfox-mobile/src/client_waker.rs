@@ -67,7 +67,11 @@ mod tests {
         let waker = Waker::default();
         waker.wake(7);
         waker.set(7, Some(count), std::ptr::null_mut());
-        assert_eq!(CALLS.load(Ordering::SeqCst), 1, "registration runs one pass");
+        assert_eq!(
+            CALLS.load(Ordering::SeqCst),
+            1,
+            "registration runs one pass"
+        );
         waker.wake(7);
         waker.wake(7);
         assert_eq!(CALLS.load(Ordering::SeqCst), 1, "coalesced until re-armed");

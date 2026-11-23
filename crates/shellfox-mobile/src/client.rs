@@ -17,9 +17,9 @@ mod transport;
 mod uploads;
 #[path = "client_waker.rs"]
 mod waker;
-pub use waker::WakeFn;
 pub use lifecycle::*;
 pub use terminal_abi::*;
+pub use waker::WakeFn;
 #[cfg(test)]
 #[path = "client_tests.rs"]
 mod tests;

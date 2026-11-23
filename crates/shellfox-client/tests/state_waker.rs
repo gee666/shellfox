@@ -48,7 +48,11 @@ fn wakes_on_connection_changes_but_not_on_ordinary_requests() {
     // Disconnected -> Connecting, then Connecting -> Connected with a new id.
     assert_eq!(wakes.load(Ordering::SeqCst), 2);
     block_on(client.execute(&GetSnapshot {})).unwrap();
-    assert_eq!(wakes.load(Ordering::SeqCst), 2, "a successful request changes nothing");
+    assert_eq!(
+        wakes.load(Ordering::SeqCst),
+        2,
+        "a successful request changes nothing"
+    );
     client.suspend();
     assert_eq!(wakes.load(Ordering::SeqCst), 3);
     client.suspend();

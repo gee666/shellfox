@@ -102,15 +102,24 @@ fn rejected_uuid_does_not_keep_a_cancelled_retry_pending() {
     let original = ClientId::new_v4();
     let retry = ClientId::new_v4();
     let now = crate::backend::now_millis();
-    assert_eq!(control.authorize(&peer, original, now).err().unwrap().code, ErrorCode::ApprovalRequired);
+    assert_eq!(
+        control.authorize(&peer, original, now).err().unwrap().code,
+        ErrorCode::ApprovalRequired
+    );
     control.reject(&peer.id).unwrap();
     assert!(control.state().unwrap().pending.is_empty());
-    assert_eq!(control.authorize(&peer, retry, now).err().unwrap().code, ErrorCode::ApprovalRequired);
+    assert_eq!(
+        control.authorize(&peer, retry, now).err().unwrap().code,
+        ErrorCode::ApprovalRequired
+    );
     assert_eq!(control.state().unwrap().pending[0].clients, 1);
     control.withdraw(&peer, retry, now).unwrap();
     assert!(control.state().unwrap().pending.is_empty());
     for id in [original, retry] {
-        assert_eq!(control.authorize(&peer, id, now).err().unwrap().code, ErrorCode::AccessDenied);
+        assert_eq!(
+            control.authorize(&peer, id, now).err().unwrap().code,
+            ErrorCode::AccessDenied
+        );
     }
 }
 

@@ -1,6 +1,5 @@
 use super::*;
 
-
 pub(crate) fn reset_ticket(mobile: &Mobile, terminal: u64) -> Result<u64> {
     let s = mobile.state.lock().map_err(|_| PANIC)?;
     let b = s

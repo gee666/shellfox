@@ -37,7 +37,9 @@ pub fn asset_value(asset: files::FileAsset) -> Result<serde_json::Value, AppErro
 /// the image bytes, revision and publication, not just the declared MIME type.
 pub fn write(actor: &Actor, input: &wire::WriteImageFile) -> Result<serde_json::Value, AppError> {
     let input = decode_image_write(input)?;
-    let result = file_ops::capability(actor, &input.path)?.write_image(&input).map_err(file_ops::file_error)?;
+    let result = file_ops::capability(actor, &input.path)?
+        .write_image(&input)
+        .map_err(file_ops::file_error)?;
     file_ops::checked(wire::files::FileWriteResult {
         path: result.path,
         size: result.size,

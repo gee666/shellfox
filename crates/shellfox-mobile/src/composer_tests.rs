@@ -197,7 +197,13 @@ fn swipe_typing_a_word_then_replacing_it_from_the_strip() {
 #[test]
 fn voice_input_commits_only_the_final_phrase() {
     let mut s = Session::new();
-    for partial in ["echo", "echo hell", "echo hello", "echo hello wor", "echo hello world"] {
+    for partial in [
+        "echo",
+        "echo hell",
+        "echo hello",
+        "echo hello wor",
+        "echo hello world",
+    ] {
         s.ime(|e| e.set_composing_text(partial));
         assert_eq!(s.line(), "");
     }
@@ -263,7 +269,10 @@ fn cjk_and_korean_composition_send_only_the_result() {
 fn tabs_and_controls_in_committed_text() {
     let mut composer = Composer::default();
     let events = composer.update("a\tb\u{7}c");
-    let kinds: Vec<_> = events.iter().map(|e| (e.physical, e.text.as_str())).collect();
+    let kinds: Vec<_> = events
+        .iter()
+        .map(|e| (e.physical, e.text.as_str()))
+        .collect();
     assert_eq!(
         kinds,
         [

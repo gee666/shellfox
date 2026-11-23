@@ -31,11 +31,16 @@ pub fn settings_dto(
     )
 }
 
-pub fn manager_snapshot(snapshot: &core::Snapshot, facts: &ManagerFacts) -> AdapterResult<wire::ManagerSnapshot> {
+pub fn manager_snapshot(
+    snapshot: &core::Snapshot,
+    facts: &ManagerFacts,
+) -> AdapterResult<wire::ManagerSnapshot> {
     manager_snapshot_visible(snapshot, facts, &Default::default())
 }
 pub fn manager_snapshot_visible(
-    snapshot: &core::Snapshot, facts: &ManagerFacts, private: &std::collections::HashSet<core::TabId>,
+    snapshot: &core::Snapshot,
+    facts: &ManagerFacts,
+    private: &std::collections::HashSet<core::TabId>,
 ) -> AdapterResult<wire::ManagerSnapshot> {
     let settings = settings_dto(
         &snapshot.preferences,
@@ -53,7 +58,10 @@ pub fn manager_snapshot_visible(
             ensure(tab_ids.insert(tab.id), "duplicate tab identity")?;
         }
         if facts.omitted_sessions.contains(&session.id) {
-            ensure(!facts.sessions.contains_key(&session.id), "omitted session has conflicting facts")?;
+            ensure(
+                !facts.sessions.contains_key(&session.id),
+                "omitted session has conflicting facts",
+            )?;
             continue;
         }
         sessions.push(session_dto_visible(
@@ -81,17 +89,27 @@ pub fn validate_session_facts(session: &core::Session, facts: &SessionFacts) -> 
     session_dto(session, facts).map(|_| ())
 }
 
-pub fn session_dto(session: &core::Session, facts: &SessionFacts) -> AdapterResult<wire::SessionDto> {
+pub fn session_dto(
+    session: &core::Session,
+    facts: &SessionFacts,
+) -> AdapterResult<wire::SessionDto> {
     session_dto_visible(session, facts, &Default::default())
 }
 pub fn session_dto_visible(
-    session: &core::Session, facts: &SessionFacts, private: &std::collections::HashSet<core::TabId>,
+    session: &core::Session,
+    facts: &SessionFacts,
+    private: &std::collections::HashSet<core::TabId>,
 ) -> AdapterResult<wire::SessionDto> {
     if private.is_empty() {
-        session.validate().map_err(|_| AdapterError::InvalidFacts { context: "session metadata" })?;
+        session.validate().map_err(|_| AdapterError::InvalidFacts {
+            context: "session metadata",
+        })?;
     } else {
-        let mut header = session.clone(); header.tabs.clear();
-        header.validate().map_err(|_| AdapterError::InvalidFacts { context: "session metadata" })?;
+        let mut header = session.clone();
+        header.tabs.clear();
+        header.validate().map_err(|_| AdapterError::InvalidFacts {
+            context: "session metadata",
+        })?;
     }
     wire_identity(session.id)?;
     wire_timestamp(&session.created_at)?;
@@ -230,7 +248,10 @@ pub fn filter_session_profiles(
 }
 /// Exclude only tab identities the existing manager policy marks local-only.
 /// Authorized unknown metadata is not an allowlist miss or a partial inventory.
-pub fn filter_private_tabs(mut session: wire::SessionDto, private: &std::collections::HashSet<core::TabId>) -> AdapterResult<wire::SessionDto> {
+pub fn filter_private_tabs(
+    mut session: wire::SessionDto,
+    private: &std::collections::HashSet<core::TabId>,
+) -> AdapterResult<wire::SessionDto> {
     session.tabs.retain(|tab| !private.contains(&tab.id));
     finish_visible_session(session)
 }

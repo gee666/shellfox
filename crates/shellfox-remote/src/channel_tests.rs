@@ -102,6 +102,10 @@ async fn wake_runs_once_per_queued_request_and_not_on_refusal() {
     assert_eq!(wakes.load(std::sync::atomic::Ordering::SeqCst), 2);
     request.complete(Ok(serde_json::json!({})));
     wait.await.unwrap().unwrap();
-    owner.recv().await.unwrap().complete(Ok(serde_json::json!({})));
+    owner
+        .recv()
+        .await
+        .unwrap()
+        .complete(Ok(serde_json::json!({})));
     blocked.await.unwrap().unwrap();
 }

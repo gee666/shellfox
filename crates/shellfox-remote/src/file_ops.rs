@@ -28,7 +28,10 @@ fn stale_file_revisions_report_a_conflict_without_disclosing_host_details() {
         message: "private host path".into(),
     });
     assert_eq!(result.code, ErrorCode::FileConflict);
-    assert_eq!(result.message, "File changed on disk. Reload before saving.");
+    assert_eq!(
+        result.message,
+        "File changed on disk. Reload before saving."
+    );
     assert!(!result.retryable);
 }
 

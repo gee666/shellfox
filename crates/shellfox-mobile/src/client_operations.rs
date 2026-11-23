@@ -99,12 +99,7 @@ pub(super) async fn command(
     }
     match command {
         RemoteCommand::AttachTerminal(value) => {
-            match mobile
-                .client
-                .execute(&value)
-                .await
-                .map_err(client_error)?
-            {
+            match mobile.client.execute(&value).await.map_err(client_error)? {
                 Reply::Success(value) => Ok(
                     serde_json::json!({"ok":true,"value":terminal::attachment(&mobile, &value)?}),
                 ),

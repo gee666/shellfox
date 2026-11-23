@@ -23,7 +23,10 @@ pub fn manager_snapshot_with_settings(
     manager_snapshot_with_settings_visible(snapshot, facts, settings, &Default::default())
 }
 pub fn manager_snapshot_with_settings_visible(
-    snapshot: &core::Snapshot, facts: &ManagerFacts, settings: &core::Settings, private: &std::collections::HashSet<core::TabId>,
+    snapshot: &core::Snapshot,
+    facts: &ManagerFacts,
+    settings: &core::Settings,
+    private: &std::collections::HashSet<core::TabId>,
 ) -> AdapterResult<wire::ManagerSnapshot> {
     let settings = persisted_settings(settings)?;
     let mut actual = facts.clone();

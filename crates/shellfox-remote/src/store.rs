@@ -71,10 +71,7 @@ impl PrivateApprovalStore {
             return Err(failed());
         }
         if state.directory.is_none() {
-            match self
-                .control
-                .private_child(OsStr::new("remote-v1"))
-            {
+            match self.control.private_child(OsStr::new("remote-v1")) {
                 Ok(directory) => state.directory = Some(directory),
                 Err(_) => {
                     state.failed = true;

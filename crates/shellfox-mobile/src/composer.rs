@@ -28,7 +28,10 @@ impl Composer {
         let typed = &committed[common..];
         let mut events = Vec::new();
         for _ in 0..erased {
-            press(&mut events, KeyEvent::press(PhysicalKey::Backspace, KeyModifiers::NONE));
+            press(
+                &mut events,
+                KeyEvent::press(PhysicalKey::Backspace, KeyModifiers::NONE),
+            );
         }
         text(&mut events, typed);
         self.sent = committed.to_owned();

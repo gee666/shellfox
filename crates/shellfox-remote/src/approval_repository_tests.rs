@@ -3,12 +3,12 @@ use super::*;
 use crate::{Approval, ApprovalControl, PrivateApprovalStore, ViewPermission};
 use shellfox_core::{ApprovalStorePolicy, ApprovalStoreRecord, ApprovalStoreSnapshot};
 use shellfox_protocol::{ClientId, ErrorCode};
+use shellfox_test_support::native_metadata as metadata;
 use shellfox_transport::incoming::PeerIdentity;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
 };
-use shellfox_test_support::native_metadata as metadata;
 struct Repository {
     snapshot: Mutex<ApprovalStoreSnapshot>,
     fail: AtomicBool,
@@ -120,7 +120,10 @@ async fn approve_installs_only_after_commit_reply_and_revoke_denies_before_io() 
     assert!(control.state().unwrap().approvals.is_empty());
     // A failed save keeps the policy closed: later changes never reach storage.
     let again = control.approve(&store, approval()).await.unwrap_err();
-    assert_eq!(again.message, "Saving approvals failed. Restart Shellfox to retry.");
+    assert_eq!(
+        again.message,
+        "Saving approvals failed. Restart Shellfox to retry."
+    );
     assert_eq!(repository.commits.load(Ordering::SeqCst), 2);
     assert!(!fixture
         .control_path()

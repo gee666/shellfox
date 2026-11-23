@@ -12,9 +12,9 @@ mod helper;
 #[cfg(feature = "helper")]
 mod http;
 #[cfg(feature = "helper")]
-mod limits;
-#[cfg(feature = "helper")]
 mod http_status;
+#[cfg(feature = "helper")]
+mod limits;
 #[cfg(feature = "helper")]
 pub use http_status::HttpResponse;
 #[cfg(feature = "host-auth")]
