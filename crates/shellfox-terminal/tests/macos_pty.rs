@@ -287,7 +287,12 @@ fn stats_capture_sees_the_shell_and_its_child_in_its_own_session_only() {
         .processes
         .iter()
         .all(|p| p.identity.pid != outsider.id()));
-    assert!(root.accessible && root.executable.as_deref() == Some("/bin/sh".as_ref()));
+    // /bin/sh is a shim that execs the selected shell; the argv stays ours.
+    assert!(root.accessible && root.executable.is_some());
+    assert!(root
+        .argv
+        .as_ref()
+        .is_some_and(|argv| argv.iter().any(|arg| arg == "-c")));
     let _ = outsider.kill();
     let _ = outsider.wait();
     session.shutdown().unwrap();
