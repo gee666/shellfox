@@ -103,7 +103,7 @@ fn options_to_real_frontend_composition_keeps_default_and_explicit_ui_outside_ho
             .save(crate::settings::api::ColorKind::Accent, "#123456")
             .unwrap();
         assert!(options.run_dir.is_dir());
-        assert_eq!(expected_ui.join("file-editor").exists(), editor_enabled);
+        assert!(editor_enabled && !expected_ui.join("file-editor").exists());
         assert!(
             options
                 .device_config_root

@@ -32,7 +32,7 @@ fn new_directories_and_files_are_private_from_the_first_handle() {
     created.verify().unwrap();
     let app = create_app_dir(&parent, name("app")).unwrap();
     native::require_private(app.as_file(), true).unwrap();
-    let file = native::create_file(&parent, name("file")).unwrap();
+    let file = native::create_file(&parent, name("file"), true).unwrap();
     native::require_private(&file, false).unwrap();
     assert_eq!(file.metadata().unwrap().len(), 0);
 }

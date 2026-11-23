@@ -1,43 +1,29 @@
-mod stream;
 #[cfg(target_os = "linux")]
 mod held;
+mod stream;
 #[cfg(target_os = "linux")]
 pub use held::HeldEditor;
 #[cfg(target_os = "linux")]
 mod wsl_guest;
-#[cfg(target_os = "linux")]
-pub use wsl_guest::serve_wsl_files;
 use crate::*;
 use std::sync::{Arc, Mutex};
 pub use stream::{EditorFileSink, EditorFileSource};
 use uuid::Uuid;
+#[cfg(target_os = "linux")]
+pub use wsl_guest::serve_wsl_files;
 
 mod cancellation;
 pub use cancellation::EditorCancellation;
 
-/// App-owned editor backend bound to a stable, validated private metadata directory.
+/// One per app: a document authority plus the shared transfer registry its sessions use.
 pub struct EditorBackend {
     capability: Arc<FileService>,
     registry: Arc<Mutex<TransferRegistry>>,
 }
 impl EditorBackend {
-    pub fn new(
-        capability: Arc<FileService>,
-        private_journal_directory: impl AsRef<std::path::Path>,
-    ) -> Result<Self> {
+    pub fn new(capability: Arc<FileService>) -> Result<Self> {
         capability.require_path_resolution()?;
-        let mut registry = TransferRegistry::new(TransferLimits::default())?;
-        registry.initialize_journal(private_journal_directory)?;
-        Ok(Self {
-            capability,
-            registry: Arc::new(Mutex::new(registry)),
-        })
-    }
-    /// Retain the exact ApprovedRoot RW journal authority returned by a directory plan.
-    pub fn new_anchored(capability: Arc<FileService>, journal: Arc<FileService>) -> Result<Self> {
-        capability.require_path_resolution()?;
-        let mut registry = TransferRegistry::new(TransferLimits::default())?;
-        registry.initialize_journal_anchored(journal)?;
+        let registry = TransferRegistry::new(TransferLimits::default())?;
         Ok(Self {
             capability,
             registry: Arc::new(Mutex::new(registry)),
@@ -60,7 +46,7 @@ pub struct EditorSession {
     actor: TransferActor,
 }
 impl EditorSession {
-    /// The caller initializes and shares the private host registry before constructing sessions.
+    /// Sessions of one backend share its registry, so their transfer quotas are shared too.
     pub fn new(capability: Arc<FileService>, registry: Arc<Mutex<TransferRegistry>>) -> Self {
         Self {
             capability,

@@ -74,12 +74,12 @@ impl UploadInbox {
         let started = match result {
             Ok(started) => started,
             Err(error) => {
-                // Unknown stage/creation outcome is not authority to remove this directory.
+                // The stage may exist; leave the directory for the abort path.
                 drop(created);
                 return Err(error);
             }
         };
-        drop(created); // live V2 stage now retains its actual parent and original creator FD
+        drop(created); // the stage is open; the directory no longer needs pinning
         self.pending.insert(
             id,
             PendingUpload {

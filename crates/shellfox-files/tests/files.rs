@@ -1,8 +1,3 @@
-#[path = "cases/operations.rs"]
-mod operations;
-#[path = "cases/security.rs"]
-mod security;
+//! Integration tests for the public Files API, against real directories under tmp/.
+mod cases;
 mod support;
-#[cfg(windows)]
-#[path = "cases/windows_permissions.rs"]
-mod windows_permissions;

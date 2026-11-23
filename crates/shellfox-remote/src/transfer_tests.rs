@@ -3,8 +3,7 @@ use shellfox_protocol::{ErrorCode, Validate};
 
 fn fixture(permission: ViewPermission) -> (tempfile::TempDir, Actor, RemoteTransfers) {
     let (scratch, actor) = crate::test_support::actor(permission);
-    let transfers =
-        RemoteTransfers::open(Default::default(), scratch.path().join("journal")).unwrap();
+    let transfers = RemoteTransfers::open(Default::default()).unwrap();
     (scratch, actor, transfers)
 }
 fn run(

@@ -52,34 +52,17 @@ pub(crate) fn rename_user_new_checked(
         rename_new(source, destination)
     }
 }
-pub(crate) fn rename_replace(source: &Target, destination: &Target, expected: &File) -> Result<()> {
-    rename_replace_inner(source, destination, expected, &|| Ok(()), false)
-}
+/// Renames the stage over an existing user file. On Windows the POSIX-semantics rename
+/// works even while the old file is open elsewhere.
 pub(crate) fn rename_user_replace_checked(
     source: &Target,
     destination: &Target,
     expected: &File,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<()> {
-    rename_replace_inner(source, destination, expected, check, true)
-}
-fn rename_replace_inner(
-    source: &Target,
-    destination: &Target,
-    expected: &File,
-    check: &dyn Fn() -> Result<()>,
-    retained_destination: bool,
-) -> Result<()> {
     #[cfg(windows)]
     {
-        rename_checked(
-            source,
-            destination,
-            true,
-            Some(expected),
-            check,
-            retained_destination,
-        )
+        rename_checked(source, destination, true, Some(expected), check, true)
     }
     #[cfg(unix)]
     {
@@ -87,7 +70,6 @@ fn rename_replace_inner(
         if !crate::content::same_held_file(&current, expected)? {
             return Err(crate::FileError::conflict());
         }
-        let _ = retained_destination;
         check()?;
         rustix::fs::renameat(
             &source.parent,
@@ -144,18 +126,6 @@ pub(crate) fn rename_held_checked(
 ) -> Result<()> {
     rename_held_information(file, parent, leaf, replace, check, false)
 }
-/// Keep the expected destination FD alive through user-file CAS. POSIX replacement is
-/// required on Windows when an existing destination has retained readers. No legacy retry.
-#[cfg(windows)]
-pub(crate) fn rename_user_stage_held_checked(
-    file: &std::fs::File,
-    parent: &std::fs::File,
-    leaf: &std::ffi::OsStr,
-    replace: bool,
-    check: &dyn Fn() -> Result<()>,
-) -> Result<()> {
-    rename_held_information(file, parent, leaf, replace, check, true)
-}
 #[cfg(windows)]
 fn rename_held_information(
     file: &std::fs::File,
@@ -207,28 +177,6 @@ fn rename_held_information(
         }
     }
     Ok(())
-}
-
-#[cfg(unix)]
-pub(crate) fn stage_options() -> cap_std::fs::OpenOptions {
-    use cap_std::fs::OpenOptionsExt;
-    let mut options = cap_std::fs::OpenOptions::new();
-    options.read(true).write(true).create_new(true).mode(0o600);
-    options
-}
-
-#[cfg(windows)]
-pub(crate) fn stage_options() -> cap_std::fs::OpenOptions {
-    use cap_std::fs::OpenOptionsExt;
-    use windows_sys::Win32::Storage::FileSystem::WRITE_DAC;
-    let mut options = cap_std::fs::OpenOptions::new();
-    // READ_CONTROL is included in GENERIC_READ. The stage owner can set its DACL.
-    options
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .access_mode(0x80000000 | 0x40000000 | WRITE_DAC);
-    options
 }
 
 #[cfg(unix)]

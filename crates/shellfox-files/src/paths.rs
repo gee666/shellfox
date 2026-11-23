@@ -48,12 +48,37 @@ pub(crate) fn validate(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Walk one component per handle. No ancestor or final directory link is followed.
-pub(crate) fn descend(dir: Dir, path: &Path) -> Result<Dir> {
-    crate::directory_walk::walk(dir, path, false, false, 32767)?
-        .dirs
-        .pop()
-        .ok_or_else(FileError::denied)
+/// Walks one component at a time from `dir`. Every component must be a real directory: a
+/// symlink, junction or other reparse point is refused, never followed. The name is opened
+/// twice and both handles must be the same object, so a swap during the walk is a conflict.
+pub(crate) fn descend(mut dir: Dir, path: &Path) -> Result<Dir> {
+    use cap_fs_ext::DirExt;
+    reject_link(&dir.dir_metadata()?)?;
+    for component in path.components() {
+        let name = match component {
+            Component::Normal(name) => name,
+            Component::CurDir => continue,
+            _ => return Err(FileError::denied()),
+        };
+        let info = dir.symlink_metadata(name)?;
+        reject_link(&info)?;
+        if !info.is_dir() {
+            return Err(FileError::new(
+                ErrorCode::Validation,
+                "Expected directory component.",
+            ));
+        }
+        let child = dir.open_dir_nofollow(name)?;
+        reject_link(&child.dir_metadata()?)?;
+        let again = dir.open_dir_nofollow(name)?;
+        if crate::HandleIdentity::from_directory(&child)?
+            != crate::HandleIdentity::from_directory(&again)?
+        {
+            return Err(FileError::conflict());
+        }
+        dir = child;
+    }
+    Ok(dir)
 }
 
 pub(crate) fn absolute_parts(path: &Path) -> Result<(PathBuf, PathBuf)> {

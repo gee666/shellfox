@@ -113,7 +113,7 @@ pub(super) fn open_file(parent: &File, name: &OsStr) -> Result<File> {
 pub(super) fn open_file_for_delete(parent: &File, name: &OsStr) -> Result<File> {
     open_file(parent, name)
 }
-pub(super) fn create_file(parent: &File, name: &OsStr) -> Result<File> {
+pub(super) fn create_file(parent: &File, name: &OsStr, _deletable: bool) -> Result<File> {
     open(
         parent,
         name,

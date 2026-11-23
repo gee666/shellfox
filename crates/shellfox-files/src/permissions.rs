@@ -18,7 +18,7 @@ pub(crate) fn preserve(previous: &File, stage: &File) -> Result<()> {
         )
         .map_err(std::io::Error::from)?;
     }
-    // Match the active service: preserve rwx bits, never copy setuid/setgid bits to edited content.
+    // Keep the rwx bits, but never copy setuid/setgid onto edited content.
     stage.set_permissions(cap_std::fs::Permissions::from_mode(info.mode() & 0o777))?;
     copy_acl(previous, stage)?;
     Ok(())

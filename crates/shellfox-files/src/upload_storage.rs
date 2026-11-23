@@ -7,8 +7,8 @@ impl UploadInbox {
         self.verify_root()?;
         let (base, relative, _) = self.capability.base(".")?;
         let root = paths::descend(base, &relative)?;
-        // Restart has no original stage/publication FD. Preserve every previous UUID entry,
-        // including apparent completed filenames. Names/fresh IDs/mtime cannot mint TTL cleanup.
+        // Uploads from an earlier run are left alone but count toward the quota: a name or
+        // mtime alone does not prove this inbox wrote them.
         for entry in root.entries()? {
             let entry = entry?;
             let name = entry
@@ -45,36 +45,15 @@ impl UploadInbox {
         }
         Ok(())
     }
-    pub(crate) fn create_upload_directory(&self, name: &str) -> Result<CreatedPrivate> {
-        let _mutation = FileService::mutation_lock()?;
-        let journal = self
-            .registry
-            .journal
-            .as_ref()
-            .ok_or_else(crate::journal::invalid)?;
-        let journal = journal.lock().map_err(|_| crate::journal::invalid())?;
-        journal.root.check()?;
-        if journal.entries.len() >= crate::journal::JOURNAL_ENTRIES {
-            return Err(crate::journal::invalid());
-        }
+    /// A fresh private directory per upload. An existing name is a conflict, never adopted.
+    pub(crate) fn create_upload_directory(&self, name: &str) -> Result<crate::private::PrivateDir> {
         self.verify_root()?;
         let target = self.capability.target(name)?;
         self.capability.recheck_parent(name, &target)?;
-        // Generic strict private-parent creator, exclusive birth, no collision adoption/repair.
-        // Keep this actual receipt until the V2 user stage has captured that same parent.
-        match create_private_directory_at(
+        crate::private::create_dir(
             &target.parent.try_clone()?.into_std_file(),
             target.name.as_os_str(),
-        ) {
-            Ok(created) => Ok(created),
-            Err(failure) => {
-                let (error, mut custody) = failure.into_parts();
-                if let Some(held) = custody.as_mut() {
-                    held.preserve_stale();
-                }
-                Err(error)
-            }
-        }
+        )
     }
     pub(crate) fn remove_empty_directory(&self, id: Uuid) -> Result<()> {
         self.verify_root()?;

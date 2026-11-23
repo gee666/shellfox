@@ -56,7 +56,7 @@ fn real_go_owned_actor_approval_commit_revoke_and_restart() -> Result<()> {
         app(control.set_enabled(false))?;
         let legacy = metadata
             .files
-            .open_or_create_private_child(std::ffi::OsStr::new("remote-v1"))
+            .private_child(std::ffi::OsStr::new("remote-v1"))
             .map_err(|error| anyhow::anyhow!(error.to_string()))?;
         metadata::Fixture::seed(&legacy, "write-pending", b"owned legacy barrier, preserve");
         anyhow::ensure!(
@@ -65,7 +65,7 @@ fn real_go_owned_actor_approval_commit_revoke_and_restart() -> Result<()> {
         );
         anyhow::ensure!(
             legacy
-                .read_private_leaf(std::ffi::OsStr::new("write-pending"), 1024)?
+                .read_private(std::ffi::OsStr::new("write-pending"), 1024)?
                 .bytes
                 == b"owned legacy barrier, preserve",
             "legacy barrier was changed"

@@ -10,16 +10,8 @@ pub struct RemoteTransfers {
     registry: files::TransferRegistry,
 }
 impl RemoteTransfers {
-    /// Trusted owner startup only. Never derive the journal directory from a
-    /// remote path. The shared registry recovers owned partials before use.
-    pub fn open(
-        limits: files::TransferLimits,
-        private_journal_directory: impl AsRef<std::path::Path>,
-    ) -> Result<Self, AppError> {
-        let mut registry = files::TransferRegistry::new(limits).map_err(file_ops::file_error)?;
-        registry
-            .initialize_journal(journal_path(private_journal_directory.as_ref()))
-            .map_err(file_ops::file_error)?;
+    pub fn open(limits: files::TransferLimits) -> Result<Self, AppError> {
+        let registry = files::TransferRegistry::new(limits).map_err(file_ops::file_error)?;
         Ok(Self { registry })
     }
     pub fn cancel_actor(&mut self, owner: &str) {
@@ -61,21 +53,3 @@ impl RemoteTransfers {
     }
 }
 
-fn journal_path(path: &std::path::Path) -> std::path::PathBuf {
-    #[cfg(windows)]
-    {
-        use std::path::{Component, Prefix};
-        let mut parts = path.components();
-        if let Some(Component::Prefix(prefix)) = parts.next() {
-            if let Prefix::VerbatimDisk(drive) = prefix.kind() {
-                if parts.next() == Some(Component::RootDir) {
-                    let mut ordinary =
-                        std::path::PathBuf::from(format!("{}:\\", char::from(drive)));
-                    ordinary.push(parts.as_path());
-                    return ordinary;
-                }
-            }
-        }
-    }
-    path.to_owned()
-}

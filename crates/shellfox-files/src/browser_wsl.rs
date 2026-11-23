@@ -10,7 +10,9 @@ pub struct WslBrowserScope {
 impl WslBrowserScope {
     /// Only the host-recorded WSL profile supplies distro authority, never a path or OSC report.
     pub fn for_tab(cwd: &str, profile: &str) -> Result<Self> {
-        let distro = profile.strip_prefix("wsl:").filter(|name| valid_distro(name))
+        let distro = profile
+            .strip_prefix("wsl:")
+            .filter(|name| valid_distro(name))
             .ok_or_else(FileError::denied)?;
         let guest = if let Some((name, guest)) = parse_unc(cwd) {
             if !name.eq_ignore_ascii_case(distro) {
@@ -25,8 +27,14 @@ impl WslBrowserScope {
         } else {
             return Err(FileError::denied());
         };
-        let scope = Self { distro: distro.into(), cwd: "/".into() };
-        Ok(Self { cwd: scope.guest(&guest)?, ..scope })
+        let scope = Self {
+            distro: distro.into(),
+            cwd: "/".into(),
+        };
+        Ok(Self {
+            cwd: scope.guest(&guest)?,
+            ..scope
+        })
     }
 
     pub fn distro(&self) -> &str {
@@ -74,7 +82,10 @@ impl WslBrowserScope {
             Some(cwd) if !input.starts_with('/') => Some(self.guest(cwd)?),
             _ => None,
         };
-        Ok(normalize_guest(live_cwd.as_deref().unwrap_or(&self.cwd), input))
+        Ok(normalize_guest(
+            live_cwd.as_deref().unwrap_or(&self.cwd),
+            input,
+        ))
     }
 }
 
@@ -149,17 +160,28 @@ mod tests {
     #[test]
     fn terminal_links_resolve_in_their_tab_not_the_visible_files_panel() {
         let scope = WslBrowserScope::for_tab("/initial", "wsl:Debian").unwrap();
-        assert_eq!(scope.guest_from("./note.txt", None).unwrap(), "/initial/note.txt");
         assert_eq!(
-            scope.guest_from("../note.txt", Some(r"\\wsl$\Debian\dir\sub")).unwrap(),
+            scope.guest_from("./note.txt", None).unwrap(),
+            "/initial/note.txt"
+        );
+        assert_eq!(
+            scope
+                .guest_from("../note.txt", Some(r"\\wsl$\Debian\dir\sub"))
+                .unwrap(),
             "/dir/note.txt"
         );
         assert_eq!(
-            scope.guest_from("/tmp/note.txt", Some("/a/different/cwd")).unwrap(),
+            scope
+                .guest_from("/tmp/note.txt", Some("/a/different/cwd"))
+                .unwrap(),
             "/tmp/note.txt"
         );
         assert!(scope.guest_from("C:/host-only.txt", Some("/tmp")).is_err());
-        assert!(scope.guest_from("./note.txt", Some(r"\\wsl$\Other\tmp")).is_err());
-        assert!(scope.guest_from(r"\\server\share\note.txt", Some("/tmp")).is_err());
+        assert!(scope
+            .guest_from("./note.txt", Some(r"\\wsl$\Other\tmp"))
+            .is_err());
+        assert!(scope
+            .guest_from(r"\\server\share\note.txt", Some("/tmp"))
+            .is_err());
     }
 }

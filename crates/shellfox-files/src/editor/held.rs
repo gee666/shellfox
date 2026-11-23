@@ -84,7 +84,7 @@ impl HeldEditor {
             snapshot,
             revision,
         };
-        editor.verify(service, &location_for(&document))?;
+        editor.verify(service, location_for(&document))?;
         Ok((editor, document))
     }
 
@@ -142,12 +142,6 @@ impl HeldEditor {
         }
         let service = &backend.capability;
         let check = || self.verify(service, path);
-        let journal = backend
-            .registry
-            .lock()
-            .map_err(|_| unavailable())?
-            .journal
-            .clone();
         let request = BeginWrite {
             path: path.into(),
             size: bytes.len() as u64,
@@ -160,13 +154,7 @@ impl HeldEditor {
             },
             mime_type: mime.map(str::to_owned),
         };
-        let mut stage = StagedWrite::begin_with_journal(
-            service.clone(),
-            &request,
-            TRANSFER_MAX_BYTES,
-            &check,
-            journal,
-        )?;
+        let mut stage = StagedWrite::begin(service, &request, TRANSFER_MAX_BYTES, &check)?;
         for (index, bytes) in bytes.chunks(CHUNK_BYTES).enumerate() {
             stage.write(
                 service,
@@ -190,7 +178,6 @@ impl HeldEditor {
 }
 
 #[cfg(test)]
-#[path = "held_tests.rs"]
 mod tests;
 
 fn location_for(document: &ReadResult) -> &str {

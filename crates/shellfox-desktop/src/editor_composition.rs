@@ -1,4 +1,4 @@
-//! Local document authority plus a separately scoped V2 metadata root.
+//! The editor backend for local documents, shared by every window.
 use crate::frontend_composition::FrontendDirectories;
 use shellfox_files::EditorBackend;
 use std::sync::Arc;
@@ -21,7 +21,7 @@ pub(crate) enum EditorOutcome {
 impl std::fmt::Debug for EditorOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Ready(_) => f.write_str("Ready(V2 editor)"),
+            Self::Ready(_) => f.write_str("Ready(editor)"),
             Self::Unavailable(reason) => f.debug_tuple("Unavailable").field(reason).finish(),
         }
     }

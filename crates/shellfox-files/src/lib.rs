@@ -1,70 +1,25 @@
-//! Local file operations with explicit desktop or selected-directory authority.
-//! No network transport, upload capability or automatic host authorization.
+//! Local file operations scoped to an approved root or the local desktop account.
+//! No network transport: adapters own authentication, approval and wire encoding.
 mod assets;
+mod browser_wsl;
 mod content;
 mod contracts;
 mod directory_ops;
-mod directory_walk;
-mod directory_names;
-mod directory_plan;
-pub use directory_plan::{DirectoryPlan,DirectoryRelation};
-pub use directory_plan::create::{DirectoryPreparationFailure,DirectoryPreparationOwner,DirectoryRetention};
-mod browser_wsl;
-pub use browser_wsl::WslBrowserScope;
 mod editor;
-mod native_commit_fence;
-pub use native_commit_fence::NativeCommitFence;
 mod error;
+pub mod handle;
 mod image_save;
-mod journal;
-mod journal_lease;
-mod journal_storage;
-mod journal_private;
-#[cfg(all(test,windows))]
-#[path="journal_anchor_test_windows.rs"]
-mod private_test_windows;
-#[cfg(all(test,windows))]
-#[path="../tests/cases/windows_junction.rs"]
-mod private_test_junction;
-mod journal_publish;
 mod mutations;
 mod paths;
 mod permissions;
 mod platform;
-#[cfg(unix)]
-mod platform_directory_sync;
-mod handle_identity;
-#[cfg(windows)]
-mod private_security;
-mod private_creation;
-mod private_creation_failure;
-pub use private_creation_failure::{PrivateCreationFailure,CreationCustody};
-pub(crate) use private_creation_failure::{PrivateCreationEvidence,PrivatePreservationState};
-mod private_native;
-mod private_verify;
-#[cfg(windows)]
-mod private_parent_windows;
-#[cfg(windows)]
-mod private_windows;
-#[cfg(windows)]
-pub use private_creation::{create_app_directory_at, open_app_directory_at};
-pub use private_creation::{create_private_directory_at, repair_app_directory_at,
-    open_existing_private_at, CreatedPrivate, VerifiedPrivate, PrivateKind, PrivateAccess,PrivateCleanupState,PreparedPrivateDirectoryRef,
-    bounded_private_read_at,PrivateRead,PrivatePublicationPhase,PrivatePublishOutcome,
-    PrivateDurability,PrivateCleanupDisposition,PrivateVersion,PRIVATE_METADATA_MAX_BYTES,
-    prepare_private_publication_at,OwnedPrivatePublication,PrivatePreparationFailure};
-pub(crate) use private_creation::{create_private_file_at, PrivateFileUse, PublishedPrivate};
-pub use handle_identity::HandleIdentity;
-mod read_result;
 pub mod private;
-#[cfg(test)]
-mod test_support;
+mod read_result;
 mod service;
 mod staged_write;
-mod user_stage_custody;
-#[cfg(windows)]
-mod user_stage_windows;
 mod stream_io;
+#[cfg(test)]
+mod test_support;
 mod transfer_begin;
 mod transfer_chunks;
 mod transfer_contracts;
@@ -72,25 +27,26 @@ mod transfer_execute;
 mod transfer_registry;
 mod upload_contracts;
 mod upload_inbox;
-mod upload_private;
 mod upload_storage;
 mod upload_transfer;
+pub mod wsl_files_ipc;
 
 pub use assets::{AssetRequest, FileAsset, ImageWrite, INLINE_IMAGE_WRITE_BYTES};
+pub use browser_wsl::WslBrowserScope;
 pub use contracts::*;
 pub use directory_ops::{
     DirectoryCompletions, DirectoryResolved, FileContext, DIRECTORY_COMPLETION_BYTES,
     DIRECTORY_COMPLETION_LIMIT,
 };
-pub use editor::{EditorBackend, EditorCancellation, EditorFileSink, EditorFileSource, EditorSession};
 #[cfg(target_os = "linux")]
 pub use editor::serve_wsl_files;
-pub mod wsl_files_ipc;
+pub use editor::{
+    EditorBackend, EditorCancellation, EditorFileSink, EditorFileSource, EditorSession,
+};
 pub use error::{ErrorCode, FileError, Result};
+pub use handle::HandleIdentity;
 pub use read_result::ReadResult;
-pub use service::FileService;
-pub use service::native_directory_adapter::NativeChildIssuer;
-pub use service::cap_private_metadata::{ScopedPrivatePublication,ScopedPrivatePreparationFailure,ScopedPublishedReceipt};
+pub use service::{FileService, NativeCommitFence};
 pub use transfer_contracts::*;
 pub use transfer_execute::{TransferReply, TransferRequest};
 pub use transfer_registry::{TransferRegistry, TransferUsage};

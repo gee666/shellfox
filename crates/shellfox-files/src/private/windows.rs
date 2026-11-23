@@ -1,8 +1,11 @@
 //! Windows private objects: owner is the current user and the DACL is exactly the protected
 //! owner-only DACL (plus SYSTEM for app directories). Creation passes that DACL to
 //! `NtCreateFile`, so there is no window with inherited permissions.
+use super::windows_acl::{
+    require_private_acl, trusted_app_parent, trusted_parent as trusted, Security,
+};
 use super::Parent;
-use crate::{private_security::Security, FileError, Result};
+use crate::{FileError, Result};
 use std::{
     ffi::OsStr,
     fs::File,
@@ -122,7 +125,7 @@ fn plain(file: &File, directory: bool) -> Result<()> {
     let kind = if directory {
         info.is_dir()
     } else {
-        info.is_file() && crate::private_verify::links(file)? == 1
+        info.is_file() && crate::handle::link_count(file)? == 1
     };
     if !kind || info.file_attributes() & 0x400 != 0 {
         return Err(FileError::denied());
@@ -133,19 +136,14 @@ fn plain(file: &File, directory: bool) -> Result<()> {
 pub(super) fn trusted_parent(parent: &File, policy: Parent) -> Result<()> {
     plain(parent, true)?;
     match policy {
-        Parent::Private => crate::private_parent_windows::verify(parent),
-        Parent::App => crate::private_parent_windows::verify_app_directory_parent(parent),
+        Parent::Private => trusted(parent),
+        Parent::App => trusted_app_parent(parent),
     }
 }
 
 pub(super) fn require_private(file: &File, directory: bool) -> Result<()> {
     plain(file, directory)?;
-    Security::new(directory)?.require_owner(file)?;
-    crate::journal_private::fingerprint_kind(
-        &cap_std::fs::File::from_std(file.try_clone()?),
-        directory,
-    )?;
-    Ok(())
+    require_private_acl(file, directory)
 }
 
 pub(super) fn create_dir(parent: &File, name: &OsStr, app: bool) -> Result<File> {
@@ -216,13 +214,19 @@ pub(super) fn open_file_for_delete(parent: &File, name: &OsStr) -> Result<File> 
         },
     )
 }
-pub(super) fn create_file(parent: &File, name: &OsStr) -> Result<File> {
+/// `deletable`: the handle itself may rename or delete the file. User-file stages are
+/// renamed by a separate handle, which cannot open while this one holds DELETE.
+pub(super) fn create_file(parent: &File, name: &OsStr, deletable: bool) -> Result<File> {
     let security = Security::new(false)?;
     nt_open(
         parent,
         name,
         Request {
-            access: FILE_CREATE,
+            access: if deletable {
+                FILE_CREATE
+            } else {
+                FILE_CREATE & !DELETE
+            },
             sharing: SHARE_ALL,
             directory: false,
             create: Some(&security),

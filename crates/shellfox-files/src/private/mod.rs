@@ -18,6 +18,10 @@ use unix as native;
 mod windows;
 #[cfg(windows)]
 use windows as native;
+#[cfg(windows)]
+mod windows_acl;
+#[cfg(all(windows, test))]
+pub(crate) use windows_acl::current_sid;
 
 #[cfg(test)]
 mod tests;
@@ -244,7 +248,7 @@ pub(crate) fn write_checked(
         name.to_string_lossy(),
         uuid::Uuid::new_v4().simple()
     ));
-    let mut stage = native::create_file(parent, &temp)?;
+    let mut stage = native::create_file(parent, &temp, true)?;
     let result = (|| {
         stage.write_all(bytes)?;
         stage.sync_all()?;
@@ -299,4 +303,20 @@ pub(crate) fn make_test_private(file: &File) {
 
 pub(crate) fn require_private_dir(file: &File) -> Result<()> {
     native::require_private(file, true)
+}
+
+/// An empty owner-only temp file next to a user file, for staged saves. On Unix the parent
+/// must not be writable by other users, so nobody else can swap the name before the rename.
+pub(crate) fn create_stage(parent: &File, name: &OsStr) -> Result<File> {
+    #[cfg(unix)]
+    native::trusted_parent(parent, Parent::Private)?;
+    native::create_file(parent, name, false)
+}
+
+/// Flushes a directory after a rename into it. Best effort: the new name is already visible,
+/// so a failed flush does not turn a completed write into a reported failure.
+pub(crate) fn sync_dir(dir: &cap_std::fs::Dir) {
+    if let Ok(file) = dir.try_clone() {
+        let _ = native::sync_dir(&file.into_std_file());
+    }
 }

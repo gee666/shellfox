@@ -126,7 +126,7 @@ pub(crate) fn grant_everyone(file: &File, write: bool) {
         CreateWellKnownSid, InitializeAcl, WinWorldSid, ACL, DACL_SECURITY_INFORMATION,
         PROTECTED_DACL_SECURITY_INFORMATION,
     };
-    let owner = crate::private_security::current_sid().unwrap();
+    let owner = crate::private::current_sid().unwrap();
     let mut world = [0usize; 9];
     let mut length = std::mem::size_of_val(&world) as u32;
     let mut storage = [0usize; 64];

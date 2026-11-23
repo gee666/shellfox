@@ -6,7 +6,6 @@ use std::{
 };
 use uuid::Uuid;
 #[cfg(test)]
-#[path = "stream_tests.rs"]
 mod tests;
 
 struct Lease {

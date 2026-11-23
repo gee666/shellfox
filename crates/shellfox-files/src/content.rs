@@ -145,7 +145,6 @@ pub(crate) fn validate_revision(value: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "content_snapshot_tests.rs"]
 mod snapshot_tests;
 
 pub(crate) fn image_mime(bytes: &[u8]) -> Option<&'static str> {

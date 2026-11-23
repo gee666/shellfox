@@ -87,8 +87,7 @@ fn read_only_and_revoked_capabilities_cannot_mutate() {
 }
 
 #[cfg(windows)]
-#[path = "windows_junction.rs"]
-mod windows_junction;
+use crate::support::junction as windows_junction;
 
 fn directory_link(from: &Path, to: &Path) {
     #[cfg(unix)]

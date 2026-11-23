@@ -36,7 +36,7 @@ fn editor_admission_matches_review_state_and_keeps_host_namespace_untouched() {
     assert!(!options.data_dir.exists());
 }
 #[test]
-fn retained_production_composition_uses_real_user_authority_and_v2_cas_without_host_writes() {
+fn production_composition_saves_with_revision_checks_and_no_host_writes() {
     let scratch = Scratch::new();
     let options = scratch.options();
     let user = scratch.0.join("document.txt");
@@ -68,49 +68,9 @@ fn retained_production_composition_uses_real_user_authority_and_v2_cas_without_h
         .unwrap();
     assert_eq!(std::fs::read(user).unwrap(), b"new");
     assert!(!options.data_dir.exists());
-    let journal = options
-        .desktop_dir
-        .join("file-editor/file-transfer-stages-v2.json");
-    assert_eq!(
-        std::fs::read(journal).unwrap(),
-        br#"{"version":2,"entries":[]}"#
-    );
+    assert!(!options.desktop_dir.join("file-editor").exists());
     drop(session);
     drop(same);
     drop(backend);
     drop(frontend.preserve());
-}
-#[test]
-fn production_reopen_preserves_v1_next_lease_and_unrelated_stage_bytes() {
-    let scratch = Scratch::new();
-    let options = scratch.options();
-    let mut frontend = FrontendDirectories::plan(&options).unwrap();
-    frontend.prepare().unwrap();
-    drop(frontend.prepare_editor().unwrap());
-    drop(frontend.preserve());
-    let root = options.desktop_dir.join("file-editor");
-    let legacy = root.join("file-transfer-stages.json");
-    let next = root.join(".file-transfer-stages.next");
-    let lease = root.join(".file-transfer-stages.lock");
-    let outside = scratch.0.join("old-stage.partial");
-    for (path, bytes) in [
-        (&legacy, b"legacy unknown".as_slice()),
-        (&next, b"keep next"),
-        (&lease, b"keep lease"),
-        (&outside, b"unrelated user draft"),
-    ] {
-        std::fs::write(path, bytes).unwrap();
-    }
-    let mut reopened = FrontendDirectories::plan(&options).unwrap();
-    reopened.prepare().unwrap();
-    drop(reopened.prepare_editor().unwrap());
-    for (path, bytes) in [
-        (&legacy, b"legacy unknown".as_slice()),
-        (&next, b"keep next"),
-        (&lease, b"keep lease"),
-        (&outside, b"unrelated user draft"),
-    ] {
-        assert_eq!(std::fs::read(path).unwrap(), bytes);
-    }
-    drop(reopened.preserve());
 }

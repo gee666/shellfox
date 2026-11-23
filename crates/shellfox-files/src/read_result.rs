@@ -26,7 +26,7 @@ pub enum ReadResult {
     },
 }
 impl FileService {
-    /// Legacy inline read semantics, including actual MIME and binary fallback above the editor limit.
+    /// Bounded inline read with the detected MIME type; non-text files return metadata only.
     pub fn read_file(&self, input: &Location) -> Result<ReadResult> {
         let target = self.target(&input.path)?;
         let (bytes, _) = content::read(

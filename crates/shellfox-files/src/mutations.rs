@@ -64,8 +64,6 @@ impl FileService {
         let _guard = Self::mutation_lock()?;
         self.authorized(true)?;
         let target = self.target(path)?;
-        #[cfg(unix)]
-        crate::private_verify::parent(&target.parent.try_clone()?.into_std_file())?;
         let previous = if let Some(expected) = revision {
             let mut file = content::open_regular(&target.parent, &target.name)?;
             let (bytes, info) = content::read(&mut file, TEXT_BYTES)?;
@@ -86,11 +84,11 @@ impl FileService {
             parent: &target.parent,
             name: stage_name.clone(),
             publication_entered: false,
-            file: target
-                .parent
-                .open_with(&stage_name, &platform::stage_options())?,
+            file: File::from_std(crate::private::create_stage(
+                &target.parent.try_clone()?.into_std_file(),
+                stage_name.as_os_str(),
+            )?),
         };
-        crate::upload_private::protect_file(&stage.file)?;
         stage.file.write_all(text.as_bytes())?;
         if let Some((file, _)) = &previous {
             platform::preserve_permissions(file, &stage.file)?;
@@ -132,8 +130,7 @@ impl FileService {
         } else {
             platform::rename_user_new_checked(&source, &target, &stage.file, &check)?;
         }
-        #[cfg(unix)]
-        crate::platform_directory_sync::sync_directory(&target.parent)?;
+        crate::private::sync_dir(&target.parent);
         Ok(written)
     }
 

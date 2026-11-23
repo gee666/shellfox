@@ -3,19 +3,11 @@ use crate::{
     paths::{self, Target},
     *,
 };
-#[path = "journal_anchor.rs"]
-pub(crate) mod journal_anchor;
-#[path = "native_directory_adapter.rs"]
-pub(crate) mod native_directory_adapter;
-#[path="cap_private_metadata.rs"]
-pub(crate) mod cap_private_metadata;
-#[path = "service_resolution.rs"]
-mod resolution;
-#[path = "service/native.rs"]
-mod native;
-#[path = "browser_paths.rs"]
 mod browser_paths;
+mod native;
+mod resolution;
 use cap_std::fs::Dir;
+pub use native::NativeCommitFence;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -24,7 +16,9 @@ use std::{
     },
 };
 
-// Match the TS host's cross-view save serialization, including separate service instances.
+/// Held from the revision or version check through the rename that commits it, so two
+/// writers in this process (any service instance) cannot both pass the same check.
+/// Other processes are not covered; see docs/files-api.md.
 pub(crate) static MUTATIONS: Mutex<()> = Mutex::new(());
 
 struct Root {
@@ -32,8 +26,10 @@ struct Root {
     resolution: RootResolution,
 }
 enum RootResolution {
+    /// An approved directory path; requests may be absolute paths under it.
     PathBound { path: PathBuf },
-    AnchoredRelative { diagnostic_label: String },
+    /// A held private directory; requests are relative names only.
+    HandleOnly,
 }
 
 pub struct FileService {
@@ -43,7 +39,6 @@ pub struct FileService {
     revoked: Arc<AtomicBool>,
     inherited_revocations: Vec<Arc<AtomicBool>>,
     native_commit_fences: Vec<Arc<dyn NativeCommitFence>>,
-    pub(crate) plan_creations: Arc<Mutex<crate::directory_plan::create::CreationLedger>>,
 }
 
 impl FileService {
@@ -60,7 +55,6 @@ impl FileService {
             revoked: Arc::new(AtomicBool::new(false)),
             inherited_revocations: Vec::new(),
             native_commit_fences: Vec::new(),
-            plan_creations: Arc::default(),
         })
     }
 
@@ -74,7 +68,6 @@ impl FileService {
             revoked: Arc::new(AtomicBool::new(false)),
             inherited_revocations: Vec::new(),
             native_commit_fences: Vec::new(),
-            plan_creations: Arc::default(),
         }
     }
 
@@ -94,7 +87,6 @@ impl FileService {
             revoked: Arc::new(AtomicBool::new(false)),
             inherited_revocations: Vec::new(),
             native_commit_fences: Vec::new(),
-            plan_creations: Arc::default(),
         }
     }
     pub fn capability_kind(&self) -> CapabilityKind {
@@ -136,37 +128,10 @@ impl FileService {
         }
         Ok(())
     }
-    /// Held native directory, narrower scope and the original revocation chain.
-    /// Child revocation does not revoke its parent; parent revocation fences it.
-    pub(crate) fn derive_root(&self, path: PathBuf, dir: Dir) -> Result<Self> {
-        self.require_path_resolution()?;
-        self.derive_bound_root(
-            Root {
-                dir,
-                resolution: RootResolution::PathBound { path },
-            },
-            None,
-        )
-    }
-    fn derive_bound_root(
-        &self,
-        root: Root,
-        additional: Option<Arc<dyn NativeCommitFence>>,
-    ) -> Result<Self> {
+    /// A narrower root that keeps this one's fences and revocation chain. Revoking the child
+    /// does not revoke the parent; revoking the parent fences the child.
+    fn derive_bound_root(&self, root: Root) -> Result<Self> {
         self.can_derive_root()?;
-        let mut fences = self.native_commit_fences.clone();
-        if let Some(fence) = additional {
-            fence.check()?;
-            if !fences.iter().any(|existing| Arc::ptr_eq(existing, &fence)) {
-                if fences.len() >= 32 {
-                    return Err(FileError::new(
-                        ErrorCode::Unsupported,
-                        "Native commit restriction ancestry exceeds its bound.",
-                    ));
-                }
-                fences.push(fence);
-            }
-        }
         let mut inherited = self.inherited_revocations.clone();
         inherited.push(self.revoked.clone());
         Ok(Self {
@@ -175,8 +140,7 @@ impl FileService {
             access: self.access,
             revoked: Arc::new(AtomicBool::new(false)),
             inherited_revocations: inherited,
-            native_commit_fences: fences,
-            plan_creations: self.plan_creations.clone(),
+            native_commit_fences: self.native_commit_fences.clone(),
         })
     }
     pub(crate) fn mutation_lock() -> Result<MutexGuard<'static, ()>> {
@@ -235,10 +199,10 @@ impl FileService {
                 .then_with(|| a.name.cmp(&b.name))
         });
         let parent_path = if self.root_path().is_some_and(|root| root == path)
-            || self.is_anchored_relative() && path == Path::new(".")
+            || self.is_private_scope() && path == Path::new(".")
         {
             None
-        } else if self.is_anchored_relative() {
+        } else if self.is_private_scope() {
             path.parent()
                 .map(|parent| {
                     if parent.as_os_str().is_empty() {

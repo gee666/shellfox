@@ -14,7 +14,7 @@ fn typed_file_reveals_parent_and_missing_path_is_not_created_by_lookup() {
     let file = root.join("reports.txt");
     fs::write(&file, "Report\n").unwrap();
     let service = Arc::new(FileService::approved_root(&root, Access::ReadWrite).unwrap());
-    let backend = EditorBackend::new(service, owned.path().join("journal")).unwrap();
+    let backend = EditorBackend::new(service).unwrap();
     let local = LocalDocumentBackend {
         service: backend.capability(),
         session: backend.session(),

@@ -83,18 +83,15 @@ impl TransferRegistry {
         input: &BeginWrite,
         auth: &dyn TransferAuthorization,
     ) -> Result<WriteStarted> {
-        // Before check/reserve: expiry can drop stages and persist their journal.
-        staged_write::require_user_stage_contract(&capability)?;
         staged_write::validate(input, self.limits.max_file_bytes)?;
         self.check(actor, &capability, true, auth)?;
         self.reserve(actor, input.size)?;
         let check = || self.check(actor, &capability, true, auth);
-        let stage = staged_write::StagedWrite::begin_with_journal(
-            capability.clone(),
+        let stage = staged_write::StagedWrite::begin(
+            &capability,
             input,
             self.limits.max_file_bytes,
             &check,
-            self.journal.clone(),
         )?;
         let transfer_id = Uuid::new_v4();
         self.entries.insert(

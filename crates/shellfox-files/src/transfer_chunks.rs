@@ -106,7 +106,7 @@ impl TransferRegistry {
             ));
         };
         // Capture the actual stage identity before publication, not a fallible post-effect query.
-        let published=crate::HandleIdentity::from_cap_file(&stage.file)?;
+        let published = crate::HandleIdentity::from_cap_file(&stage.file)?;
         let result = stage.commit(&entry.capability, self.limits.max_file_bytes, &check)?;
         self.receipts.push_back(Receipt {
             id: input.transfer_id,

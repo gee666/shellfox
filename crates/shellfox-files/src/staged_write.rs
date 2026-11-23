@@ -20,8 +20,8 @@ pub(crate) struct StagedWrite {
     offset: u64,
     hash: Sha256,
     last: Option<(u64, usize, String)>,
-    journal: Option<crate::journal::SharedJournal>,
-    custody: Option<std::sync::Arc<crate::user_stage_custody::UserStageCustody>>,
+    /// Set just before the rename. From then on the stage may already be the target, so it
+    /// is never deleted.
     publication_entered: bool,
 }
 fn invalid(message: &str) -> FileError {
@@ -50,12 +50,6 @@ pub(crate) fn validate(input: &BeginWrite, max: u64) -> Result<()> {
     }
     Ok(())
 }
-pub(crate) fn require_user_stage_contract(service: &FileService) -> Result<()> {
-    if service.is_anchored_relative() {
-        return Err(FileError::new(ErrorCode::Unsupported,"Native user-stage writes require separately accepted target and recovery authority contracts."));
-    }
-    Ok(())
-}
 pub(crate) fn absent(target: &Target) -> Result<()> {
     match target.parent.symlink_metadata(&target.name) {
         Ok(_) => Err(FileError::conflict()),
@@ -71,36 +65,10 @@ impl StagedWrite {
         max: u64,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<Self> {
-        Self::begin_inner(service, input, max, check, None, None)
-    }
-    pub fn begin_with_journal(
-        service: std::sync::Arc<FileService>,
-        input: &BeginWrite,
-        max: u64,
-        check: &dyn Fn() -> Result<()>,
-        journal: Option<crate::journal::SharedJournal>,
-    ) -> Result<Self> {
-        require_user_stage_contract(&service)?;
-        if journal.is_none() {
-            return Err(crate::journal::invalid());
-        }
-        Self::begin_inner(&service, input, max, check, journal, Some(service.clone()))
-    }
-    fn begin_inner(
-        service: &FileService,
-        input: &BeginWrite,
-        max: u64,
-        check: &dyn Fn() -> Result<()>,
-        journal: Option<crate::journal::SharedJournal>,
-        authority: Option<std::sync::Arc<FileService>>,
-    ) -> Result<Self> {
-        require_user_stage_contract(service)?;
         validate(input, max)?;
         check()?;
         service.authorized(true)?;
         let target = service.target(&input.path)?;
-        #[cfg(unix)]
-        crate::private_verify::parent(&target.parent.try_clone()?.into_std_file())?;
         let previous = if input.mode == WriteMode::Replace {
             let mut file = content::open_regular(&target.parent, &target.name)?;
             let previous = stream_io::inspect(&mut file, &target.absolute, max, check)?;
@@ -131,27 +99,11 @@ impl StagedWrite {
             None
         };
         let name = PathBuf::from(format!(".shellfox-transfer-{}.partial", Uuid::new_v4()));
-        let stage_path = target.absolute.with_file_name(&name);
-        let custody = if let Some(journal) = &journal {
-            let authority = authority.ok_or_else(crate::journal::invalid)?;
-            if !std::ptr::eq(authority.as_ref(), service) {
-                return Err(FileError::denied());
-            }
-            let mutation = FileService::mutation_lock()?;
-            Some(
-                journal
-                    .lock()
-                    .map_err(|_| crate::journal::invalid())?
-                    .reserve_stage(authority, &input.path, &target, &name, &mutation)?,
-            )
-        } else {
-            None
-        };
-        let file = if let Some(owner) = &custody {
-            owner.create(check)?
-        } else {
-            target.parent.open_with(&name, &platform::stage_options())?
-        };
+        // Owner-only from creation, even under a broad parent ACL.
+        let file = File::from_std(crate::private::create_stage(
+            &target.parent.try_clone()?.into_std_file(),
+            name.as_os_str(),
+        )?);
         let stage = Self {
             target,
             input: input.clone(),
@@ -161,30 +113,13 @@ impl StagedWrite {
             offset: 0,
             hash: Sha256::new(),
             last: None,
-            journal,
-            custody,
             publication_entered: false,
         };
-        // A broad parent ACL must never expose uploaded/editor bytes while staging.
-        if stage.custody.is_none() {
-            crate::upload_private::protect_file(&stage.file)?;
-        }
-        if let Some(journal) = &stage.journal {
-            let mutation = FileService::mutation_lock()?;
-            journal
-                .lock()
-                .map_err(|_| crate::journal::invalid())?
-                .phase(&stage_path, crate::journal::StagePhase::Owned, &mutation)?;
-        }
         check()?;
         Ok(stage)
     }
     pub fn verify(&self, service: &FileService) -> Result<()> {
-        require_user_stage_contract(service)?;
         service.recheck_parent(&self.input.path, &self.target)?;
-        if let Some(custody) = &self.custody {
-            custody.check()?;
-        }
         let opened = content::open_regular(&self.target.parent, &self.name)?;
         if !content::same_held_file(&opened, &self.file)?
             || self.file.metadata()?.len() != self.offset
@@ -199,7 +134,6 @@ impl StagedWrite {
         input: &WriteChunk,
         check: &dyn Fn() -> Result<()>,
     ) -> Result<TransferProgress> {
-        require_user_stage_contract(service)?;
         check()?;
         self.verify(service)?;
         if input.data.is_empty() || input.data.len() > CHUNK_BYTES {
@@ -241,13 +175,8 @@ impl StagedWrite {
         })
     }
 }
-#[path = "staged_write_cleanup.rs"]
 mod cleanup;
-#[path = "staged_write_commit.rs"]
 mod commit;
 
-#[cfg(test)]
-#[path = "staged_write/native_gate_tests.rs"]
-mod native_gate_tests;
 #[cfg(test)]
 mod tests;

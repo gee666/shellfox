@@ -4,6 +4,12 @@ use crate::private::{self, Parent, PrivateDir, PrivateRead, PrivateVersion};
 use cap_fs_ext::DirExt;
 use std::ffi::OsStr;
 
+/// A host-side condition checked before every write through a scope that carries it, such as
+/// "this process still owns the data root". A failing check denies the write.
+pub trait NativeCommitFence: Send + Sync {
+    fn check(&self) -> Result<()>;
+}
+
 /// A name like `PROGRA~1` may be a Windows 8.3 alias of another directory.
 fn short_name(name: &OsStr) -> bool {
     cfg!(windows)
@@ -56,16 +62,13 @@ impl FileService {
         Ok(Arc::new(Self {
             root: Some(Root {
                 dir: Dir::from_std_file(directory),
-                resolution: RootResolution::AnchoredRelative {
-                    diagnostic_label: "private".into(),
-                },
+                resolution: RootResolution::HandleOnly,
             }),
             kind: CapabilityKind::ApprovedRoot,
             access: Access::ReadWrite,
             revoked: Arc::new(AtomicBool::new(false)),
             inherited_revocations: Vec::new(),
             native_commit_fences: vec![fence],
-            plan_creations: Arc::default(),
         }))
     }
 
@@ -174,12 +177,11 @@ impl FileService {
             revoked: Arc::new(AtomicBool::new(false)),
             inherited_revocations: Vec::new(),
             native_commit_fences: Vec::new(),
-            plan_creations: Arc::default(),
         }))
     }
 
     fn private_parent(&self) -> Result<std::fs::File> {
-        if !self.is_anchored_relative() {
+        if !self.is_private_scope() {
             return Err(unsupported());
         }
         let root = self.root.as_ref().ok_or_else(unsupported)?;
@@ -196,15 +198,10 @@ impl FileService {
             result => result?,
         };
         self.authorized(true)?;
-        Ok(Arc::new(self.derive_bound_root(
-            Root {
-                dir: Dir::from_std_file(child.into_file()),
-                resolution: RootResolution::AnchoredRelative {
-                    diagnostic_label: "private".into(),
-                },
-            },
-            None,
-        )?))
+        Ok(Arc::new(self.derive_bound_root(Root {
+            dir: Dir::from_std_file(child.into_file()),
+            resolution: RootResolution::HandleOnly,
+        })?))
     }
 
     /// Reads one private leaf. Not found is `ErrorCode::NotFound`.

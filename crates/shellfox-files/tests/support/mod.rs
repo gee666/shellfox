@@ -1,3 +1,5 @@
+#[cfg(windows)]
+pub mod junction;
 use shellfox_files::{Access, FileService, Location};
 use std::{
     fs,
@@ -7,7 +9,6 @@ use uuid::Uuid;
 
 pub struct Fixture {
     pub root: PathBuf,
-    pub metadata: PathBuf,
     pub service: FileService,
 }
 impl Default for Fixture {
@@ -24,14 +25,9 @@ impl Fixture {
         // canonicalize emits a Windows verbatim path, which is deliberately not accepted.
         let root = std::path::absolute(root).unwrap();
         let root = clean_absolute(&root);
-        let metadata = root.with_file_name(format!(
-            "{}-metadata",
-            root.file_name().unwrap().to_str().unwrap()
-        ));
         Self {
             service: FileService::approved_root(&root, Access::ReadWrite).unwrap(),
             root,
-            metadata,
         }
     }
     pub fn write(&self, name: &str, bytes: impl AsRef<[u8]>) {
@@ -50,9 +46,6 @@ impl Drop for Fixture {
         );
         drop(service);
         fs::remove_dir_all(&self.root).unwrap();
-        if self.metadata.exists() {
-            fs::remove_dir_all(&self.metadata).unwrap();
-        }
     }
 }
 pub fn clean_absolute(path: &Path) -> PathBuf {

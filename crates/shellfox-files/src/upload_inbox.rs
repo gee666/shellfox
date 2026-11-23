@@ -41,43 +41,12 @@ impl UploadInbox {
         if !root.is_absolute() || root.file_name().is_none() {
             return Err(FileError::denied());
         }
-        let issuer = Arc::new(FileService::local_desktop(Access::ReadWrite));
-        let plan = issuer.plan_directory(&Location {
-            path: crate::paths::display(&root)?,
-        })?;
-        let capability = match plan.create_private_approved_root() {
-            Ok(root) => root,
-            Err(mut failure) => {
-                failure
-                    .preserve_stale()
-                    .map_err(|_| crate::journal::invalid())?;
-                return Err(FileError::new(
-                    failure.error().code,
-                    &failure.error().message,
-                ));
-            }
-        };
-        let metadata_plan = capability.plan_directory(&Location {
-            path: ".shellfox-transfer-meta".into(),
-        })?;
-        let metadata = match metadata_plan.create_private_approved_root() {
-            Ok(root) => root,
-            Err(mut failure) => {
-                failure
-                    .preserve_stale()
-                    .map_err(|_| crate::journal::invalid())?;
-                return Err(FileError::new(
-                    failure.error().code,
-                    &failure.error().message,
-                ));
-            }
-        };
+        let capability = FileService::private_root(&root)?;
         let mut registry = TransferRegistry::new(TransferLimits {
             max_file_bytes: limits.max_file_bytes,
             idle_ttl: limits.active_ttl,
         })?;
         registry.staging_limit = (512 * 1024 * 1024).max(limits.max_file_bytes * 2);
-        registry.initialize_journal_anchored(metadata)?;
         let mut inbox = Self {
             root,
             capability,
@@ -91,7 +60,6 @@ impl UploadInbox {
         };
         inbox.restore()?;
         inbox.expire_saved()?;
-        // V2 owns live stage custody; prior unknown partials are preserved, never adopted.
         Ok(inbox)
     }
     pub fn root_path(&self) -> &Path {
@@ -117,11 +85,10 @@ impl UploadInbox {
         auth.check(actor)
     }
     pub(crate) fn verify_root(&self) -> Result<()> {
-        self.capability.require_path_resolution()?;
         self.capability.authorized(true)?;
         let (base, relative, _) = self.capability.base(".")?;
         let directory = crate::paths::descend(base, &relative)?;
-        crate::private_verify::object(&directory.into_std_file(), PrivateKind::Directory)?;
+        crate::private::require_private_dir(&directory.into_std_file())?;
         Ok(())
     }
     pub(crate) fn selected(&self, actor: &UploadActor, id: Uuid) -> Result<PendingUpload> {

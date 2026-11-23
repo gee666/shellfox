@@ -13,8 +13,6 @@ pub struct TransferRegistry {
     pub(crate) receipts: VecDeque<Receipt>,
     pub(crate) disposed: bool,
     pub(crate) staging_limit: u64,
-    pub(crate) journal: Option<crate::journal::SharedJournal>,
-    pub(crate) initialized: bool,
 }
 pub(crate) struct Transfer {
     pub actor: TransferActor,
@@ -66,8 +64,6 @@ impl TransferRegistry {
             entries: HashMap::new(),
             receipts: VecDeque::new(),
             disposed: false,
-            journal: None,
-            initialized: false,
         })
     }
     pub fn usage(&self) -> TransferUsage {
@@ -93,19 +89,6 @@ impl TransferRegistry {
     ) -> Result<()> {
         if self.disposed {
             return Err(FileError::denied());
-        }
-        if !self.initialized {
-            return Err(FileError::new(
-                ErrorCode::StorageFailed,
-                "Initialize the private transfer journal before enabling transfers.",
-            ));
-        }
-        if let Some(journal) = &self.journal {
-            journal
-                .lock()
-                .map_err(|_| crate::journal::invalid())?
-                .root
-                .check()?;
         }
         capability.authorized(write)?;
         auth.check(actor, capability, write)
@@ -190,7 +173,6 @@ impl TransferRegistry {
         self.disposed = true;
         self.entries.clear();
         self.receipts.clear();
-        self.journal = None;
     }
 }
 pub(crate) fn missing() -> FileError {

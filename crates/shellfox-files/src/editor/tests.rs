@@ -18,11 +18,13 @@ impl Fixture {
         fs::create_dir_all(root.join("user")).unwrap();
         let capability =
             Arc::new(FileService::approved_root(root.join("user"), Access::ReadWrite).unwrap());
-        let mut registry = TransferRegistry::new(TransferLimits::default()).unwrap();
-        registry.initialize_journal(root.join("metadata")).unwrap();
+        let registry = TransferRegistry::new(TransferLimits::default()).unwrap();
         Self {
             root,
-            session: Arc::new(EditorSession::new(capability, Arc::new(Mutex::new(registry)))),
+            session: Arc::new(EditorSession::new(
+                capability,
+                Arc::new(Mutex::new(registry)),
+            )),
         }
     }
     fn location(&self) -> Location {
@@ -35,12 +37,11 @@ impl Fixture {
     }
     fn clean(&self) {
         assert_eq!(self.session.registry.lock().unwrap().usage().active, 0);
-        assert_eq!(fs::read_dir(self.root.join("user")).unwrap().count(), 1);
-        let journal: serde_json::Value = serde_json::from_slice(
-            &fs::read(self.root.join("metadata/file-transfer-stages-v2.json")).unwrap(),
-        )
-        .unwrap();
-        assert!(journal["entries"].as_array().unwrap().is_empty());
+        assert_eq!(
+            fs::read_dir(self.root.join("user")).unwrap().count(),
+            1,
+            "no stage left"
+        );
     }
 }
 impl Drop for Fixture {
@@ -97,12 +98,10 @@ fn exact_eight_mib_editor_round_trip_preserves_bom_crlf_and_split_utf8() {
     f.clean();
 }
 #[test]
-fn one_app_backend_shares_a_stable_journal_and_separate_window_sessions_conflict_safely() {
+fn window_sessions_of_one_backend_conflict_safely() {
     let f = Fixture::new();
     fs::write(f.path(), "old").unwrap();
-    let directory = f.root.join("desktop/file-editor");
-    let backend = Arc::new(EditorBackend::new(f.session.capability.clone(), &directory).unwrap());
-    assert!(EditorBackend::new(f.session.capability.clone(), &directory).is_err());
+    let backend = Arc::new(EditorBackend::new(f.session.capability.clone()).unwrap());
     let first = backend.session();
     let second = backend.session();
     let a = first
@@ -139,7 +138,7 @@ fn one_app_backend_shares_a_stable_journal_and_separate_window_sessions_conflict
     drop(first);
     drop(second);
     drop(backend);
-    let reopened = EditorBackend::new(f.session.capability.clone(), &directory).unwrap();
+    let reopened = EditorBackend::new(f.session.capability.clone()).unwrap();
     assert_eq!(
         reopened
             .session()
@@ -231,7 +230,11 @@ fn image_and_asset_reads_use_the_chunked_limit_and_release_rejected_transfers() 
         path: "document.md".into(),
         asset_path: location.path.clone(),
     };
-    fs::write(f.path().with_file_name(&asset.path), "![preview](preview.png)").unwrap();
+    fs::write(
+        f.path().with_file_name(&asset.path),
+        "![preview](preview.png)",
+    )
+    .unwrap();
     let beyond_inline = 2 * 1024 * 1024 + 1;
     file.set_len(beyond_inline).unwrap();
     assert!(matches!(

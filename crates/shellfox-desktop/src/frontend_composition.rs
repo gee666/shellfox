@@ -1,4 +1,4 @@
-//! The frontend's private state directories: UI, per-window run, device config and editor.
+//! The frontend's private state directories: UI, per-window run and device config.
 //! `Options::parse` keeps them apart from the host root; `FileService::private_root`
 //! refuses links, junctions and name aliases while creating them.
 #[cfg(test)]
@@ -16,8 +16,7 @@ pub(crate) struct FrontendPlans {
     ui: PathBuf,
     device: PathBuf,
     run: PathBuf,
-    editor: PathBuf,
-    /// Document authority for the editor; separate from the private metadata roots.
+    /// Document authority for the editor.
     files: Arc<FileService>,
 }
 #[derive(Clone, Copy)]
@@ -25,7 +24,6 @@ enum SensitiveRoot {
     Ui,
     Run,
     Device,
-    Editor,
 }
 pub(crate) struct FrontendDirectories {
     plans: FrontendPlans,
@@ -34,7 +32,6 @@ pub(crate) struct FrontendDirectories {
     run: Option<Arc<FileService>>,
     device: Option<Arc<FileService>>,
     editor: Option<Arc<shellfox_files::EditorBackend>>,
-    metadata: Option<Arc<FileService>>,
 }
 impl FrontendDirectories {
     /// Validates the configured paths. Creates nothing.
@@ -46,7 +43,6 @@ impl FrontendDirectories {
             run: None,
             device: None,
             editor: None,
-            metadata: None,
         })
     }
     pub fn prepare(&mut self) -> Result<()> {
@@ -73,7 +69,6 @@ impl FrontendDirectories {
             SensitiveRoot::Ui => &self.plans.ui,
             SensitiveRoot::Run => &self.plans.run,
             SensitiveRoot::Device => &self.plans.device,
-            SensitiveRoot::Editor => &self.plans.editor,
         };
         FileService::private_root(path).map_err(|error| {
             self.failed = true;
@@ -82,7 +77,7 @@ impl FrontendDirectories {
     }
     /// Each prepared root still opens the directory it was created with.
     pub fn revalidate(&self) -> Result<()> {
-        for root in [&self.ui, &self.run, &self.device, &self.metadata]
+        for root in [&self.ui, &self.run, &self.device]
             .into_iter()
             .flatten()
         {
@@ -104,16 +99,14 @@ impl FrontendDirectories {
             .cloned()
             .context("Device capability is unavailable")
     }
-    /// The editor gets the local account document authority plus a private metadata root.
+    /// The editor works with the local account document authority.
     pub fn prepare_editor(&mut self) -> Result<Arc<shellfox_files::EditorBackend>> {
         ensure!(!self.failed, "Frontend preparation failed; it is not retried");
         self.revalidate()?;
         if let Some(editor) = &self.editor {
             return Ok(editor.clone());
         }
-        let metadata = self.create_private(SensitiveRoot::Editor)?;
-        self.metadata = Some(metadata.clone());
-        match shellfox_files::EditorBackend::new_anchored(self.plans.files.clone(), metadata) {
+        match shellfox_files::EditorBackend::new(self.plans.files.clone()) {
             Ok(editor) => {
                 let editor = Arc::new(editor);
                 self.editor = Some(editor.clone());
@@ -128,7 +121,7 @@ impl FrontendDirectories {
     /// Keeps the prepared scopes open for the caller's outcome reporting.
     pub fn preserve(self) -> PreservedFrontendOwner {
         PreservedFrontendOwner::new(
-            [self.ui, self.run, self.device, self.metadata]
+            [self.ui, self.run, self.device]
                 .into_iter()
                 .flatten()
                 .collect(),
@@ -147,12 +140,10 @@ fn location(path: &Path) -> Result<Location> {
     })
 }
 pub(crate) fn inspect(options: &Options) -> Result<FrontendPlans> {
-    let editor = options.desktop_dir.join("file-editor");
     for path in [
         &options.desktop_dir,
         &options.device_config_root,
         &options.run_dir,
-        &editor,
     ] {
         location(path)?;
         FileService::check_private_root(path)
@@ -162,7 +153,6 @@ pub(crate) fn inspect(options: &Options) -> Result<FrontendPlans> {
         ui: options.desktop_dir.clone(),
         device: options.device_config_root.clone(),
         run: options.run_dir.clone(),
-        editor,
         files: Arc::new(FileService::local_desktop(Access::ReadWrite)),
     })
 }
