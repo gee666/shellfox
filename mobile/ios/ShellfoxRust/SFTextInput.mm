@@ -70,7 +70,9 @@ static const NSUInteger Backspace = 53, Enter = 58, Tab = 64;
   }
   // Each edit is sent whole; an editor past one write's worth starts over.
   if ([full lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 60000) { [self clearEditor]; return; }
-  NSString *typed = [full hasPrefix:_reported] ? [full substringFromIndex:_reported.length] : nil;
+  // -hasPrefix: is NO for an empty prefix, so an empty editor is checked first.
+  NSString *typed = !_reported.length ? full
+    : [full hasPrefix:_reported] ? [full substringFromIndex:_reported.length] : nil;
   if (self.stickyModifiers && typed.length) {
     // A held key-bar modifier applies to the characters just typed.
     NSUInteger modifiers = self.stickyModifiers;

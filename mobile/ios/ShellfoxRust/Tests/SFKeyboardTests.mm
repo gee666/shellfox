@@ -91,8 +91,9 @@ static void Replace(SFTextInput *input, NSUInteger start, NSUInteger length, NSS
     XCTAssertEqualObjects(line, @"ok 👍🏽");
     [input deleteBackward];
     XCTAssertEqualObjects(line, @"ok ");
+    // Backspace inside a composition: the keyboard sets the shorter marked text.
     [input setMarkedText:@"wo" selectedRange:NSMakeRange(2, 0)];
-    [input deleteBackward];
+    [input setMarkedText:@"w" selectedRange:NSMakeRange(1, 0)];
     XCTAssertEqualObjects(line, @"ok ");
     [input unmarkText];
     XCTAssertEqualObjects(line, @"ok w");
@@ -131,11 +132,19 @@ static void Replace(SFTextInput *input, NSUInteger start, NSUInteger length, NSS
 }
 - (void)testStickyModifierWithReturnIsEnterAndTabEndsTheEditor {
   [self runKeyboard:^(SFTextInput *input, NSMutableString *line, NSMutableArray<NSString *> *submitted) {
+    __block NSMutableArray *keys = [NSMutableArray new];
+    void (^original)(NSDictionary *) = input.sendEvent;
+    input.sendEvent = ^(NSDictionary *event) { if ([event[@"type"] isEqual:@"key"]) [keys addObject:event[@"event"]]; original(event); };
     [input insertText:@"ls"];
     input.stickyModifiers = 2;
     [input insertText:@"\n"];
     input.stickyModifiers = 0;
-    XCTAssertEqualObjects(submitted, @[@"ls"]);
+    // Ctrl+Enter, not text: Ghostty encodes it (CSI 27;5;13~ here).
+    XCTAssertEqualObjects(keys.firstObject[@"physical"], @58);
+    XCTAssertEqualObjects(keys.firstObject[@"modifiers"], @2);
+    XCTAssertEqualObjects(keys.firstObject[@"text"], @"");
+    XCTAssertTrue([line hasPrefix:@"ls\x1b["]);
+    [line setString:@""];
     [input insertText:@"cd \t"];
     XCTAssertEqualObjects(line, @"cd \t");
     // After Tab the editor starts over: Backspace reaches the terminal.
