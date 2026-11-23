@@ -62,8 +62,12 @@ jobs:
       - name: Retained C control-flow model
         run: node scripts/darwin-supervisor-model-test.mjs
       - name: Native PTY ownership
+        # A failure shows where the error came from.
+        env:
+          RUST_LIB_BACKTRACE: '1'
         run: cargo test --locked -p shellfox-terminal --features test-support --test unix_native -- --ignored --test-threads=1
       - name: Scoped Clippy
+        if: ${{ !cancelled() }}
         run: cargo clippy --locked -p shellfox-terminal --features test-support --all-targets -- -D warnings
       - name: Retain native helper evidence
         if: always() && runner.os == 'macOS'
