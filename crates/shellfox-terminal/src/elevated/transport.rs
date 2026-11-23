@@ -23,7 +23,7 @@ pub trait HelperIo {
     fn distrust_output(&mut self) {}
     /// Called before attempting a launch frame, including unknown partial sends.
     fn launch_started(&mut self) {}
-    /// Isolated protocol final exit includes elevated peer HANDLE exit proof.
+    /// The helper's final exit frame, which follows its Job cleanup.
     fn peer_exit_confirmed(&mut self) {}
     /// Requires the protocol proof first; native implementations also join pipes
     /// and confirm the original launcher. Timeout retains every remaining owner.

@@ -6,8 +6,7 @@ use serde_json::json;
 #[test]
 fn private_launch_precedes_ready_and_utf8_remains_raw_until_terminal_parser() {
     let (mut channel, io) = start();
-    assert_eq!(sent(&io)[0]["type"], "launch-isolated");
-    assert!(sent(&io)[0]["isolationRoot"].is_string());
+    assert_eq!(sent(&io)[0]["type"], "launch");
     assert_eq!(channel.phase(), Phase::Starting);
     assert_eq!(
         channel.write(generation(), b"x"),

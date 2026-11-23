@@ -130,37 +130,15 @@ fn launch_fields_and_runtime_hooks_are_validated_before_any_process_can_start() 
 }
 
 #[test]
-fn additive_isolated_capability_is_strict_and_not_a_loader_permission() {
-    let good = br#"{"protocol":"shellfox-elevated-isolated","version":1,"shell":"windows-powershell","noProfile":true}"#;
-    assert_eq!(
-        Capability::parse_probe(good).unwrap(),
-        Capability::IsolatedV1
-    );
-    Capability::IsolatedV1.require_isolated().unwrap();
-    for value in [
-        json!({"protocol":"shellfox-elevated-isolated","version":2,"shell":"windows-powershell","noProfile":true}),
-        json!({"protocol":"shellfox-elevated-isolated","version":1,"shell":"pwsh","noProfile":true}),
-        json!({"protocol":"shellfox-elevated-isolated","version":1,"shell":"windows-powershell","noProfile":false}),
-        json!({"protocol":"shellfox-elevated-isolated","version":1,"shell":"windows-powershell","noProfile":true,"loaderPolicy":true}),
+fn probe_accepts_only_the_v1_line() {
+    use super::super::launch::parse_probe;
+    parse_probe(b"shellfox-elevated-conpty-v1\r\n").unwrap();
+    for line in [
+        &b"shellfox-elevated-conpty-v2"[..],
+        br#"{"protocol":"shellfox-elevated-isolated","version":1,"shell":"windows-powershell","noProfile":true}"#,
     ] {
-        assert_eq!(
-            Capability::parse_probe(&serde_json::to_vec(&value).unwrap()),
-            Err(AdapterError::InvalidProtocol)
-        );
+        assert_eq!(parse_probe(line), Err(AdapterError::InvalidProtocol));
     }
-}
-
-#[test]
-fn retained_v1_capability_never_enables_account_profile_loading_in_experiment() {
-    let capability = Capability::parse_probe(b"shellfox-elevated-conpty-v1\r\n").unwrap();
-    assert_eq!(
-        capability.require_isolated(),
-        Err(AdapterError::IsolatedModeUnavailable)
-    );
-    assert_eq!(
-        Capability::parse_probe(b"shellfox-elevated-conpty-v2"),
-        Err(AdapterError::InvalidProtocol)
-    );
 }
 
 #[test]

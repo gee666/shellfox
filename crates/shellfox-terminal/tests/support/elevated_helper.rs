@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     let mut input = io::stdin().lock();
     let launch = receive(&mut input)?.ok_or_else(|| io::Error::other("missing fixture launch"))?;
     anyhow::ensure!(
-        launch["type"] == "launch-isolated" && launch["isolationRoot"].is_string(),
+        launch["type"] == "launch" && launch["cwd"].is_string(),
         "invalid fixture launch"
     );
     if scenario == "cancelled" {

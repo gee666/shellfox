@@ -1,50 +1,15 @@
 use super::wire::{encode, AdapterError};
-#[cfg(windows)]
-use crate::EnvironmentPolicy;
-use serde::{Deserialize, Serialize};
-#[cfg(windows)]
-use std::path::Path;
+use serde::Serialize;
 use std::{collections::BTreeMap, path::PathBuf};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Capability {
-    RetainedV1,
-    IsolatedV1,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct IsolatedProbe {
-    protocol: String,
-    version: u8,
-    shell: String,
-    no_profile: bool,
-}
-impl Capability {
-    /// Parsing a probe is protocol validation, not a loader-policy grant or UAC
-    /// approval. The real factory additionally binds it to the verified bundle.
-    pub fn parse_probe(output: &[u8]) -> Result<Self, AdapterError> {
-        if std::str::from_utf8(output).map(str::trim) == Ok("shellfox-elevated-conpty-v1") {
-            return Ok(Self::RetainedV1);
-        }
-        if output.len() > 2048 {
-            return Err(AdapterError::InvalidProtocol);
-        }
-        let probe: IsolatedProbe =
-            serde_json::from_slice(output).map_err(|_| AdapterError::InvalidProtocol)?;
-        if probe.protocol != "shellfox-elevated-isolated"
-            || probe.version != 1
-            || probe.shell != "windows-powershell"
-            || !probe.no_profile
-        {
-            return Err(AdapterError::InvalidProtocol);
-        }
-        Ok(Self::IsolatedV1)
-    }
-    pub fn require_isolated(self) -> Result<(), AdapterError> {
-        match self {
-            Self::IsolatedV1 => Ok(()),
-            Self::RetainedV1 => Err(AdapterError::IsolatedModeUnavailable),
-        }
+/// The helper's `probe` line. Parsing it is protocol validation, not a
+/// loader-policy grant or UAC approval.
+#[cfg(any(windows, test))]
+pub(super) fn parse_probe(output: &[u8]) -> Result<(), AdapterError> {
+    if std::str::from_utf8(output).map(str::trim) == Ok("shellfox-elevated-conpty-v1") {
+        Ok(())
+    } else {
+        Err(AdapterError::InvalidProtocol)
     }
 }
 
@@ -52,31 +17,12 @@ impl Capability {
 pub struct Launch {
     #[serde(rename = "type")]
     kind: &'static str,
-    #[serde(rename = "isolationRoot", skip_serializing_if = "Option::is_none")]
-    isolation_root: Option<PathBuf>,
     cwd: PathBuf,
     env: BTreeMap<String, String>,
     cols: u16,
     rows: u16,
 }
 impl Launch {
-    #[cfg(windows)]
-    pub fn isolated(
-        cwd: &Path,
-        root: &Path,
-        cols: u16,
-        rows: u16,
-        policy: EnvironmentPolicy,
-    ) -> Result<Self, AdapterError> {
-        let root = super::isolated_env::local_directory(root)?;
-        let cwd = super::isolated_env::local_directory(cwd)?;
-        if root.parent().is_none() {
-            return Err(AdapterError::InvalidLaunch);
-        }
-        let env = super::isolated_env::environment(&root, policy)?;
-        Self::validated("launch-isolated", cwd, Some(root), env, cols, rows)
-    }
-
     #[cfg(windows)]
     pub(super) fn interactive(config: &crate::PtyConfig) -> Result<Self, AdapterError> {
         let cwd = crate::environment::lookup_path(config.cwd.clone());
@@ -100,28 +46,22 @@ impl Launch {
                 env.insert(key.to_uppercase(), value.into());
             }
         }
-        Self::validated("launch", cwd, None, env, config.cols, config.rows)
+        Self::validated(cwd, env, config.cols, config.rows)
     }
 
     #[cfg(any(windows, test, feature = "test-support"))]
     fn validated(
-        kind: &'static str,
         cwd: PathBuf,
-        isolation_root: Option<PathBuf>,
         env: BTreeMap<String, String>,
         cols: u16,
         rows: u16,
     ) -> Result<Self, AdapterError> {
-        for path in std::iter::once(&cwd).chain(isolation_root.as_ref()) {
-            if !path.is_absolute()
-                || path.to_str().is_none_or(|s| {
-                    s.is_empty()
-                        || s.encode_utf16().count() > 32767
-                        || s.chars().any(char::is_control)
-                })
-            {
-                return Err(AdapterError::InvalidLaunch);
-            }
+        if !cwd.is_absolute()
+            || cwd.to_str().is_none_or(|s| {
+                s.is_empty() || s.encode_utf16().count() > 32767 || s.chars().any(char::is_control)
+            })
+        {
+            return Err(AdapterError::InvalidLaunch);
         }
         dimensions(cols, rows)?;
         if env.len() > 1024 {
@@ -148,8 +88,7 @@ impl Launch {
             }
         }
         Ok(Self {
-            kind,
-            isolation_root,
+            kind: "launch",
             cwd,
             env,
             cols,
@@ -170,7 +109,7 @@ impl Launch {
         cols: u16,
         rows: u16,
     ) -> Result<Self, AdapterError> {
-        Self::validated("launch-isolated", cwd.clone(), Some(cwd), env, cols, rows)
+        Self::validated(cwd, env, cols, rows)
     }
 }
 /// Serialized and bounded before acquiring a process. No environment in Debug.

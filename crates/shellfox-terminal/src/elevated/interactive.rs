@@ -1,14 +1,15 @@
 //! The same installed helper and `launch` mode used by Electron. This path
 //! intentionally loads the account's PowerShell profile.
 use super::{
-    stdio::StdioIo, AdapterError, Capability, Generation, HelperFrame, HelperIo, Launch, Session,
-    StartError,
+    launch::parse_probe, stdio::StdioIo, AdapterError, Generation, HelperFrame, HelperIo, Launch,
+    Session, StartError,
 };
 use std::{
     fs::{File, OpenOptions},
     os::windows::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::Command,
+    sync::{mpsc, Arc},
     time::{Duration, Instant},
 };
 
@@ -81,10 +82,7 @@ impl InteractiveHelper {
 
     pub fn probe(&self) -> Result<(), AdapterError> {
         let (command, hold) = self.command("probe")?;
-        match probe(command, Box::new(hold), Duration::from_secs(8))? {
-            Capability::RetainedV1 => Ok(()),
-            Capability::IsolatedV1 => Err(AdapterError::InvalidProtocol),
-        }
+        probe(command, Box::new(hold), Duration::from_secs(8))
     }
 
     pub fn launch(
@@ -109,31 +107,43 @@ impl InteractiveHelper {
     }
 }
 
-fn probe(
-    command: Command,
-    hold: Box<dyn Send>,
-    timeout: Duration,
-) -> Result<Capability, AdapterError> {
+fn probe(command: Command, hold: Box<dyn Send>, timeout: Duration) -> Result<(), AdapterError> {
     let mut io = StdioIo::spawn(command, hold).map_err(|failure| {
         drop(failure.retained);
         failure.error
     })?;
+    // Block between helper frames instead of polling.
+    let (wake, woken) = mpsc::sync_channel(1);
+    io.observation().set_wake(Arc::new(move || {
+        let _ = wake.try_send(());
+    }));
     let deadline = Instant::now() + timeout;
-    let mut capability = None;
+    let mut probed = None;
     loop {
         match io.try_receive_line().map_err(|_| AdapterError::Transport)? {
-            Some(HelperFrame::Line(line)) if capability.is_none() => {
-                capability = Some(Capability::parse_probe(&line)?);
-            }
+            Some(HelperFrame::Line(line)) if probed.is_none() => probed = Some(parse_probe(&line)?),
             Some(HelperFrame::Eof) => break,
             Some(_) => return Err(AdapterError::InvalidProtocol),
-            None => {}
+            None => {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() || woken.recv_timeout(left).is_err() {
+                    return Err(AdapterError::Transport);
+                }
+            }
         }
-        if Instant::now() >= deadline {
-            return Err(AdapterError::Transport);
-        }
-        std::thread::sleep(Duration::from_millis(2));
     }
     io.finish(Duration::from_secs(2))?;
-    capability.ok_or(AdapterError::InvalidProtocol)
+    probed.ok_or(AdapterError::InvalidProtocol)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_built_helper_answers_the_probe() {
+        // Needs `node scripts/terminal-native.mjs`; without a built helper there is nothing to probe.
+        let Ok(helper) = super::InteractiveHelper::bundled() else {
+            return;
+        };
+        helper.probe().unwrap();
+    }
 }

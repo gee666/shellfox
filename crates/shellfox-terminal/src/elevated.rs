@@ -7,8 +7,6 @@ mod fixture;
 mod framing;
 #[cfg(windows)]
 mod interactive;
-#[cfg(windows)]
-mod isolated_env;
 mod launch;
 #[cfg(any(test, feature = "test-support"))]
 mod resource;
@@ -32,7 +30,7 @@ pub use fixture::{fixture_session, FixtureScenario};
 pub use framing::LineDecoder;
 #[cfg(windows)]
 pub use interactive::{InteractiveHelper, UserApproval};
-pub use launch::{Capability, Launch, PreparedLaunch};
+pub use launch::{Launch, PreparedLaunch};
 #[cfg(any(test, feature = "test-support"))]
 pub use resource::{TrustedHash, VerifiedHelper};
 #[cfg(any(windows, test, feature = "test-support"))]

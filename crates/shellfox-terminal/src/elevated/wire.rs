@@ -26,7 +26,6 @@ pub enum AdapterError {
     ApprovalWaitCancelled,
     StartupFailed(StartupStage),
     HelperFailed,
-    IsolatedModeUnavailable,
 }
 impl fmt::Display for AdapterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -46,7 +45,6 @@ impl fmt::Display for AdapterError {
             Self::ApprovalWaitCancelled => WAIT_CANCELLED,
             Self::StartupFailed(stage) => return stage.fmt(f),
             Self::HelperFailed => "administrator helper failed",
-            Self::IsolatedModeUnavailable => "legacy administrator helper cannot suppress account profiles; use verified isolated mode",
         })
     }
 }

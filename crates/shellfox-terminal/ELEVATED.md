@@ -3,7 +3,6 @@
 The `elevated` module ports the active boundary in
 `src/main/terminal/windows-elevated.ts`. Its helper is
 `native/Shellfox.ElevatedTerminal`, not the retired Shellfox.Native backend.
-See that helper's `ISOLATED.md` for the additive profile-free protocol.
 
 The Windows profile menu uses the bundled helper's `probe` and `launch` modes,
 as Electron does. Only a fresh local add-tab action can start it. Remote clients
@@ -15,9 +14,6 @@ A Windows consent cancellation is reported separately from a post-approval
 startup failure. The local desktop and host stderr report the failed stage
 without including paths, environment values or terminal input.
 
-The helper's isolated `probe-isolated`/`launch-isolated` modes have no Rust
-production caller.
-
 ## Authority and ownership
 
 The host communicates with the helper launcher over private inherited
@@ -25,12 +21,9 @@ stdio. The C# launcher authenticates the elevated peer against the original
 process handle returned by ShellExecute. The peer verifies its original parent
 and birth. Rust does not accept renderer-supplied pipe names or kill numeric PIDs.
 
-The privileged helper owns a non-breakaway, kill-on-close Job. In isolated mode,
-final `exit` forwarding requires authenticated Job-zero/output-drain evidence
-and a wait on the original elevated peer handle. The launcher retains late UAC
-results and unresolved peer ownership. Interactive mode uses the original
-helper's ordered `exit` frame. Launcher termination, EOF, watchdog death and
-timeout are not substitutes.
+The privileged helper owns a non-breakaway, kill-on-close Job. The host waits
+for the helper's ordered `exit` frame, which follows Job cleanup. Launcher
+termination, EOF, watchdog death and timeout are not substitutes.
 
 `Session` retains its original `std::process::Child`, private streams and a
 resource hold (the opened helper image). It is released only after exit proof
@@ -52,11 +45,9 @@ later frames. Untrusted helper error text never enters status or logs.
 - `UserApproval::from_user_action(generation)` represents one fresh trusted-host
   approval action. It is consumed by one launch and is not deserializable state.
   Do not manufacture it from a saved setting or an unvalidated renderer request.
-- `Launch::isolated` prepares an explicit isolated environment before acquiring
-  a child. The wire object is exactly `launch-isolated`, `isolationRoot`, `cwd`,
-  `env`, `cols` and `rows`. It accepts no executable, script or arbitrary args.
-  Module lookup is only the system Windows PowerShell Modules directory. Roots,
-  state and PATH follow the helper's ordinary-local-path rules.
+- The launch frame is exactly `launch`, `cwd`, `env`, `cols` and `rows`. It
+  accepts no executable, script or arbitrary args. The environment is the user's
+  own, without Settings or session variables and without CLR hook variables.
 - `Session` exposes generation-bound write, resize, poll, begin-close, timeout,
   service and finish operations. Stale operations do not touch transport.
   Ready identity is the logical PowerShell PID/birth from the private channel,
