@@ -4,7 +4,7 @@ use std::{cell::RefCell, sync::Arc};
 #[cfg(any(windows, target_os = "macos"))]
 pub(crate) mod html;
 #[cfg(not(any(windows, target_os = "macos")))]
-mod html_unsupported;
+pub(crate) mod html_unsupported;
 mod markdown;
 mod markdown_image;
 mod svg;

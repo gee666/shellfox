@@ -5,16 +5,16 @@ use std::fs::File;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(super) fn copy_attributes(source: &File, target: &File) -> SystemResult<()> {
     use std::{
-        ffi::{c_void, CString},
+        ffi::{c_char, c_void, CString},
         os::fd::AsRawFd,
     };
     #[cfg(target_os = "linux")]
     extern "C" {
-        fn flistxattr(fd: i32, names: *mut i8, size: usize) -> isize;
-        fn fgetxattr(fd: i32, name: *const i8, value: *mut c_void, size: usize) -> isize;
+        fn flistxattr(fd: i32, names: *mut c_char, size: usize) -> isize;
+        fn fgetxattr(fd: i32, name: *const c_char, value: *mut c_void, size: usize) -> isize;
         fn fsetxattr(
             fd: i32,
-            name: *const i8,
+            name: *const c_char,
             value: *const c_void,
             size: usize,
             flags: i32,
@@ -22,10 +22,10 @@ pub(super) fn copy_attributes(source: &File, target: &File) -> SystemResult<()> 
     }
     #[cfg(target_os = "macos")]
     extern "C" {
-        fn flistxattr(fd: i32, names: *mut i8, size: usize, options: i32) -> isize;
+        fn flistxattr(fd: i32, names: *mut c_char, size: usize, options: i32) -> isize;
         fn fgetxattr(
             fd: i32,
-            name: *const i8,
+            name: *const c_char,
             value: *mut c_void,
             size: usize,
             position: u32,
@@ -33,7 +33,7 @@ pub(super) fn copy_attributes(source: &File, target: &File) -> SystemResult<()> 
         ) -> isize;
         fn fsetxattr(
             fd: i32,
-            name: *const i8,
+            name: *const c_char,
             value: *const c_void,
             size: usize,
             position: u32,
