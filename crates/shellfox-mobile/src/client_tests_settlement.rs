@@ -180,9 +180,11 @@ fn queued_input_keeps_admission_token_after_a_new_manual_settlement() {
     }
 }
 fn data(sequence: u64, text: &str) -> Vec<u8> {
-    serde_json::to_vec(&json!({"ok":true,"value":{"events":[{"type":"terminal","event":{
+    serde_json::to_vec(
+        &json!({"ok":true,"value":{"events":[{"type":"terminal","event":{
         "type":"data","tabId":TAB,"generation":"30000000-0000-4000-8000-000000000001",
-        "controlEpoch":1,"sequence":sequence,"data":text}}]}}))
+        "controlEpoch":1,"sequence":sequence,"data":text}}]}}),
+    )
     .unwrap()
 }
 #[test]
@@ -200,7 +202,10 @@ fn output_polled_during_an_attach_follows_the_snapshot_without_a_reattach() {
         let live = [data(1, "hello"), data(2, " world")];
         if before_response {
             assert_eq!(h.complete(&poll, &live[1]), 0);
-            assert!(h.event()["result"]["value"]["events"].as_array().unwrap().is_empty());
+            assert!(h.event()["result"]["value"]["events"]
+                .as_array()
+                .unwrap()
+                .is_empty());
         }
         assert_eq!(h.complete(&attach, &response(None)), 0);
         let event = h.event();
@@ -210,7 +215,11 @@ fn output_polled_during_an_attach_follows_the_snapshot_without_a_reattach() {
         }
         reset_for_event(&h, view.0, &event);
         let shared = crate::engine::lookup(view.0).unwrap();
-        assert_eq!(shared.queue.lock().unwrap().accepted, 2, "snapshot plus held output");
+        assert_eq!(
+            shared.queue.lock().unwrap().accepted,
+            2,
+            "snapshot plus held output"
+        );
         crate::engine::with_engine(view.0, crate::engine::pump).unwrap();
         assert_eq!(unsafe { sfm_client_poll(h.handle, &mut operation) }, 0);
         let next = h.request();

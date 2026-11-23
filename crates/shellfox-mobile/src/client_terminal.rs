@@ -125,7 +125,9 @@ fn replay_early(b: &mut Binding, connection: u64) -> Result<()> {
             break;
         }
         *cursor = trial;
-        if let (EventDisposition::Deliver, TerminalEvent::Data { sequence, data, .. }) = (disposition, event) {
+        if let (EventDisposition::Deliver, TerminalEvent::Data { sequence, data, .. }) =
+            (disposition, event)
+        {
             b.pending.push_back((sequence, data.into_bytes()));
         }
     }
