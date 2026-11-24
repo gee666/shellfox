@@ -11,33 +11,26 @@ struct Intent {
     bytes: usize,
     reply: oneshot::Sender<Result<serde_json::Value>>,
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Lease {
-    generation: Generation,
-    epoch: u64,
-    connection: u64,
-}
 pub(super) struct MutationLane {
-    lease: Option<Lease>,
-    dirty: Option<Lease>,
     serial: u64,
     failed: bool,
     running: bool,
     active: Option<Operation>,
     queue: VecDeque<Intent>,
     bytes: usize,
+    /// Input or a resize failed in a way only a fresh attachment repairs.
+    pub reattach: bool,
 }
 impl Default for MutationLane {
     fn default() -> Self {
         Self {
-            lease: None,
-            dirty: None,
             serial: 0,
             failed: true,
             running: false,
             active: None,
             queue: VecDeque::new(),
             bytes: 0,
+            reattach: false,
         }
     }
 }
@@ -50,7 +43,6 @@ impl MutationLane {
         self.failed = true;
         self.running = false;
         if let Some(active) = self.active.take() {
-            self.dirty = self.lease;
             active.cancel.cancel();
         }
         for intent in self.queue.drain(..) {
@@ -58,31 +50,15 @@ impl MutationLane {
         }
         self.bytes = 0;
     }
-    pub fn open(&mut self, value: &TerminalAttachment, connection: u64) -> Result<()> {
+    /// A new attachment opens a fresh lane. Input that failed before it is
+    /// never replayed: its intent was cancelled with the old lane.
+    pub fn open(&mut self) -> Result<()> {
         self.fence();
         if self.serial == u64::MAX {
             return Err(BUSY);
         }
-        let (generation, epoch) = match value {
-            TerminalAttachment::Owned(a) => (a.generation, a.control_epoch),
-            TerminalAttachment::Blocked {
-                generation,
-                control_epoch,
-                ..
-            } => (*generation, *control_epoch),
-        };
-        let lease = Lease {
-            generation,
-            epoch,
-            connection,
-        };
-        // A fenced Go call may still execute. Recovery alone cannot authorize
-        // more input under that same uncertain remote lease.
-        self.failed = self.dirty == Some(lease);
-        if !self.failed {
-            self.dirty = None;
-        }
-        self.lease = Some(lease);
+        self.failed = false;
+        self.reattach = false;
         Ok(())
     }
 }
@@ -230,6 +206,7 @@ async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
         };
         let owner = mobile.clone();
         let operation = intent.operation.clone();
+        let resize = matches!(intent.command, RemoteCommand::ResizeTerminal(_));
         let result = if operation.cancel.is_cancelled() {
             Err(CANCELLED)
         } else {
@@ -244,10 +221,16 @@ async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
                 Err(error) => Err(error),
             }
         };
-        let success = !operation.cancel.is_cancelled()
-            && result.as_ref().is_ok_and(|value| {
-                value.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
-            });
+        let outcome = if operation.cancel.is_cancelled() {
+            Outcome::Lost
+        } else {
+            match outcome(&result) {
+                // A refused size is never retried in place: the fresh
+                // attachment's fit sends the current one again.
+                Outcome::Rejected if resize => Outcome::Lost,
+                outcome => outcome,
+            }
+        };
         let current = {
             let Ok(mut s) = mobile.state.lock() else {
                 return;
@@ -256,9 +239,12 @@ async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
                 if b.lane.serial == serial {
                     b.lane.active = None;
                     b.lane.bytes -= intent.bytes;
-                    if !success {
-                        b.lane.dirty = b.lane.lease;
+                    if outcome == Outcome::Lost {
+                        // The host no longer takes input from this attachment, or
+                        // the write may or may not have run. Later input must wait
+                        // for a fresh attachment, as 0.9.15 reattached.
                         b.lane.fence();
+                        b.lane.reattach = true;
                     }
                     true
                 } else {
@@ -269,8 +255,33 @@ async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
             }
         };
         let _ = intent.reply.send(if current { result } else { Err(STALE) });
-        if !current || !success {
+        if !current || outcome == Outcome::Lost {
             return;
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    Done,
+    /// The host refused this one input (validation, rate, not ready yet): it
+    /// never ran, and later input still goes, as with 0.9.15.
+    Rejected,
+    /// Control or the terminal is gone, or the write may or may not have run.
+    Lost,
+}
+fn outcome(result: &Result<serde_json::Value>) -> Outcome {
+    let Ok(value) = result else {
+        return Outcome::Lost;
+    };
+    if value.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+        return Outcome::Done;
+    }
+    match value
+        .pointer("/error/code")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("TARGET_LOST" | "TERMINAL_CONTROL_REQUIRED") | None => Outcome::Lost,
+        Some(_) => Outcome::Rejected,
     }
 }

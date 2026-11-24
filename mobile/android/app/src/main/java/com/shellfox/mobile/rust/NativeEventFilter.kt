@@ -23,7 +23,8 @@ internal class NativeEventFilter {
     val signature = "${event.getInt("status")}|$connection|${result?.optJSONObject("error")}"
     val changed = connection != lastConnection
     lastConnection = connection
-    if (changes == 0 && !changed && (!error || signature == lastInternalError)) return null
+    val reattach = event.optJSONArray("reattach")?.length() ?: 0
+    if (changes == 0 && reattach == 0 && !changed && (!error || signature == lastInternalError)) return null
     if (error) lastInternalError = signature else lastInternalError = ""
     return event.toString()
   }

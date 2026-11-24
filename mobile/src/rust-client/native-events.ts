@@ -27,6 +27,8 @@ export const nativeOperationSchema = z.object({
   }).strict().refine((grid) => grid.cols * grid.rows <= 65536))
     .refine((value) => Object.keys(value).length <= 32).optional(),
   recoveryReady: z.array(nativeId).max(32).optional(),
+  /** Terminals whose input was lost with their attachment; reattach them. */
+  reattach: z.array(requestSchemas.attachTerminal).max(32).optional(),
 }).strict();
 export type NativeOperation = z.infer<typeof nativeOperationSchema>;
 export const coarseHostEventSchema = z.union([

@@ -147,6 +147,9 @@ export class RustHostClient extends RemoteOperations implements HostClient {
       : connection.status === 'suspended' ? 'reconnecting' : connection.status;
     this.change(status, status === 'connected' ? null : this.state.lastError,
       status === 'connected' ? `${run.pump?.remote.handle}:${connection.connectionId}` : null);
+    if (!run.suspended && !run.restart && connection.status === 'connected') {
+      for (const request of event.reattach ?? []) this.driver.recover(request);
+    }
     if (!run.suspended && !run.restart && event.internal && event.status === 0) {
       const poll = coarsePollSchema.safeParse(event.result);
       if (poll.success && poll.data.ok) this.deliver(run, poll.data.value.events);

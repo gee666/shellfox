@@ -192,12 +192,14 @@ replay chunks removed; optional fields are not collapsed into null values.
 Each binding admits at most 64 active-plus-queued intents and 128 KiB of variable
 input bytes, including the active request. BUSY leaves the operation ID zero.
 Native must hold and retry an unaccepted critical release before accepting later
-input. An accepted mutation with an uncertain or failed result is never retried;
-its successors are cancelled. Control loss, detach, reset, reconnect and close
-fence active tokens and clear queued successors. Recovery under the same dirty
-lease does not reopen input: a fresh connection or changed host control lease is
-required, because cancelling Rust cannot abort an already-running Go request.
-ACK, poll and control operations
+input. An accepted mutation is never retried. A write the host refuses with
+an ordinary error (validation, rate, not ready) drops only that input, as 0.9.15
+did. A lost control or terminal, an uncertain result, or any refused resize
+fences the lane and cancels its successors; the completion event then carries a
+`reattach` list, and JS reattaches as for a reattach poll event. The fresh
+attachment opens a new lane and its fit sends the current size again. Control
+loss, detach, reset, reconnect and close fence active tokens and clear queued
+successors. ACK, poll and control operations
 do not join this FIFO. At most four input lanes send concurrently per client,
 leaving shared-request capacity for non-input work; a blocked lane does not hold
 another lane's turn or a polling/ACK barrier.

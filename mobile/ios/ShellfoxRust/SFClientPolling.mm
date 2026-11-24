@@ -125,7 +125,9 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   }
   NSDictionary *value = [result[@"value"] isKindOfClass:NSDictionary.class] ? result[@"value"] : @{};
   BOOL hostEvents = [value[@"events"] isKindOfClass:NSArray.class] && [value[@"events"] count] > 0;
-  return requested || !internal || changed || reset || hostEvents;
+  // A lost write asks JS to reattach its terminal; never coalesce that away.
+  BOOL reattach = [event[@"reattach"] isKindOfClass:NSArray.class] && [event[@"reattach"] count] > 0;
+  return requested || !internal || changed || reset || hostEvents || reattach;
 }
 
 @end

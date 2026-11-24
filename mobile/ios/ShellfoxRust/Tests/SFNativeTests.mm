@@ -243,6 +243,9 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
     denied[@"result"] = @{@"ok":@NO, @"error":@{@"code":@"FORBIDDEN", @"message":@"denied"}};
     XCTAssertTrue([store shouldForward:denied client:client]);
     XCTAssertFalse([store shouldForward:denied client:client]);
+    // A repeated lost write still asks JS to reattach.
+    denied[@"reattach"] = @[@{@"tabId":@"t"}];
+    XCTAssertTrue([store shouldForward:denied client:client]);
     [done fulfill];
   }];
   XCTAssertTrue(accepted);

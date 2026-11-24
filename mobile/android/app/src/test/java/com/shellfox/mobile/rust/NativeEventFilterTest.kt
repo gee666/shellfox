@@ -43,4 +43,14 @@ class NativeEventFilterTest {
     assertNull(filter.filter(event("4", status = 10)))
     assertNotNull(filter.filter(event("5", internal = false, status = 10)))
   }
+  @Test fun everyReattachRequestReachesJsEvenWithARepeatedWriteError() {
+    val filter = NativeEventFilter()
+    filter.filter(event("1", internal = false))
+    fun lost(id: String) = event(id).put("result", JSONObject().put("ok", false)
+      .put("error", JSONObject().put("code", "TERMINAL_CONTROL_REQUIRED")))
+      .put("reattach", org.json.JSONArray().put(JSONObject().put("tabId", "t")))
+    assertNotNull(filter.filter(lost("2")))
+    assertNotNull(filter.filter(lost("3")))
+    assertNull(filter.filter(lost("4").apply { remove("reattach") }))
+  }
 }

@@ -161,15 +161,7 @@ fn control_revocation_fences_active_and_queued_mutations_before_any_more_dispatc
     assert!(h.mock.requests.is_empty());
     assert_eq!(write(&h, &view, b"stale"), (STALE, 0));
 }
-#[test]
-fn recovery_cannot_reopen_a_fenced_dirty_lease_for_input() {
-    let mut h = Harness::new();
-    h.connect();
-    let view = NativeView::attach(&mut h);
-    assert_eq!(write(&h, &view, b"down").0, 0);
-    let first = h.request();
-    assert_eq!(h.complete(&first, br#"{"ok":false,"error":{"code":"UNSUPPORTED","message":"failed mutation","retryable":false}}"#), 0);
-    assert_eq!(h.event()["result"]["ok"], false);
+fn reattach(h: &mut Harness, view: &NativeView) {
     assert_eq!(
         h.operation(json!({"method":"attachTerminal","payload":{"tabId":TAB}}))
             .0,
@@ -180,11 +172,51 @@ fn recovery_cannot_reopen_a_fenced_dirty_lease_for_input() {
         include_bytes!("../../shellfox-client/tests/fixtures/terminal-attach-owned-success.json");
     assert_eq!(h.complete(&attach, response), 0);
     let event = h.event();
-    reset_for_event(&h, view.0, &event);
+    reset_for_event(h, view.0, &event);
     crate::engine::with_engine(view.0, crate::engine::pump).unwrap();
-    assert_eq!(write(&h, &view, b"same-lease-not-safe"), (STALE, 0));
-    h.dispatch();
-    assert!(h.mock.requests.is_empty());
+}
+#[test]
+fn a_write_the_host_refuses_drops_only_that_input() {
+    let mut h = Harness::new();
+    h.connect();
+    let view = NativeView::attach(&mut h);
+    assert_eq!(write(&h, &view, b"too fast").0, 0);
+    let first = h.request();
+    assert_eq!(h.complete(&first, br#"{"ok":false,"error":{"code":"VALIDATION","message":"Terminal input rate exceeded","retryable":false}}"#), 0);
+    let event = h.event();
+    assert_eq!(event["result"]["ok"], false);
+    assert!(event.get("reattach").is_none());
+    assert_eq!(write(&h, &view, b"next").0, 0);
+    assert_eq!(h.request().body["payload"]["data"], "next");
+}
+#[test]
+fn lost_control_asks_js_to_reattach_and_input_resumes_after_it() {
+    let mut h = Harness::new();
+    h.connect();
+    let view = NativeView::attach(&mut h);
+    assert_eq!(write(&h, &view, b"down").0, 0);
+    let first = h.request();
+    assert_eq!(h.complete(&first, br#"{"ok":false,"error":{"code":"TERMINAL_CONTROL_REQUIRED","message":"Take control first.","retryable":false}}"#), 0);
+    let event = h.event();
+    assert_eq!(event["reattach"][0]["tabId"], TAB);
+    assert_eq!(write(&h, &view, b"before-reattach"), (STALE, 0));
+    reattach(&mut h, &view);
+    assert_eq!(write(&h, &view, b"after").0, 0);
+    assert_eq!(h.request().body["payload"]["data"], "after");
+}
+#[test]
+fn a_refused_resize_reattaches_so_the_fit_sends_the_size_again() {
+    let mut h = Harness::new();
+    h.connect();
+    let view = NativeView::attach(&mut h);
+    assert_eq!(resize(&h, &view).0, 0);
+    let first = h.request();
+    assert_eq!(first.body["method"], "resizeTerminal");
+    assert_eq!(h.complete(&first, br#"{"ok":false,"error":{"code":"NATIVE_UNAVAILABLE","message":"The terminal channel is still being prepared.","retryable":true}}"#), 0);
+    assert_eq!(h.event()["reattach"][0]["tabId"], TAB);
+    reattach(&mut h, &view);
+    assert_eq!(resize(&h, &view).0, 0);
+    assert_eq!(h.request().body["payload"]["rows"], 30);
 }
 #[test]
 fn uncertain_mutation_is_never_retried_and_cancels_successors() {

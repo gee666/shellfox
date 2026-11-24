@@ -73,7 +73,7 @@ fn install(b: &mut Binding, value: &TerminalAttachment, connection: u64) -> Resu
     b.cursor = Some(ViewCursor::from_attachment(value, connection).map_err(|_| PROTOCOL)?);
     b.connection = connection;
     apply_settlement(b, connection)?;
-    b.lane.open(value, connection)?;
+    b.lane.open()?;
     b.uploads.fence();
     b.tickets.clear();
     b.pending.clear();

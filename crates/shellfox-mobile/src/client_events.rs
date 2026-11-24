@@ -86,15 +86,28 @@ pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json:
                 })
             })
             .collect();
+        // JS reattaches these terminals, as it does for a reattach poll event.
+        let connection = state.connection_id;
+        let reattach: Vec<_> = s
+            .bindings
+            .values_mut()
+            .filter_map(|b| {
+                let wanted = std::mem::take(&mut b.lane.reattach) && b.attaching.is_none();
+                wanted.then(|| b.cursor.as_ref()?.recovery_request(connection).ok())?
+            })
+            .collect();
         let recovery_ready: Vec<_> = s
             .bindings
             .values()
             .filter(|b| b.recovering && super::super::terminal::ready(b).unwrap_or(false))
             .map(|b| b.terminal.to_string())
             .collect();
-        let event = serde_json::json!({"resetGeometry":reset_geometry,"recoveryReady":recovery_ready,"operationId":op.id.to_string(),"internal":op.origin == CompletionOrigin::NativeInternal,"status":code,"result":value,"resetTerminals":reset,"resetTickets":reset_tickets,
+        let mut event = serde_json::json!({"resetGeometry":reset_geometry,"recoveryReady":recovery_ready,"operationId":op.id.to_string(),"internal":op.origin == CompletionOrigin::NativeInternal,"status":code,"result":value,"resetTerminals":reset,"resetTickets":reset_tickets,
             "connection":{"status":status,"permission":permission,"connectionId":state.connection_id.to_string(),
                 "retryAfterMs":state.retry_after.map(|d| d.as_millis() as u64)}});
+        if !reattach.is_empty() {
+            event["reattach"] = serde_json::json!(reattach);
+        }
         if let Ok(bytes) = serde_json::to_vec(&event) {
             s.event_bytes += bytes.len();
             s.events.push_back(bytes);
