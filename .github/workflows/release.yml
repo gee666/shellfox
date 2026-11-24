@@ -165,6 +165,12 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
+      # A root host rightly refuses data directories under another account's tree.
+      - name: Root owns the checkout in the container
+        if: matrix.container
+        run: |
+          chown -R root:root "$GITHUB_WORKSPACE"
+          chown root:root "$(dirname "$GITHUB_WORKSPACE")" "$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
       - uses: actions/setup-node@v4
         with:
           node-version: 24.22.1
