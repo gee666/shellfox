@@ -31,6 +31,8 @@ try {
     const completion = shell => run(cli, ['completion', shell]);
     assert.equal(readFileSync(path.join(extracted, 'usr/share/bash-completion/completions/shellfox'), 'utf8'), completion('bash'));
     assert.equal(readFileSync(path.join(extracted, 'usr/share/zsh/vendor-completions/_shellfox'), 'utf8'), zshAutoload(completion('zsh')));
+    const writable = run('dpkg-deb', ['-c', deb]).split('\n').filter(line => /^[^l].{4}w|^[^l].{7}w/.test(line));
+    assert.deepEqual(writable, [], 'The .deb has group- or world-writable entries');
   } else if (process.platform === 'linux') {
     run('tar', ['-xf', path.join(directory, `${stem}.tar.gz`), '-C', extracted]);
     desktop = path.join(extracted, stem, 'shellfox');

@@ -7,7 +7,7 @@
 ))]
 use shellfox_terminal::{PtyCommand, PtyConfig, PtyOutput, PtySession, ShellProfileId};
 use std::{
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -179,22 +179,55 @@ fn zsh() -> Option<PathBuf> {
 }
 
 const ZSHRC: &str = "autoload -Uz compinit && compinit -u -d \"$HOME/.zcompdump\"\n";
+/// Ubuntu's /etc/zsh/zshrc runs its own compinit without -u, and CI runner
+/// images have group-writable system folders in the default fpath, so that
+/// compinit would stop at its "insecure directories" question. Ubuntu's own
+/// opt-out turns it off; the tests' compinit above skips the check too.
+const ZSHENV: &str = "skip_global_compinit=1\n";
+/// compaudit's insecure fpath folders, on one line.
+const AUDIT: &str = "autoload -Uz compaudit; print -r -- audit $(compaudit 2>/dev/null) >> \"$SHELLFOX_TEST_LOG\"\n";
+
+/// Shellfox adds nothing compinit would call insecure: a tab's compaudit
+/// matches that of a plain zsh with the same startup files.
+fn assert_audit_unchanged(zsh: &Path, tab: &Tab, log: &str) {
+    let out = tab.root.join("plain-audit");
+    let plain = std::process::Command::new(zsh)
+        .args(["-c", AUDIT])
+        .env("HOME", &tab.home)
+        .env("SHELLFOX_TEST_LOG", &out)
+        .env_remove("ZDOTDIR")
+        .status()
+        .unwrap();
+    assert!(plain.success());
+    let plain = std::fs::read_to_string(out).unwrap();
+    let plain = plain.trim_end();
+    assert!(
+        log.lines().any(|line| line == plain),
+        "{plain:?} not in {log}"
+    );
+}
+
+/// The usual steps, then the audit.
+fn zsh_steps() -> Vec<(&'static str, &'static str)> {
+    let mut steps = steps(ZSH_PROBE);
+    steps.push((AUDIT, "audit"));
+    steps
+}
 const ZSH_PROBE: &str = "false\necho \"probe $? ${ZDOTDIR-unset} ${SHELLFOX_ZDOTDIR-unset} $_comps[shellfox]\" >> \"$SHELLFOX_TEST_LOG\"\n";
 
 #[test]
 fn zsh_login_tabs_complete_after_the_users_compinit() {
-    if zsh().is_none() {
-        return;
-    }
+    let Some(zsh) = zsh() else { return };
     let mut tab = Tab::new("zsh");
     tab.config.profile = Some(ShellProfileId::Zsh);
     std::fs::write(tab.home.join(".zshrc"), ZSHRC).unwrap();
     std::fs::write(
         tab.home.join(".zshenv"),
-        "echo \"zshenv ${ZDOTDIR-unset}\" >> \"$SHELLFOX_TEST_LOG\"\n",
+        format!("{ZSHENV}echo \"zshenv ${{ZDOTDIR-unset}}\" >> \"$SHELLFOX_TEST_LOG\"\n"),
     )
     .unwrap();
-    let log = tab.drive(&steps(ZSH_PROBE));
+    let log = tab.drive(&zsh_steps());
+    assert_audit_unchanged(&zsh, &tab, &log);
     // The user's .zshenv ran with ZDOTDIR as the user had it: unset.
     assert!(log.contains("zshenv unset"), "{log}");
     assert!(
@@ -205,14 +238,15 @@ fn zsh_login_tabs_complete_after_the_users_compinit() {
 
 #[test]
 fn zsh_tabs_keep_the_users_zdotdir() {
-    if zsh().is_none() {
-        return;
-    }
+    let Some(zsh) = zsh() else { return };
     let mut tab = Tab::new("zsh-zdotdir");
     tab.config.profile = Some(ShellProfileId::Zsh);
     let zdotdir = tab.root.join("zdot");
     std::fs::create_dir(&zdotdir).unwrap();
     std::fs::write(zdotdir.join(".zshrc"), ZSHRC).unwrap();
+    std::fs::write(zdotdir.join(".zshenv"), ZSHENV).unwrap();
+    // The plain shell in the audit reads HOME's files.
+    std::fs::write(tab.home.join(".zshenv"), ZSHENV).unwrap();
     std::fs::write(
         zdotdir.join(".zprofile"),
         "echo \"zprofile $ZDOTDIR\" >> \"$SHELLFOX_TEST_LOG\"\n",
@@ -222,7 +256,8 @@ fn zsh_tabs_keep_the_users_zdotdir() {
         .env
         .insert("ZDOTDIR".into(), zdotdir.clone().into());
     let expected = zdotdir.display().to_string();
-    let log = tab.drive(&steps(ZSH_PROBE));
+    let log = tab.drive(&zsh_steps());
+    assert_audit_unchanged(&zsh, &tab, &log);
     assert!(log.contains(&format!("zprofile {expected}")), "{log}");
     assert!(
         log.contains(&format!("probe 1 {expected} unset _shellfox_complete")),
@@ -237,8 +272,13 @@ fn zsh_non_login_shells_run_the_same_hook() {
     let Some(zsh) = zsh() else { return };
     let mut tab = Tab::new("zsh-plain");
     std::fs::write(tab.home.join(".zshrc"), ZSHRC).unwrap();
+    std::fs::write(tab.home.join(".zshenv"), ZSHENV).unwrap();
+    // Private, like the folder a tab creates.
     let hook = tab.root.join("shellfox-zsh-test");
-    std::fs::create_dir(&hook).unwrap();
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&hook)
+        .unwrap();
     std::fs::write(
         hook.join(".zshenv"),
         shellfox_terminal::completion::zsh_env(),
@@ -246,10 +286,11 @@ fn zsh_non_login_shells_run_the_same_hook() {
     .unwrap();
     tab.config.env.insert("ZDOTDIR".into(), hook.clone().into());
     tab.config.command = Some(PtyCommand {
-        program: zsh.into(),
+        program: zsh.clone().into(),
         args: vec!["-i".into()],
     });
-    let log = tab.drive(&steps(ZSH_PROBE));
+    let log = tab.drive(&zsh_steps());
+    assert_audit_unchanged(&zsh, &tab, &log);
     assert!(
         log.contains("probe 1 unset unset _shellfox_complete"),
         "{log}"

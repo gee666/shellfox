@@ -79,7 +79,10 @@ fi
   const owner = ['--owner=0', '--group=0', '--numeric-owner'];
   writeFileSync(path.join(work, 'debian-binary'), '2.0\n');
   tar(path.join(work, 'control.tar.gz'), control, ['.'], owner);
-  tar(path.join(work, 'data.tar.gz'), deb, ['.'], owner);
+  // Never group- or world-writable, whatever the build's umask: dpkg creates
+  // missing folders such as /usr/share/zsh with these modes, and zsh's
+  // compinit asks every user about a writable folder in its fpath.
+  tar(path.join(work, 'data.tar.gz'), deb, ['.'], [...owner, '--mode=go-w']);
   run('ar', ['rc', path.join(artifacts, `shellfox_${pkg.version}_${debianArch}.deb`), 'debian-binary', 'control.tar.gz', 'data.tar.gz'], { cwd: work });
   copy(path.join(deb, 'usr', shellfoxIcon), path.join(app, shellfoxIcon));
   const portableEntry = path.join(app, entry);
