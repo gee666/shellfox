@@ -11,6 +11,7 @@ mod brand;
 mod chrome;
 mod cli_launcher;
 mod composition;
+mod crash_notice;
 mod desktop_errors;
 mod desktop_geometry;
 mod desktop_windows;
@@ -104,6 +105,14 @@ fn main() -> Result<()> {
         std::process::exit(code);
     }
     let options = Options::parse(arguments)?;
+    if options.mode != Mode::Smoke {
+        shellfox_service::crash_report::install(
+            &options.data_dir,
+            "ui",
+            env!("SHELLFOX_VERSION"),
+            env!("SHELLFOX_BUILD_ID"),
+        );
+    }
     if options.mode == Mode::Smoke {
         let mut frontend = frontend_composition::FrontendDirectories::plan(&options)?;
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -190,6 +199,18 @@ fn main() -> Result<()> {
         Ok(Err(_)) => app_exit::Outcome::StartupFailed,
         Err(_) => app_exit::Outcome::Panicked,
     });
+    // A panic already wrote its report in the hook.
+    match &graphics {
+        Ok(Err(error)) => {
+            shellfox_service::crash_report::fatal(error);
+        }
+        Ok(Ok(())) if !app_exit::quit_requested() => {
+            shellfox_service::crash_report::fatal(&anyhow::anyhow!(
+                "The event loop ended without a quit, as on a lost display connection"
+            ));
+        }
+        _ => {}
+    }
     finish_frontend(graphics).inspect_err(|error| {
         if show_startup_error {
             desktop_errors::startup(error);
@@ -253,6 +274,9 @@ fn run_graphics(
                 app_exit::answer_terminate(asked, cx);
             }
             cx.set_global(app_errors);
+            if let Some(report) = options.crash_report.clone() {
+                cx.set_global(crash_notice::CrashNotice(report));
+            }
             cx.set_global(device_prefs::DevicePrefs(device_colors));
             cx.set_global(editors);
             root::shortcuts::bind_keys(cx);

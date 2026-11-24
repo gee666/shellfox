@@ -104,9 +104,29 @@ pub(crate) fn open(
             WindowPresentation::Activate
         },
     )?;
+    // The forced test panic comes mid-work and spares the UI relaunched after it.
+    let test_panic = options.crash_report.is_none()
+        && std::env::var_os(shellfox_service::crash_report::TEST_PANIC_ENV)
+            .is_some_and(|value| value == "1");
     cx.open_window(window_options, move |window, cx| {
         #[cfg(windows)]
         backdrop::apply(window);
+        if let Some(gpu) = window.gpu_specs() {
+            shellfox_service::crash_report::note(
+                "GPU",
+                format!(
+                    "{} ({} {}){}",
+                    gpu.device_name,
+                    gpu.driver_name,
+                    gpu.driver_info,
+                    if gpu.is_software_emulated {
+                        ", software"
+                    } else {
+                        ""
+                    }
+                ),
+            );
+        }
         let provider = NativeAccessibility::attach(window);
         let root = cx.new(|cx| Root::open(options, initial, provider, window, cx));
         if let Some(tracker) = tracker {
@@ -120,6 +140,19 @@ pub(crate) fn open(
         });
         let shown = root.clone();
         window.defer(cx, move |window, cx| {
+            if test_panic {
+                let timer = cx
+                    .background_executor()
+                    .timer(std::time::Duration::from_secs(5));
+                cx.spawn(async move |_| {
+                    timer.await;
+                    panic!(
+                        "Forced test panic ({})",
+                        shellfox_service::crash_report::TEST_PANIC_ENV
+                    );
+                })
+                .detach();
+            }
             if acceptance {
                 if let Err(error) = shown.update(cx, |root, cx| {
                     root.queue_presentation(window, &presentation, cx)

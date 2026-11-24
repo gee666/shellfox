@@ -22,6 +22,11 @@ pub(crate) fn quit(cx: &mut App) {
     cx.quit();
 }
 
+/// False when the event loop ended on its own, such as on a lost display.
+pub(crate) fn quit_requested() -> bool {
+    QUIT_REQUESTED.load(Ordering::SeqCst)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Clean,

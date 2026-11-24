@@ -28,6 +28,8 @@ pub struct Options {
     pub relaunch_args: Vec<OsString>,
     /// Set by a host that relaunches its crashed UI: Quit stops that host.
     pub owned_host: bool,
+    /// The crashed UI's report, passed by the host that relaunched it.
+    pub crash_report: Option<PathBuf>,
 }
 
 impl Options {
@@ -54,6 +56,7 @@ impl Options {
         let mut application_args = Vec::new();
         let mut relaunch_args = Vec::new();
         let mut owned_host = false;
+        let mut crash_report = None;
         while let Some(arg) = args.next() {
             if app_composition::ApplicationArguments::is_flag(&arg) {
                 let value = args.next().context("Application flag requires a value")?;
@@ -85,6 +88,11 @@ impl Options {
                     relaunch_args.push("--ui-acceptance".into());
                 }
                 Some("--owned-host") => owned_host = true,
+                Some("--crash-report") => {
+                    crash_report = Some(PathBuf::from(
+                        args.next().context("--crash-report requires a path")?,
+                    ));
+                }
                 Some("--helper") => {
                     if helper.is_some() {
                         bail!("--helper may only be supplied once");
@@ -237,6 +245,7 @@ impl Options {
             application_args,
             relaunch_args,
             owned_host,
+            crash_report,
         })
     }
 }

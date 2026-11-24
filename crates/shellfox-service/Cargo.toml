@@ -17,6 +17,7 @@ roxmltree = "=0.20.0"
 cap-std = "=3.4.6"
 cap-fs-ext = "=3.4.6"
 chrono = { version = "0.4", default-features = false }
+log = "0.4"
 tempfile = "3"
 shellfox-core = { path = "../shellfox-core" }
 shellfox-ghostty-vt.workspace = true
@@ -37,10 +38,10 @@ subtle = "2"
 
 [target.'cfg(windows)'.dependencies]
 tempfile = "3"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_Power", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_Storage_FileSystem", "Win32_UI_Input_KeyboardAndMouse"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Console", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_Power", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_Storage_FileSystem", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "=1.1.6", features = ["fs", "process"] }
+rustix = { version = "=1.1.6", features = ["fs", "process", "stdio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "=5.19.0", features = ["blocking-api"] }

@@ -25,6 +25,7 @@ pub fn run(arguments: &[OsString]) -> i32 {
     match serve(arguments) {
         Ok(()) => 0,
         Err(error) => {
+            eprintln!("Shellfox desktop host ended: {error:#}");
             // The UI shows this line; a closed pipe only means it is gone.
             let _ = writeln!(std::io::stdout(), "{error:#}");
             1
@@ -65,6 +66,13 @@ fn serve(arguments: &[OsString]) -> Result<()> {
     } = plan(arguments)?;
     host.extend(["host".into(), "serve".into()]);
     let args = crate::args::parse(host)?;
+    let started = std::time::SystemTime::now();
+    shellfox_service::crash_report::install(
+        &args.data_dir,
+        "host",
+        env!("SHELLFOX_VERSION"),
+        env!("SHELLFOX_BUILD_ID"),
+    );
     ensure!(
         matches!(args.command, crate::args::Command::Serve),
         "Unexpected host command"
@@ -83,7 +91,7 @@ fn serve(arguments: &[OsString]) -> Result<()> {
         digest: args.helper_sha256,
     };
     let (ready, serving_now) = std::sync::mpsc::channel();
-    watch_ui(ui, relaunch, serving, serving_now);
+    watch_ui(ui, relaunch, serving, serving_now, started);
     LocalBootstrap::serve_foreground(
         &args.data_dir,
         &args.helper,
@@ -169,6 +177,7 @@ fn watch_ui(
     relaunch: Vec<OsString>,
     serving: Serving,
     ready: std::sync::mpsc::Receiver<()>,
+    started: std::time::SystemTime,
 ) {
     let watch = move || {
         // Decide only once the host serves: a UI that died during startup is
@@ -185,17 +194,22 @@ fn watch_ui(
                 Ok(_) => {}
             }
         }
-        match after_ui(shellfox_service::desktop_session::ended(), || {
+        let after = after_ui(shellfox_service::desktop_session::ended(), || {
             serving.routes_launches()
-        }) {
+        });
+        eprintln!("Shellfox UI ended without quitting: {after:?}");
+        match after {
             AfterUi::Stop => return serving.stop(),
             AfterUi::Nothing => return,
             AfterUi::Relaunch => {}
         }
+        let report = shellfox_service::crash_report::ui_exit(started);
         let mut command = Command::new(&ui);
+        command.args(&relaunch).arg("--owned-host");
+        if let Some(report) = report {
+            command.arg("--crash-report").arg(report);
+        }
         command
-            .args(&relaunch)
-            .arg("--owned-host")
             .stdin(Stdio::null())
             // This host's stdout and stderr belong to the UI that died.
             .stdout(Stdio::null())
@@ -206,7 +220,8 @@ fn watch_ui(
         match command.spawn() {
             // Reap it; a second crash is not relaunched.
             Ok(mut child) => {
-                let _ = child.wait();
+                let status = child.wait();
+                eprintln!("Shellfox relaunched UI ended: {status:?}");
                 if shellfox_service::desktop_session::ended() {
                     serving.stop();
                 }

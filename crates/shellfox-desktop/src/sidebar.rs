@@ -227,6 +227,7 @@ impl Root {
             .bg(palette.sidebar)
             .child(self.sidebar_toolbar(palette, cx))
             .child(list)
+            .children(self.crash_notice(palette, cx))
             .children(self.update_notice(palette, cx));
         if let Some(crate::dialogs::Dialog::DeleteSession(id)) = self.dialogs.current
             && let Some(session) = self

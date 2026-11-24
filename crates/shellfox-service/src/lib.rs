@@ -4,6 +4,7 @@ pub mod app_composition;
 pub mod app_paths;
 pub mod automation;
 mod close;
+pub mod crash_report;
 mod creation;
 pub mod desktop_launch;
 pub mod desktop_session;

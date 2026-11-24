@@ -7928,6 +7928,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "chrono",
+ "log",
  "rand 0.8.8",
  "roxmltree",
  "rusqlite",
