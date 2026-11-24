@@ -273,17 +273,29 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     const external = 'Written by the isolated peer host while the draft was hidden\n';
     await writeFile(savedPeerFile, external);
     await press('Select session P4 peer A');
-    await editor(draft);
-    const conflict = rows => rows.some(row => [row.title, row.description, row.value].some(label =>
-      typeof label === 'string' && /changed on disk|file conflict/i.test(label)));
-    const visible = await eventually('draft revision checked after returning to the source', tree,
-      rows => conflict(rows) || named(rows, 'Save file')?.enabled);
-    if (!conflict(visible)) await press('Save file');
-    await eventually('conflict refused the stale draft', tree, conflict);
-    await shot('25-peer-draft-conflict');
-    assert.equal(await readFile(savedPeerFile, 'utf8'), external);
-    await press('Close file sidebar');
-    await press('Discard changes');
+    // A transport failure after the listener cycle may re-pair the peer while the
+    // draft is hidden. Files then keeps the draft off the new connection instead.
+    const retired = rows => named(rows, 'Discard old draft and switch Files');
+    const returned = await eventually('draft returned to its source', tree,
+      rows => retired(rows) || named(rows, 'File contents')?.value === draft);
+    if (retired(returned)) {
+      await shot('25-peer-draft-conflict', capture => observed(capture, 'changed while disconnected'));
+      assert.equal(await readFile(savedPeerFile, 'utf8'), external);
+      await press('Discard old draft and switch Files');
+      await node('Folder path');
+      await press('Close file sidebar');
+    } else {
+      const conflict = rows => rows.some(row => [row.title, row.description, row.value].some(label =>
+        typeof label === 'string' && /changed on disk|file conflict/i.test(label)));
+      const visible = await eventually('draft revision checked after returning to the source', tree,
+        rows => conflict(rows) || named(rows, 'Save file')?.enabled);
+      if (!conflict(visible)) await press('Save file');
+      await eventually('conflict refused the stale draft', tree, conflict);
+      await shot('25-peer-draft-conflict');
+      assert.equal(await readFile(savedPeerFile, 'utf8'), external);
+      await press('Close file sidebar');
+      await press('Discard changes');
+    }
     await node('File sidebar', value => !value);
     await press('Local sessions');
     return startup.scale;
