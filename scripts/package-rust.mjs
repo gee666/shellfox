@@ -23,8 +23,19 @@ function copy(source, target, mode = 0o644) {
   chmodSync(target, mode);
 }
 
+function write(target, text) {
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, text);
+  chmodSync(target, 0o644);
+}
+
 function tar(output, directory, members, options = []) {
   run('tar', ['-czf', output, ...options, '-C', directory, ...members]);
+}
+
+/** zsh autoloads `_shellfox` on the first Tab; it defines the completer and runs it. */
+export function zshAutoload(script) {
+  return `#compdef shellfox\n${script.replace(/\n*$/, '\n')}_shellfox_complete "$@"\n`;
 }
 
 function linux(work, app, artifacts) {
@@ -39,6 +50,11 @@ function linux(work, app, artifacts) {
   mkdirSync(path.join(deb, 'usr/bin'));
   copy(path.join(root, 'resources/linux/shellfox-rust-launcher'), path.join(deb, 'usr/bin/shellfox'), 0o755);
   symlinkSync('../lib/shellfox/shellfox-cli', path.join(deb, 'usr/bin/shellfox-cli'));
+  // Tab completion outside Shellfox tabs, printed by the packaged CLI itself.
+  // bash-completion and Debian's zsh load these by name; zsh needs compinit.
+  const completion = shell => run(path.join(app, 'shellfox-cli'), ['completion', shell]);
+  write(path.join(deb, 'usr/share/bash-completion/completions/shellfox'), completion('bash'));
+  write(path.join(deb, 'usr/share/zsh/vendor-completions/_shellfox'), zshAutoload(completion('zsh')));
   const control = path.join(work, 'control');
   mkdirSync(control);
   writeFileSync(path.join(control, 'control'), [

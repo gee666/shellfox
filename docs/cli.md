@@ -263,17 +263,26 @@ Windows installs `.cmd` and `.ps1` shims. Prefer PowerShell or the POSIX shim wh
 
 ### Completion and WSL routing
 
+Tab completion works in every Shellfox tab with no setup: PowerShell and Windows PowerShell, bash and zsh, on Windows, Linux, macOS and in WSL tabs. The tab loads the hook after your own profile or rc files, and a `shellfox` completer you defined yourself stays in place. zsh needs `compinit` in your `.zshrc`. Nothing is written to your startup files. Administrator PowerShell tabs don't get it.
+
+Outside Shellfox:
+
+- Linux `.deb`: bash-completion loads `/usr/share/bash-completion/completions/shellfox`, and zsh loads `/usr/share/zsh/vendor-completions/_shellfox` after `compinit`.
+- Linux portable and macOS: the app installs `${XDG_DATA_HOME:-~/.local/share}/bash-completion/completions/shellfox` at launch, which bash-completion 2 finds by itself. The bash 3.2 that ships with macOS has no bash-completion, so use the line below.
+- Everywhere else, add one line to your own startup file:
+
 ```powershell
+# $PROFILE
 shellfox completion powershell | Out-String | Invoke-Expression
 ```
 
 ```bash
+# ~/.bashrc
 source <(shellfox completion bash)
 ```
 
 ```zsh
-autoload -Uz compinit
-compinit
+# ~/.zshrc, after compinit
 source <(shellfox completion zsh)
 ```
 

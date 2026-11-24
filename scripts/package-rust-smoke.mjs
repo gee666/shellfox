@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileHash, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
 import { ownHostSmoke } from './rust-package-smoke.mjs';
 import { releaseVersion } from './release-version.mjs';
+import { zshAutoload } from './package-rust.mjs';
 
 const { version } = readJson(path.join(root, 'package.json'));
 const release = releaseVersion(version);
@@ -26,6 +27,10 @@ try {
     run('dpkg-deb', ['-x', deb, extracted]);
     desktop = path.join(extracted, 'usr/lib/shellfox/shellfox');
     cli = path.join(extracted, 'usr/bin/shellfox-cli');
+    // Completion outside Shellfox tabs: the CLI's own scripts, where bash-completion and zsh look.
+    const completion = shell => run(cli, ['completion', shell]);
+    assert.equal(readFileSync(path.join(extracted, 'usr/share/bash-completion/completions/shellfox'), 'utf8'), completion('bash'));
+    assert.equal(readFileSync(path.join(extracted, 'usr/share/zsh/vendor-completions/_shellfox'), 'utf8'), zshAutoload(completion('zsh')));
   } else if (process.platform === 'linux') {
     run('tar', ['-xf', path.join(directory, `${stem}.tar.gz`), '-C', extracted]);
     desktop = path.join(extracted, stem, 'shellfox');

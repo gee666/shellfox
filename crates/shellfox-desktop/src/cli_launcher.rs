@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 #[cfg(any(unix, test))]
 use std::process::Command;
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 use {anyhow::ensure, std::path::Path};
 
 /// `shellfox ssh` normally reaches shellfox-cli through the PATH shim. Run on
@@ -40,8 +40,10 @@ pub(crate) fn forward_ssh(args: &[OsString]) -> Result<Option<i32>> {
     Ok(Some(2))
 }
 
-#[cfg(any(windows, target_os = "macos"))]
-fn install_file(
+/// Writes or removes a file Shellfox owns, marked by its `owner` line. Files
+/// without it are someone else's and are left alone.
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+pub(crate) fn install_file(
     path: &Path,
     contents: Option<&str>,
     owner: &str,
@@ -55,14 +57,14 @@ fn install_file(
         Ok(meta) => {
             ensure!(
                 meta.is_file() && !meta.is_symlink() && meta.len() <= 128 * 1024,
-                "Foreign Shellfox launcher: {}",
+                "Foreign file: {}",
                 path.display()
             );
             let existing = fs::read_to_string(path)?;
             ensure!(
                 existing.lines().any(|line| line == owner)
                     || (contents.is_some() && legacy(&existing)),
-                "Foreign Shellfox launcher: {}",
+                "Foreign file: {}",
                 path.display()
             );
             if contents == Some(existing.as_str()) {

@@ -5,6 +5,7 @@
 //! Files, Nemo, Dolphin, Thunar and Caja menus that run the .deb's
 //! /usr/bin/shellfox, or the ~/.local/bin/shellfox launcher the portable
 //! .tar.gz writes. macOS: ~/.local/bin/shellfox; Finder has no menu, as in 0.9.
+//! Portable Linux and macOS also get the per-user bash completion file.
 use serde_json::{Value, json};
 use shellfox_protocol::{AppError, CliIntegration, ErrorCode, ExplorerIntegration};
 
@@ -30,6 +31,10 @@ pub(crate) fn repair_in_background() {
                     }
                     _ => {}
                 }
+            }
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            if let Err(error) = ensure_bash_completion() {
+                eprintln!("Desktop integration (bash completion): {error:#}");
             }
         });
     if let Err(error) = spawned {
@@ -162,6 +167,36 @@ fn ensure_cli() -> Result<CliIntegration, AppError> {
 #[cfg(target_os = "macos")]
 fn ensure_explorer() -> Result<ExplorerIntegration, AppError> {
     Err(unsupported("Finder integration is unsupported."))
+}
+
+/// bash-completion loads this per-user file when `shellfox` is first completed.
+/// The .deb ships /usr/share/bash-completion/completions/shellfox instead.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn ensure_bash_completion() -> anyhow::Result<()> {
+    use anyhow::Context;
+    #[cfg(target_os = "linux")]
+    if shellfox_service::system::DebPackage::current().is_some() {
+        return Ok(());
+    }
+    if !shellfox_service::app_paths::is_packaged() {
+        return Ok(());
+    }
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".local/share"))
+        })
+        .context("HOME is not set")?;
+    let script = shellfox_terminal::completion::BASH;
+    // The script's first line marks the file as Shellfox's.
+    let owner = script.lines().next().context("empty bash completion")?;
+    crate::cli_launcher::install_file(
+        &data.join("bash-completion/completions/shellfox"),
+        Some(script),
+        owner,
+        |_| false,
+    )
 }
 
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
