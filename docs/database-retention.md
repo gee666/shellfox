@@ -20,9 +20,19 @@ Settling only records a time, and unsettling clears it. Neither stops terminals 
 
 A restart doesn't restore shells. Saved sessions come back, and selecting one opens a fresh shell.
 
-Settings has **Settle after (hours)** and **Delete settled after (hours)**, 24 and 720 by default. The host saves them but doesn't settle or delete sessions on its own yet.
-
 Deleting removes database rows. It isn't secure erasure. SQLite free pages, the WAL file and backups can still hold old bytes.
+
+## Automatic settling and deletion
+
+Settings has **Settle after (hours)** and **Delete settled after (hours)**, 24 and 720 (30 days) by default. Both accept 1 to 87600 hours. Zero or an empty field is refused; a value missing from saved settings uses the default.
+
+A session settles after the first interval without activity. Its terminals keep running. After the second interval, counted from the later of settling and the last activity, the host closes the session's terminals and deletes it, as an explicit delete does. If a close can't be confirmed, the session stays and the host tries again a minute later. Pinned sessions are never settled or deleted automatically, including ones settled by hand.
+
+Activity is typed input, paste, mouse clicks and scrolling, terminal output, a change in a shell's processes, a tab exiting, selecting the session, and renaming it or changing its folder. Focus changes and mouse motion without buttons don't count.
+
+Before settling or deleting a session with running tabs, the host inspects each tab's processes again, hidden sessions included, and activity found then postpones the step. A running tab needs fresh local process evidence, so sessions with running WSL or SSH tabs, and any running tab on macOS, are not expired.
+
+The host works out when the next session is due and wakes at that time. The first check runs a minute after the host starts. Saved times survive restarts: a session that went idle while the host was off settles a minute after start, and its deletion interval starts then. Desktop and headless hosts behave the same. Clients see the result as they see a manual settle or delete.
 
 ## Data from 0.9
 

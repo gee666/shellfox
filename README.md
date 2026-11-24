@@ -25,7 +25,7 @@ The phone app is a remote client. It connects to a desktop or headless host and 
 
 - Click + to create a session in a folder, on this machine or a connected one. Selecting a session shows its tabs. A session with no open terminal (after a restart, say) opens a fresh shell; commands are never restored.
 - The + in the tab strip adds another shell. Right-click it to pick a profile, such as PowerShell, Command Prompt, a WSL distribution or Administrator PowerShell on Windows.
-- Settle marks a session as done without stopping anything. Delete closes its terminals and removes it. By default an inactive session settles after 24 hours and is deleted 30 days later; pinned sessions are never deleted automatically.
+- Settle marks a session as done without stopping anything. Delete closes its terminals and removes it. By default an inactive session settles after 24 hours and is deleted 30 days later. Pinned sessions are never settled or deleted automatically ([details](docs/database-retention.md#automatic-settling-and-deletion)).
 - The folder icon opens Files beside the terminal: browse, edit, preview Markdown, SVG, HTML and images, upload and download. Clicking a file path printed in a terminal opens it there. See [Files](docs/files-api.md).
 - The eye button keeps the computer awake while Shellfox runs.
 - Settings has General, Terminals, Agents, Remote access and SSH pages.
