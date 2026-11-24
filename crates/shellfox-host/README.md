@@ -39,9 +39,9 @@ host.update_preferences(PreferencesPatch {
 # Ok::<(), shellfox_host::Error>(())
 ```
 
-The remaining mutations are `rename_session`, `set_session_cwd`, `select_session`, `set_session_pinned`, `set_session_settled`, `rename_tab`, `set_tab_cwd`, `reorder_tabs`, `select_tab`, `close_tab`, `delete_session`, `set_session_env`, `set_terminal_env` and `save_settings`. `reorder_tabs` requires the complete permutation. Closing the final tab keeps its session. Changing a session directory changes future launch defaults, not an existing shell's working directory. Editing a live tab's launch directory is refused.
+The remaining mutations are `rename_session`, `set_session_cwd`, `select_session`, `set_session_pinned`, `set_session_settled`, `settle_idle_session`, `rename_tab`, `set_tab_cwd`, `reorder_tabs`, `select_tab`, `close_tab`, `delete_session`, `set_session_env`, `set_terminal_env` and `save_settings`. `reorder_tabs` requires the complete permutation. Closing the final tab keeps its session. Changing a session directory changes future launch defaults, not an existing shell's working directory. Editing a live tab's launch directory is refused.
 
-Pins preserve their original `pinnedAt` when already pinned. Settlement is manual metadata; active registered terminals cannot be marked settled without process/activity tracking. There is no automatic retention policy here yet. Tab states describe pending or archived metadata, never proof that a shell is running. Restarting the host does not resume commands or adopt saved processes.
+Pins preserve their original `pinnedAt` when already pinned. Pinning, unpinning and an explicit settle or unsettle count as activity and update `updatedAt`. `settle_idle_session` is the service's automatic settle and records only the settled time. The service decides when sessions settle or are deleted ([database retention](../../docs/database-retention.md#automatic-settling-and-deletion)). Tab states describe pending or archived metadata, never proof that a shell is running. Restarting the host does not resume commands or adopt saved processes.
 
 `changed_since(revision)` returns the latest revisioned `ChangedEvent`, if newer. Clients fetch a snapshot when they miss revisions. This is a notification cursor, not an event replay log.
 
@@ -66,7 +66,7 @@ For an owned tab or session:
 
 `import_legacy(path)` reads an explicitly supplied copy of a legacy SQLite database through a read-only connection and consistent read transaction. It accepts repository schema versions 1 through 5 and imports into an untouched empty experiment store only. It never migrates or writes the source file.
 
-Import preserves session IDs, titles, directories, UTC timestamps, settlement and pins, plus accent/background colors and the default shell profile. Legacy `bash` maps to `login-shell`. Unsupported custom profiles fail explicitly. Legacy font settings do not exist, so Rust defaults apply. The importer omits legacy tabs and ownership records because persisted registrations cannot restore process ownership. The current embedded TypeScript service also deletes saved tabs during initialization. Environment, operations, command lines, credentials, output and window bindings are not imported.
+Import preserves session IDs, titles, directories, UTC timestamps, settlement and pins, plus accent/background colors and the default shell profile. Legacy `bash` maps to `login-shell`. Unsupported custom profiles fail explicitly. Legacy font settings do not exist, so Rust defaults apply. The importer omits legacy tabs and ownership records because persisted registrations cannot restore process ownership. Saved session environment is imported only with `SettingsImportPolicy::IncludeEnvironment`. Operations, command lines, credentials, output and window bindings are not imported.
 
 This is a narrow, tested import path, not complete production database compatibility. Replacing Electron storage still requires a separately reviewed migration covering the remaining settings, retention, SSH/remote state and rollback policy.
 

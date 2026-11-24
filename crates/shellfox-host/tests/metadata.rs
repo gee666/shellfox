@@ -360,3 +360,17 @@ fn persisted_invalid_state_is_rejected_not_defaulted() {
     drop(db);
     assert!(Host::open(&scratch.0).is_err());
 }
+
+#[test]
+fn pinning_counts_as_activity() {
+    let scratch = Scratch::new();
+    let host = Host::open(&scratch.0).unwrap();
+    let created = create(&host);
+    let id = created.sessions[0].id;
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let pinned = host.set_session_pinned(id, true).unwrap();
+    assert!(pinned.sessions[0].updated_at > created.sessions[0].updated_at);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let unpinned = host.set_session_pinned(id, false).unwrap();
+    assert!(unpinned.sessions[0].updated_at > pinned.sessions[0].updated_at);
+}

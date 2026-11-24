@@ -31,6 +31,15 @@ impl Host {
     /// Explicit user metadata, including for live owned tabs. This flag is not
     /// idle/process-exit proof and never stops, unregisters or cleans up a runtime.
     pub fn set_session_settled(&self, id: SessionId, settled: bool) -> Result<Snapshot> {
+        self.change_settlement(id, settled, true)
+    }
+    /// Automatic settling after inactivity. Records only the settled time, so
+    /// `updatedAt` keeps the last activity, as in 0.9. An already settled
+    /// session is left unchanged.
+    pub fn settle_idle_session(&self, id: SessionId) -> Result<Snapshot> {
+        self.change_settlement(id, true, false)
+    }
+    fn change_settlement(&self, id: SessionId, settled: bool, explicit: bool) -> Result<Snapshot> {
         self.activity_transaction(|data, registry| {
             let session = data.session(id)?;
             check_prepared(registry, session)?;
@@ -53,6 +62,9 @@ impl Host {
                 session.settled_at = None;
             } else if !already_settled {
                 session.settled_at = marker;
+            }
+            if !explicit {
+                return Ok(settled && !already_settled);
             }
             // Electron's explicit mutate always touches activity and publishes a
             // revision. Repeated settle preserves the existing captured marker.

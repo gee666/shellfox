@@ -33,6 +33,8 @@ impl Host {
                 return Ok(false);
             }
             session.pinned_at = if pinned { Some(now()) } else { None };
+            // Pinning counts as activity, as in 0.9.
+            session.updated_at = now();
             Ok(true)
         })
     }

@@ -233,3 +233,26 @@ fn failed_manual_commit_keeps_live_registration_flag_and_revision_unchanged() {
     assert_eq!(prepared.terminals, vec![identity]);
     host.cancel_close(prepared.token).unwrap();
 }
+
+#[test]
+fn idle_settling_keeps_the_last_activity_time() {
+    let scratch = Scratch::new();
+    let (host, session, identity) = scratch.live();
+    let before = host.snapshot().unwrap();
+    let updated = before.sessions[0].updated_at.clone();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let settled = host.settle_idle_session(session).unwrap();
+    let marker = settled.sessions[0].settled_at.clone().unwrap();
+    assert_eq!(settled.sessions[0].updated_at, updated);
+    assert_eq!(settled.revision, before.revision + 1);
+    // Settling again changes nothing.
+    let again = host.settle_idle_session(session).unwrap();
+    assert_eq!(again.sessions[0].settled_at, Some(marker.clone()));
+    assert_eq!(again.revision, settled.revision);
+    // Input resumes it like a manual settle.
+    let at = activity_utc_timestamp(activity_unix_ms(&marker).unwrap() + 1000).unwrap();
+    let resumed = host
+        .resume_session_from_input(identity, CapturedSettlement::Captured(Some(marker)), &at)
+        .unwrap();
+    assert!(resumed.resumed);
+}

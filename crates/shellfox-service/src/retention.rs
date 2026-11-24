@@ -203,7 +203,7 @@ impl Service {
             }
             match action {
                 ExpiryAction::Settle => {
-                    if let Err(error) = self.host.set_session_settled(id, true) {
+                    if let Err(error) = self.host.settle_idle_session(id) {
                         eprintln!("Automatic session settling failed; it will retry: {error}");
                         self.retention.retry_later(now_ms);
                     }
