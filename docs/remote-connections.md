@@ -7,7 +7,7 @@ Shellfox can connect to another running Shellfox through an embedded Tailscale n
 1. Open Shellfox on both machines. In Settings, enable remote access and choose a hostname.
 2. Sign in to Tailscale through the browser, or supply a Tailscale auth key. An auth key enrolls a device; a general Tailscale API token is not a substitute. Use an untagged, non-ephemeral key for durable device identity. Organization policies may require administrator approval.
 3. On the client, select the other machine and connect.
-4. On the host, approve the requesting device in Settings. Approval grants command execution as the user running the host. Approve only devices you trust.
+4. On the host, approve the requesting device in Settings. Approval grants command execution as the user running the host. Approve only devices you trust. If the host runs as root, approved devices get root shells.
 
 Each machine has its own top-level foldable sidebar section. There is no extra Remote section. Connected machines show their own sessions, terminal profiles, and directories. Clipboard operations and clicked web links use the client machine. Remote directory entry and completion use the host, not the client's file picker.
 

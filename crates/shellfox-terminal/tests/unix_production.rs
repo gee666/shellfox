@@ -46,13 +46,6 @@ fn production_non_elevating_facts_are_sealed_and_inherited() {
     let mut config = fixture.shell("grep '^NoNewPrivs:' /proc/self/status; exit 0");
     config.unix_privilege = UnixPrivilegeMode::NonElevating;
     let (binding, verifier) = launch_privilege::new_launch_binding();
-    if unsafe { libc::getuid() } == 0 {
-        // Root can never be certified non-elevating, so it isn't launched.
-        let error = PtySession::spawn_bound(config, binding).unwrap_err();
-        assert!(error.take_session().is_none(), "{error:#}");
-        assert!(error.to_string().contains("non-elevating"), "{error:#}");
-        return;
-    }
     let mut session = PtySession::spawn_bound(config, binding).unwrap();
     let evidence = session.take_launch_evidence().unwrap();
     assert!(verifier.matches(&evidence));
@@ -67,10 +60,16 @@ fn production_non_elevating_facts_are_sealed_and_inherited() {
     assert_eq!(posix.uid, unsafe { libc::getuid() });
     assert_eq!(posix.uid, posix.euid);
     assert!(posix.no_new_privs);
-    assert_eq!(
-        posix.effective_caps | posix.permitted_caps | posix.inheritable_caps | posix.ambient_caps,
-        0
-    );
+    // Root keeps its own account's capabilities; anyone else has none.
+    if posix.uid != 0 {
+        assert_eq!(
+            posix.effective_caps
+                | posix.permitted_caps
+                | posix.inheritable_caps
+                | posix.ambient_caps,
+            0
+        );
+    }
     let (output, code) = collect(&mut session);
     assert!(String::from_utf8_lossy(&output).contains("NoNewPrivs:\t1"));
     assert_eq!(code, 0);

@@ -26,6 +26,8 @@ mod stats;
 mod v1_delivery;
 mod v1_launch;
 mod v1_privilege;
+#[cfg(unix)]
+pub(crate) use v1_privilege::host_account;
 mod v1_replay;
 mod v1_terminal;
 #[cfg(windows)]

@@ -67,15 +67,17 @@ pub struct PosixLaunchFacts {
     pub no_new_privs: bool,
 }
 impl PosixLaunchFacts {
+    /// Exactly the account `uid` and unable to gain more at exec. Root's
+    /// capabilities are its own account's, so only other accounts need none.
     pub fn is_non_elevating_account(&self, uid: u32) -> bool {
-        uid != 0
-            && [self.uid, self.euid, self.saved_uid, self.fs_uid] == [uid; 4]
-            && [
-                self.effective_caps,
-                self.permitted_caps,
-                self.inheritable_caps,
-                self.ambient_caps,
-            ] == [0; 4]
+        [self.uid, self.euid, self.saved_uid, self.fs_uid] == [uid; 4]
+            && (uid == 0
+                || [
+                    self.effective_caps,
+                    self.permitted_caps,
+                    self.inheritable_caps,
+                    self.ambient_caps,
+                ] == [0; 4])
             && self.no_new_privs
     }
 }
@@ -115,16 +117,13 @@ pub fn new_launch_binding() -> (NativeLaunchBinding, LaunchBindingVerifier) {
         LaunchBindingVerifier(seal),
     )
 }
+/// `uid` is the host's own account, checked on the unreaped original child.
 #[cfg(target_os = "macos")]
 pub(crate) fn capture_darwin(binding: NativeLaunchBinding, uid: u32) -> NativeLaunchEvidence {
     NativeLaunchEvidence {
         seal: binding.0,
         facts: LaunchPrivilegeFacts {
-            privilege: if uid == 0 {
-                LaunchPrivilege::Elevated
-            } else {
-                LaunchPrivilege::Normal
-            },
+            privilege: LaunchPrivilege::Normal,
             purpose: LaunchFactoryPurpose::OwnedPtyProgram,
             basis: LaunchEvidenceBasis::OriginalDarwinCredentials { uid },
             stage: LaunchEvidenceStage::BeforePublicPtyReady,
@@ -145,7 +144,7 @@ pub(crate) fn capture_darwin_raw(
     let mut evidence = capture_darwin(binding, uid);
     evidence.facts.purpose = LaunchFactoryPurpose::RawProgram;
     evidence.facts.stage = LaunchEvidenceStage::BeforeRawGoConfirmedReady;
-    if setid_target && uid != 0 {
+    if setid_target {
         evidence.facts.privilege = LaunchPrivilege::Unknown;
         evidence.facts.unknown = Some(LaunchUnknownReason::UnrestrictedPosixLaunch);
     }

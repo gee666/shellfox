@@ -204,13 +204,6 @@ fn raw_sealed_facts_prove_same_account_non_elevating_launch() {
     let facts = evidence.facts();
     assert_eq!(facts.purpose, LaunchFactoryPurpose::RawProgram);
     assert_eq!(facts.stage, LaunchEvidenceStage::BeforeRawGoConfirmedReady);
-    if unsafe { libc::getuid() } == 0 {
-        // A root run still launches, but is never certified Normal.
-        assert_ne!(facts.privilege, LaunchPrivilege::Normal);
-        process.request_stop().unwrap();
-        assert_eq!(collect(&mut process).2, 137);
-        return;
-    }
     assert_eq!(facts.privilege, LaunchPrivilege::Normal);
     assert!(facts.unknown.is_none());
     assert!(facts.token.is_none());

@@ -240,6 +240,9 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
     );
     assert!(service.automation.runs.retired().is_empty());
     let normal = launch.privilege == shellfox_runtime::LaunchPrivilege::Normal;
+    // The host's own account, root included, replays remotely.
+    #[cfg(unix)]
+    assert!(normal, "{launch:?}");
     assert_eq!(
         service.remote_automation_exit_code(&service.terminals[&tab]),
         normal.then_some(0)

@@ -42,7 +42,7 @@ pub(super) fn prepare(supervisor: &Path, _command: &RawCommand, bound: bool) -> 
     // Match the ordinary shareable PTY: the pinned supervisor and the
     // target it execs must not gain privileges at exec time.
     let uid = unsafe { libc::getuid() };
-    let mode = if bound && uid != 0 && uid == unsafe { libc::geteuid() } {
+    let mode = if bound && uid == unsafe { libc::geteuid() } {
         UnixPrivilegeMode::NonElevating
     } else {
         UnixPrivilegeMode::Local

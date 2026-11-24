@@ -22,7 +22,7 @@ Before READY, the controller installs HUP/TERM/INT handlers that only set an ato
 `PtyConfig.unix_privilege: UnixPrivilegeMode` is explicit:
 
 - `Local` is the default. It does not set no_new_privs, preserving ordinary local sudo workflows. Its measured POSIX evidence is Unknown and must remain local-only.
-- `NonElevating` sets Linux no_new_privs in the original controller before READY. Before GO the host reads the original pinned process's four UID fields, effective/permitted/inheritable/ambient capabilities and no_new_privs. Normal requires the same nonzero host account, all capability sets empty and no_new_privs true. Children inherit this restriction. Setuid/file-capability elevation, including sudo elevation, is unavailable in this mode.
+- `NonElevating` sets Linux no_new_privs in the original controller before READY. Before GO the host reads the original pinned process's four UID fields, effective/permitted/inheritable/ambient capabilities and no_new_privs. Normal requires the same host account and no_new_privs true. A non-root account also needs all capability sets empty; root keeps its own. A root-run host is a normal host, as in 0.9, so remote devices get its root shells. Children inherit this restriction. Setuid/file-capability elevation, including sudo elevation, is unavailable in this mode.
 
 Sealed `NativeLaunchEvidence` uses `OriginalPinnedPosixCredentials` with `PosixLaunchFacts`, not a Windows token. This is source eligibility only. It does not replace authentication, approval, revocation, real leases or other Service admission checks. An existing unrestricted source cannot be upgraded by changing descriptive metadata.
 

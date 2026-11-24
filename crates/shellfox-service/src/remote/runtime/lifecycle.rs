@@ -37,6 +37,7 @@ impl Manager {
             peer.online = false;
         }
         if enabled {
+            crate::remote::v1_privilege::note_root_remote_access();
             let id = Uuid::new_v4();
             self.state.attempts.push(RemoteAttempt {
                 id,

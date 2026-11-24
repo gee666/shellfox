@@ -68,8 +68,7 @@ impl PtySession {
         binding: Option<NativeLaunchBinding>,
     ) -> std::result::Result<Self, SpawnError> {
         config.validate()?;
-        let uid = unsafe { libc::getuid() };
-        ensure_normal_account(&config, uid)?;
+        ensure_normal_account()?;
         let command = match &config.command {
             Some(command) => command.clone(),
             None => match config.profile {
@@ -272,14 +271,11 @@ fn checked_executable(program: &Path) -> Result<std::path::PathBuf> {
     Ok(program)
 }
 
-fn ensure_normal_account(config: &PtyConfig, uid: libc::uid_t) -> Result<()> {
+/// Root included: a root-run host's tabs are its own account.
+fn ensure_normal_account() -> Result<()> {
     ensure!(
-        unsafe { libc::geteuid() } == uid && unsafe { libc::getegid() == libc::getgid() },
+        unsafe { libc::geteuid() == libc::getuid() && libc::getegid() == libc::getgid() },
         "macOS PTY requires unchanged real and effective credentials"
-    );
-    ensure!(
-        config.unix_privilege != crate::UnixPrivilegeMode::NonElevating || uid != 0,
-        "remote-eligible macOS PTY requires a non-root launch account"
     );
     Ok(())
 }
