@@ -20,6 +20,7 @@ pub use types::{
     SystemAction, SystemBackend, SystemFacts, SystemResponse, SystemResult, SystemScope,
 };
 mod cli;
+mod deb;
 mod environment;
 mod explorer;
 mod file_platform;
@@ -46,6 +47,7 @@ mod thunar;
 mod validation;
 #[cfg(windows)]
 mod windows_registry;
+pub use deb::DebPackage;
 pub use environment::{NativeSystemEnvironment, SystemEnvironment, SystemPlatform};
 #[cfg(windows)]
 pub(crate) use io::file_revision;
@@ -106,6 +108,43 @@ impl HostSystemServices {
             home: self.home_directory(),
             cli: self.cli_integration(scope),
             explorer: self.explorer_integration(scope),
+        }
+    }
+    /// 0.9's always-on repair: installs the CLI when it is missing. Never removes.
+    pub fn ensure_cli(&self) -> SystemResult<CliIntegration> {
+        let current = self.cli_integration(SystemScope::User)?;
+        if current.installed {
+            return Ok(current);
+        }
+        let action = SystemAction::SetCli {
+            installed: true,
+            scope: SystemScope::User,
+        };
+        match self.perform_user_action(action)? {
+            SystemResponse::Cli(value) => Ok(value),
+            _ => Err(invalid_provider()),
+        }
+    }
+    /// Installs the file-manager menus when supported and missing. Never removes.
+    pub fn ensure_explorer(&self) -> SystemResult<ExplorerIntegration> {
+        let current = self.explorer_integration(SystemScope::User)?;
+        if !current.supported {
+            let reason = current.reason.as_deref();
+            return Err(error(
+                shellfox_protocol::ErrorCode::Unsupported,
+                reason.unwrap_or("This integration is unsupported."),
+            ));
+        }
+        if current.installed {
+            return Ok(current);
+        }
+        let action = SystemAction::SetExplorer {
+            installed: true,
+            scope: SystemScope::User,
+        };
+        match self.perform_user_action(action)? {
+            SystemResponse::Explorer(value) => Ok(value),
+            _ => Err(invalid_provider()),
         }
     }
     /// Routing must authorize an explicit local user action before this call.

@@ -1,7 +1,8 @@
 //! Squirrel.Windows lifecycle. Update.exe runs these hooks with a 15 s limit
 //! while it installs, updates or removes an app-<version> directory. Electron
 //! 0.9.15 registered the same shortcuts, CLI shims, user PATH entry and
-//! Explorer verbs, so each hook takes them over or removes them.
+//! Explorer verbs, so each hook takes them over or removes them, and every
+//! launch repairs them (`repair`).
 use anyhow::{Context, Result, bail};
 use std::{
     ffi::OsStr,
@@ -103,6 +104,31 @@ pub(crate) fn handle(event: &OsStr) -> Result<bool> {
         bail!("Squirrel {event:?} hook failed: {}", failures.join("; "));
     }
     Ok(true)
+}
+
+/// Every desktop launch repairs what the install hook set up, as 0.9 did.
+/// Unchanged shims, PATH and verbs are only read.
+pub(crate) fn repair(kind: crate::integration::Kind) -> Result<bool> {
+    use crate::integration::Kind;
+    let install = Install::current().context("Shellfox is not installed by Squirrel")?;
+    let bin = install.root.join("bin");
+    match kind {
+        Kind::Cli => {
+            crate::cli_launcher::install_windows_shims(
+                &bin,
+                &install.root,
+                &install.version_dir,
+                &install.exe,
+                false,
+            )?;
+            if install.shared() {
+                user_path(&bin, false)?;
+            }
+        }
+        Kind::Explorer if install.shared() => explorer(&ExplorerKeys::USER, &install.exe, false)?,
+        Kind::Explorer => {}
+    }
+    Ok(install.shared())
 }
 
 /// Taskbar pins and Squirrel shortcuts carry this ID. Windows groups our
@@ -286,21 +312,28 @@ fn explorer(keys: &ExplorerKeys, exe: &Path, remove: bool) -> Result<()> {
         let key = user.open_subkey(name).ok()?;
         Some(key.get_value::<String, _>(value).ok().as_deref() == Some(expected))
     };
+    let mut changed = false;
     for name in keys.legacy {
         if owner(name, "PiManagerOwner", "PiManager/native-v1") == Some(true) {
             user.delete_subkey_all(name)?;
+            changed = true;
         }
     }
     for (name, background) in [(keys.folder, false), (keys.background, true)] {
+        if !remove && verb_is_current(&user, name, exe, background)? {
+            continue;
+        }
         match owner(name, "ShellfoxOwner", EXPLORER_OWNER) {
             Some(false) => continue,
             None if remove => continue,
             Some(true) if remove => {
                 user.delete_subkey_all(name)?;
+                changed = true;
                 continue;
             }
             _ => {}
         }
+        changed = true;
         let (key, _) = user.create_subkey(name)?;
         key.set_value("ShellfoxOwner", &EXPLORER_OWNER)?;
         key.set_value("", &"Open in Shellfox")?;
@@ -318,10 +351,32 @@ fn explorer(keys: &ExplorerKeys, exe: &Path, remove: bool) -> Result<()> {
         let (command, _) = key.create_subkey("command")?;
         command.set_value("", &explorer_command(exe, background)?)?;
     }
+    if !changed {
+        return Ok(());
+    }
     use windows::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
     // SAFETY: no item pointers are passed for an association change.
     unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
     Ok(())
+}
+
+/// An owned verb that already launches `exe` with the expected values.
+fn verb_is_current(user: &RegKey, name: &str, exe: &Path, background: bool) -> Result<bool> {
+    let Ok(key) = user.open_subkey(name) else {
+        return Ok(false);
+    };
+    let text = |key: &RegKey, value: &str| key.get_value::<String, _>(value).ok();
+    let command = key.open_subkey("command").ok();
+    let multi = text(&key, "MultiSelectModel");
+    Ok(
+        text(&key, "ShellfoxOwner").as_deref() == Some(EXPLORER_OWNER)
+            && text(&key, "").as_deref() == Some("Open in Shellfox")
+            && text(&key, "MUIVerb").as_deref() == Some("Open in Shellfox")
+            && text(&key, "Icon").as_deref() == exe.to_str()
+            && multi.as_deref() == (!background).then_some("Single")
+            && command.and_then(|command| text(&command, ""))
+                == Some(explorer_command(exe, background)?),
+    )
 }
 
 #[cfg(test)]

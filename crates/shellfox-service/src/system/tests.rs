@@ -286,6 +286,7 @@ fn staged_files_detect_revision_changes_and_preserve_permissions() {
     );
     assert_eq!(fs::read(file).unwrap(), b"concurrent user edit");
 }
+mod deb_tests;
 mod file_tests;
 mod launch_tests;
 mod linux_tests;

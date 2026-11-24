@@ -24,6 +24,7 @@ mod host_client;
 mod host_lost;
 mod host_process;
 mod input;
+mod integration;
 mod launch_runtime;
 #[cfg(target_os = "linux")]
 mod linux_fontconfig;
@@ -76,6 +77,12 @@ fn main() -> Result<()> {
     {
         std::process::exit(update::cli::run(&arguments[1..]));
     }
+    if arguments
+        .first()
+        .is_some_and(|first| first == integration::FLAG)
+    {
+        std::process::exit(integration::run_flag(&arguments[1..]));
+    }
     // Squirrel invokes the app before installation is complete. Never start a host then.
     #[cfg(windows)]
     let arguments = {
@@ -94,8 +101,6 @@ fn main() -> Result<()> {
     if let Some(code) = cli_launcher::forward_ssh(&arguments)? {
         std::process::exit(code);
     }
-    #[cfg(target_os = "macos")]
-    let install_cli = arguments.is_empty();
     let options = Options::parse(arguments)?;
     if options.mode == Mode::Smoke {
         let mut frontend = frontend_composition::FrontendDirectories::plan(&options)?;
@@ -114,11 +119,9 @@ fn main() -> Result<()> {
     let app_startup::Startup::Graphical(owner) = startup else {
         return Ok(());
     };
-    #[cfg(target_os = "macos")]
-    if install_cli {
-        if let Err(error) = cli_launcher::install_mac() {
-            eprintln!("Shellfox CLI integration unavailable: {error:#}");
-        }
+    // Launches with isolated data or test flags never touch the user's integration.
+    if owner.is_some() && options.relaunch_args.is_empty() {
+        integration::repair_in_background();
     }
     // This exact owner stays outside Application.run, including install/GPU failure.
     eprintln!(

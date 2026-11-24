@@ -317,9 +317,10 @@ fn windows_shims(exe: &str, cli: &str) -> WindowsShims {
 }
 
 #[cfg(target_os = "macos")]
-pub(crate) fn install_mac() -> Result<()> {
+/// Returns false when there is no installed app bundle to point at.
+pub(crate) fn install_mac() -> Result<bool> {
     if !shellfox_service::app_paths::is_packaged() {
-        return Ok(());
+        return Ok(false);
     }
     let home = PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?);
     let executable = std::env::current_exe()?;
@@ -333,7 +334,7 @@ pub(crate) fn install_mac() -> Result<()> {
         .parent()
         .is_some_and(|dir| dir == Path::new("/Applications") || dir == home.join("Applications"))
     {
-        return Ok(());
+        return Ok(false);
     }
     let quote = |p: PathBuf| -> Result<String> {
         let name = p.to_str().context("Invalid Shellfox bundle encoding")?;
@@ -352,7 +353,8 @@ pub(crate) fn install_mac() -> Result<()> {
         Some(&script),
         owner,
         |existing| existing.lines().any(|line| line == "# Shellfox/linux-v1"),
-    )
+    )?;
+    Ok(true)
 }
 
 #[cfg(test)]

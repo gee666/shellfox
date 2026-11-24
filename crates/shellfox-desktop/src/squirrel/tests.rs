@@ -49,6 +49,18 @@ fn explorer_takes_over_owned_verbs_and_leaves_foreign_ones() {
         let (foreign, _) = user.create_subkey(keys.legacy[1])?;
         foreign.set_value("PiManagerOwner", &"someone-else")?;
         explorer(&keys, new, false)?;
+        assert!(verb_is_current(&user, keys.folder, new, false)?);
+        assert!(verb_is_current(&user, keys.background, new, true)?);
+        assert!(!verb_is_current(&user, keys.folder, old, false)?);
+        // A launch repairs an edited verb and leaves a current one alone.
+        user.open_subkey_with_flags(
+            format!(r"{}\command", keys.folder),
+            winreg::enums::KEY_WRITE,
+        )?
+        .set_value("", &"edited")?;
+        assert!(!verb_is_current(&user, keys.folder, new, false)?);
+        explorer(&keys, new, false)?;
+        assert!(verb_is_current(&user, keys.folder, new, false)?);
         let command: String = user
             .open_subkey(format!(r"{}\command", keys.folder))?
             .get_value("")?;
