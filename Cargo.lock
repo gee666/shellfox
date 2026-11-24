@@ -7699,6 +7699,7 @@ dependencies = [
  "crossterm",
  "futures-util",
  "libc",
+ "rusqlite",
  "russh",
  "rustix 1.1.6",
  "semver",

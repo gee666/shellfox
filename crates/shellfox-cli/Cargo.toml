@@ -49,3 +49,7 @@ name = "shellfox-cli-raw-fixture"
 path = "tests/support/raw_fixture_main.rs"
 test = false
 bench = false
+
+[dev-dependencies]
+# Moves stored session times back in the retention test.
+rusqlite = { version = "=0.41.0", features = ["bundled"] }
