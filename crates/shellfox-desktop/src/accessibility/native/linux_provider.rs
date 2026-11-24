@@ -2,7 +2,6 @@ use super::{Bridge, SemanticError};
 use accesskit::{Rect, TreeUpdate};
 use accesskit_unix::Adapter;
 use gpui::Window;
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 pub(super) struct Provider {
     adapter: Adapter,
@@ -10,18 +9,9 @@ pub(super) struct Provider {
 }
 
 impl Provider {
-    pub(super) fn attach(window: &Window, bridge: Bridge) -> Result<Self, SemanticError> {
-        let handle = HasWindowHandle::window_handle(window)
-            .map_err(|e| SemanticError::Native(e.to_string()))?;
-        let x11 = match handle.as_raw() {
-            RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_) => true,
-            RawWindowHandle::Wayland(_) => false,
-            _ => {
-                return Err(SemanticError::Native(
-                    "expected an X11 or Wayland GPUI window".into(),
-                ));
-            }
-        };
+    pub(super) fn attach(_window: &Window, bridge: Bridge) -> Result<Self, SemanticError> {
+        // AccessKit's Unix adapter needs no window handle, only the backend kind.
+        let x11 = crate::native_window::is_x11();
         Ok(Self {
             adapter: Adapter::new(bridge.clone(), bridge.clone(), bridge),
             x11,

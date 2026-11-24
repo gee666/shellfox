@@ -54,7 +54,7 @@ jobs:
       - name: GPUI build dependencies
         run: |
           bash .github/scripts/setup-ubuntu-apt.sh
-          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev acl
+          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev acl xvfb xauth mesa-vulkan-drivers
       # The prepared libghostty-vt depends only on the pinned Zig and Ghostty inputs.
       # Saved right after preparation, so a later failing step doesn't lose it.
       - name: Cached Ghostty
@@ -88,6 +88,13 @@ jobs:
       - name: Runtime, service, CLI and Files tests
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         run: cargo test --locked -p shellfox-runtime -p shellfox-service -p shellfox-cli -p shellfox-files --no-fail-fast
+      # A real X11 window (Xvfb + Mesa's software Vulkan): GPUI's X11 backend
+      # differs from Wayland, and a GUI-only panic must fail CI.
+      - name: Desktop window under X11
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        run: |
+          cargo build --locked -p shellfox-cli
+          env -u WAYLAND_DISPLAY xvfb-run -a cargo test --locked -p shellfox-desktop --test launch_smoke
       - name: Service automation against the owned raw fixture
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         run: |

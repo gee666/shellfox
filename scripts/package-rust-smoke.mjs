@@ -134,7 +134,6 @@ async function desktopLaunchSmoke(desktop, cli, helper, work, env) {
     // Only an attached window applies the launch, so the session proves it.
     while (!(sessions()?.length > 0)) {
       if (ui.exitCode !== null || ui.signalCode !== null) {
-        if (launcher.length > 1) return `desktop launch: skipped, GPUI did not start under xvfb-run:\n${diagnostics}`;
         throw new Error(`Desktop exited before its window attached:\n${diagnostics}`);
       }
       assert.ok(Date.now() < deadline, `Desktop window did not attach:\n${diagnostics}`);
