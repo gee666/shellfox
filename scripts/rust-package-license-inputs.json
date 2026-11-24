@@ -1051,26 +1051,6 @@
       ]
     },
     {
-      "name": "xim-ctext",
-      "version": "0.3.0",
-      "license": "MIT",
-      "crateChecksum": "2ac61a7062c40f3c37b6e82eeeef835d5cc7824b632a72784a89b3963c33284c",
-      "repository": "https://github.com/Riey/xim-rs",
-      "commit": "65f77e44524ba487285a63aac4080faf2c05b4ed",
-      "cratePath": "xim-ctext",
-      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
-      "files": [
-        {
-          "file": "xim-ctext-0.3.0/LICENSE",
-          "upstreamPath": "LICENSE",
-          "url": "https://raw.githubusercontent.com/Riey/xim-rs/65f77e44524ba487285a63aac4080faf2c05b4ed/LICENSE",
-          "sha256": "efa1224931b98468f5005f77285457f8d2eab0a77a15941aa10abbab1ae9a74e",
-          "gitBlob": "122b7734602689689ba95a48f5277d66f767e83c",
-          "role": "license-text"
-        }
-      ]
-    },
-    {
       "name": "xim-parser",
       "version": "0.2.2",
       "license": "MIT",

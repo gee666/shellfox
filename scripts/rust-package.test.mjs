@@ -39,7 +39,7 @@ test('locked inventory retains real source and checksums, not assumed MIT', () =
 test('strict notice gate and supplemental evidence do not treat declarations as license texts', () => {
   const inputs = JSON.parse(readFileSync(path.join(root, 'scripts/rust-package-license-inputs.json'), 'utf8'));
   const result = verifyAllLicenseInputs();
-  assert.equal(result.count, 44);
+  assert.equal(result.count, 43);
   assert.deepEqual(result.unresolved.sort(), [
     'convert_case@0.4.0', 'hexf-parse@0.2.1', 'mac@0.1.1', 'seahash@4.1.0', 'simd_helpers@0.1.0',
     'block@0.1.6', 'block2@0.6.2', 'leak@0.1.2', 'leaky-cow@0.1.1', 'malloc_buf@0.0.6',
@@ -179,5 +179,8 @@ test('new workflow is manual, read-only and cannot publish or sign', () => {
   assert.match(workflow, /default: false/);
   assert.doesNotMatch(workflow, /^\s+(?:push|pull_request|release|schedule):/m);
   assert.doesNotMatch(workflow, /contents: write|action-gh-release|codesign |signtool |gh release|secrets\./);
-  for (const match of workflow.matchAll(/uses: ([^\s]+)/g)) assert.match(match[1], /@[a-f0-9]{40}$/);
+  // Local composite actions (./.github/actions/...) live in this repository.
+  for (const match of workflow.matchAll(/uses: ([^\s]+)/g)) {
+    if (!match[1].startsWith('./')) assert.match(match[1], /@[a-f0-9]{40}$/);
+  }
 });

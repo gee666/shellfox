@@ -76,7 +76,7 @@ jobs:
           key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('crates/ghostty-vt-sys/build-support/zig-*.json') }}
       - name: Build Android Rust and Ghostty libraries
         id: android-rust
-        timeout-minutes: 30
+        timeout-minutes: 60
         shell: bash
         run: |
           zig=$(node scripts/rust-package-prereqs.mjs --zig-only tmp/zig)
