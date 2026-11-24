@@ -16,6 +16,7 @@ use std::{
     sync::atomic::Ordering,
     time::Duration,
 };
+const WAIT: Duration = Duration::from_millis(50);
 pub(super) fn entry() -> Option<u32> {
     let mut args = std::env::args_os().skip(1);
     if args.next().as_deref() != Some(std::ffi::OsStr::new(FLAG)) {
@@ -119,6 +120,29 @@ fn run(stream: &mut UnixStream, teardown: &Teardown, command: &RawCommand) -> Re
             );
             signaled = true;
         }
-        std::thread::sleep(Duration::from_millis(2));
+        wait(stream, &guest, !signaled);
     }
+}
+/// Sleeps until the guest exits or, while `control`, a stop request arrives.
+/// A stop must kill at once: a guest that the host drains after asking can
+/// otherwise finish by itself and report its own exit instead of SIGKILL.
+/// The timeout bounds a close signal that lands just before the poll, and
+/// orphan reaping.
+fn wait(stream: &UnixStream, guest: &File, control: bool) {
+    let mut polls = [
+        libc::pollfd {
+            fd: guest.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+    ];
+    let count = if control { 2 } else { 1 };
+    // SAFETY: `count` pollfds naming descriptors held for this call. EINTR
+    // from a close signal just returns early.
+    unsafe { libc::poll(polls.as_mut_ptr(), count, WAIT.as_millis() as i32) };
 }

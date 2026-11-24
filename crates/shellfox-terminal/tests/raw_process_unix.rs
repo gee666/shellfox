@@ -284,3 +284,7 @@ fn raw_path_search_and_exec_failures_do_not_fallback_to_a_shell() {
     let mut process = RawProcess::spawn(&fixture.helper, command).unwrap();
     assert_eq!(collect(&mut process).0, b"explicit-interpreter");
 }
+#[test]
+fn stop_of_a_finishing_flood_is_always_the_guests_sigkill() {
+    stop_of_a_finishing_flood_is_the_guests_sigkill(20);
+}

@@ -186,3 +186,9 @@ fn exited(pidfd: &std::fs::File) -> bool {
     }
     true
 }
+
+#[test]
+fn session_stop_of_a_finishing_flood_is_always_the_guests_sigkill() {
+    session();
+    raw::stop_of_a_finishing_flood_is_the_guests_sigkill(20);
+}

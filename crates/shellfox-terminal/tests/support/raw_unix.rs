@@ -199,3 +199,29 @@ fn observe_exit(queue: &File) -> bool {
     };
     unsafe { libc::kevent(queue.as_raw_fd(), std::ptr::null(), 0, &mut event, 1, &now) == 1 }
 }
+/// A stop lands as the guest's own SIGKILL even when the guest is about to
+/// finish by itself: draining right after the stop lets the flood run on.
+pub fn stop_of_a_finishing_flood_is_the_guests_sigkill(times: usize) {
+    let fixture = Fixture::new();
+    for _ in 0..times {
+        let mut process = fixture.spawn(&["flood"]);
+        // The pipe fills, so the drain after the stop is what frees the guest.
+        until(|| process.try_output().is_some());
+        std::thread::sleep(Duration::from_millis(20));
+        process.request_stop().unwrap();
+        // Drain as fast as a busy host, without the sleeps of `collect`.
+        let (mut eof, mut code) = (0, None);
+        let end = Instant::now() + Duration::from_secs(15);
+        while eof < 2 || code.is_none() {
+            assert!(Instant::now() < end, "raw stop unconfirmed");
+            code = code.or(process.poll_exit().unwrap());
+            while let Some(output) = process.try_output() {
+                eof += usize::from(matches!(output, RawOutput::Eof(_)));
+            }
+        }
+        process.close().unwrap();
+        let code = code.unwrap();
+        assert_eq!(code, 137, "the stop raced the guest's own exit");
+        assert!(process.was_forcibly_stopped());
+    }
+}

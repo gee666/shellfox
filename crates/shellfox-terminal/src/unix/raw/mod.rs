@@ -117,8 +117,15 @@ impl RawProcess {
             input.close();
         }
     }
+    /// Held after a stop until `poll_exit` has seen the guest's own status.
+    /// Draining would let a guest blocked on a full pipe finish by itself
+    /// before the kill lands, and report its exit instead of SIGKILL.
     pub fn try_output(&self) -> Option<RawOutput> {
-        self.inner.as_ref().and_then(|inner| inner.output.read())
+        let inner = self.inner.as_ref()?;
+        if self.stopped && !inner.settled() {
+            return None;
+        }
+        inner.output.read()
     }
     /// Calls `wake` after every output frame and whenever `poll_exit` may have
     /// news, never under a lock. Fires once now for anything earlier. Call once.

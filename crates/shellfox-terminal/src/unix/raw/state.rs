@@ -44,6 +44,10 @@ impl Inner {
             removed: false,
         }
     }
+    /// The guest's status is reported or its controller is gone.
+    pub fn settled(&self) -> bool {
+        self.guest.is_some() || self.root
+    }
     pub fn attach(&mut self) -> Result<()> {
         self.owner.attach(&self.child)?;
         self.assigned = true;
