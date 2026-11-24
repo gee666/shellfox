@@ -1,68 +1,49 @@
 # Platform support
 
-The shared host uses one real PTY per terminal tab. It does not route tabs into Windows Terminal or GNOME Terminal. Host-owned shells and owned descendant cleanup end through confirmed host shutdown; restart retains saved sessions, not live shells. Desktop and CLI clients can attach to the same host. The separate headless distribution needs no Electron or display server.
+## Release targets
 
-## Implementation and evidence
+The release workflow (`.github/workflows/release.yml`) builds each target natively. Nothing is cross-compiled.
 
-| Target | Implementation | Configured artifacts | Host evidence |
+| Target | Rust target | Desktop | Headless |
 | --- | --- | --- | --- |
-| Windows x64 | PowerShell, bundled ConPTY DLL/OpenConsole and CIM tracking | Loose app, ZIP, Squirrel | Windows-native dependency/build/package checks have passed. Final review rebuild is recorded in verification.md. Full desktop/installer acceptance incomplete. |
-| Windows arm64 | Same profile/backend code with arm64 native addons | Loose app, ZIP | Not run |
-| Linux x64/arm64 | Canonical login shell, /proc tracking and Python pidfd tree cleanup | Loose app, ZIP, DEB | Kernel/tree safety fixtures passed inside WSL Debian, not a native Linux Electron package |
-| macOS x64/arm64 | Read-only libproc/numeric-sysctl snapshot helper; per-tab lifecycle supervisor integration | App bundle, ZIP, ad-hoc or optional certificate signature | No macOS SDK on this host. Native compile/sign/launch/close unverified |
-| WSL on Windows | Per-distro Bash, guest markers, /proc identities and pidfd cleanup | Windows host package | Debian kernel tests only. WSL UI/package acceptance unverified |
+| Windows x64 | `x86_64-pc-windows-msvc` | `ShellfoxSetup.exe` (Squirrel), ZIP | ZIP |
+| Linux x64 | `x86_64-unknown-linux-gnu` | `.deb`, `.tar.gz` | `.tar.gz` |
+| Linux ARM64 | `aarch64-unknown-linux-gnu` | `.deb`, `.tar.gz` | `.tar.gz` |
+| macOS x64 | `x86_64-apple-darwin` | DMG, ZIP | `.tar.gz` |
+| macOS ARM64 | `aarch64-apple-darwin` | DMG, ZIP | `.tar.gz` |
+| Android | | APK | |
 
-The six-target CI configuration is not evidence that all targets have launched or shut down correctly. Linux is a glibc desktop target, not Alpine/musl support. Builds require target-native Node/OS/architecture. No universal binaries or cross-staged addons are supported.
+Windows ARM64 has no build in 0.10.0, so 0.9 installations there stay on 0.9.15. iOS builds run in `apple-platforms.yml` but aren't released yet. The phone apps are remote clients and run no shells of their own ([Mobile](mobile.md)). Linux means glibc, not musl or Alpine. macOS needs 13 or later ([macOS](macos.md)). Windows needs ConPTY, so Windows 10 1809 or later.
+
+In-app updates work only for the Windows installer, the `.deb` and the macOS app. See [updates](self-update.md).
 
 ## Linux glibc floor
 
-Linux desktop and headless packages need glibc 2.31 or newer: Ubuntu 20.04, Debian 11 and later. They are built in an Ubuntu 20.04 container, the deb declares `libc6 (>= 2.31)`, and packaging fails if `shellfox` or `shellfox-cli` needs a newer `GLIBC_` symbol (`scripts/package-rust-glibc.mjs`). Electron 0.9.15's binary needed glibc 2.25. Ubuntu 18.04 and Debian 10 ran it, but can't install the Rust package; there, the 0.9.15 updater reports a failed install and keeps the old app.
+Linux desktop and headless packages need glibc 2.31 or newer: Ubuntu 20.04, Debian 11 and later. They are built in an Ubuntu 20.04 container, the deb declares `libc6 (>= 2.31)`, and packaging fails if `shellfox` or `shellfox-cli` needs a newer `GLIBC_` symbol (`scripts/package-rust-glibc.mjs`). Electron 0.9.15 needed glibc 2.25. Ubuntu 18.04 and Debian 10 ran it but can't install the Rust package. There, the 0.9.15 updater reports a failed install and keeps the old app.
 
-## Prerequisites and preflight
+## Terminals and cleanup
 
-Packaged startup needs no installed .NET runtime, Windows Terminal, or GNOME Terminal. Source builds require Go; Windows desktop builds also need the .NET SDK for the self-contained administrator-terminal helper. Headless packages omit that helper and do not offer administrator profiles. See [README](../README.md#development) and [macOS builds](macos.md) for compiler requirements.
+Every tab is its own PTY, owned by the host process. Closing a tab or stopping the host ends the tab's process tree. A restart brings back saved sessions, not running shells.
 
-Windows needs ConPTY and a discovered PowerShell. Backend requests the packaged ConPTY DLL path rather than the asynchronous AttachConsole/list-PID close path.
+### Windows
 
-Linux local launch requires canonical shell identity, /usr/bin/python3, readable /proc and a successful actual pidfd-open/signal preflight. Python remains an installed runtime prerequisite; DEBs declare it. Kernel version or build success alone cannot override missing capabilities.
+Tabs use ConPTY. Each tab runs in a Windows Job that kills everything left in it when the tab closes ([shellfox-terminal](../crates/shellfox-terminal/README.md#ownership)). The default shell is PowerShell 7, then Windows PowerShell, then Command Prompt. Administrator PowerShell tabs go through a separate helper ([administrator terminals](administrator-terminals.md)).
 
-WSL discovery checks Bash, env, Python 3, /proc and usable pidfd signaling before enabling a distro. Preflight can start distributions. Checks have bounded concurrency and per-command timeouts. Unavailable profiles cannot launch and retain explicit reasons in the API. The current Settings list labels them unavailable; not every per-profile reason is rendered. Windows-drive CWD translation also needs wslpath. Neither host wsl.exe ancestry nor a discovered distro name proves guest shell ownership.
+WSL tabs start `wsl.exe` as the distribution's default user, which must be an ordinary account, not root. A distribution is offered only when it has `/bin/bash`, `/usr/bin/env` and Python 3 with working pidfds, and launching needs `/usr/bin/python3`. The Job holds the Windows `wsl.exe` process. Shellfox doesn't track the Linux processes inside the distribution. See [native/wsl](../native/wsl/README.md).
 
-The native macOS supervisor, TypeScript client/backend lifecycle wiring and profile preflight are implemented. Profiles become available only after a compatible shipped-supervisor preflight succeeds; missing binaries are a dependency failure, not an unsupported placeholder. macOS needs both compiled helpers in the exact packaged resource directory or development artifact path. Self-preflight must establish readiness before launch/tracking capabilities are advertised. The snapshot helper alone is read-only and cannot supply safe descendant termination. A missing, incompatible or failing supervisor leaves profiles unavailable rather than enabling a numeric-PID fallback. The installed Darwin runtime does not need Python or a compiler. Native macOS execution remains unverified even when implementation and build configuration are present.
+### Linux
 
-## Descendant shutdown and limits
+Each process picks one containment mode at first use and logs it as `Terminal containment: cgroup|session (reason)`:
 
-Linux/WSL termination holds pidfds, freezes/enumerates to a fixed point and independently verifies exits for the root and owned descendants. New session members require the original live stopped immutable leader. Cached orphan session IDs never authorize ownership. Previously proven detached/orphan identities require fresh exact-birth confirmation; unobserved detached activity is not guaranteed.
+- **cgroup** when a cgroup-v2 systemd user manager is available. Each shell runs in its own transient scope (`shellfox-terminal-<id>.scope`, `OOMPolicy=continue`), and closing kills the whole cgroup at once.
+- **session** otherwise: root without a user manager, containers, WSL, distributions without systemd, cgroup v1. The tab's controller leads its own session and sweeps it on close. A program that starts a new session can escape.
 
-A shell exit cannot erase pending descendant cleanup. Failed cleanup retains ownership, blocks silent replacement and prevents quitting. The failed invocation resumes survivors it stopped, including normal deadline interruption. External SIGKILL/crash of the cleanup helper cannot guarantee restoration. Missing prerequisites after launch, elevated/inaccessible members, unverifiable ownership or more than 256 members can still cause honest refusal.
+Both modes need pidfd support and give shells `oom_score_adj` 300, which makes a runaway shell the kernel's preferred OOM victim. In cgroup mode an OOM kill stays inside that tab's scope. A host started before its user manager stays in session mode until restarted. Details and limits are in [Unix PTY support](../crates/shellfox-terminal/UNIX.md). Automation runs use the same modes ([headless deployment](headless.md#automation-processes)).
 
-The Darwin lifecycle supervisor is separate from read-only snapshots. It retains the owned session leader and uses same-session group guardians and private same-user control; main does not signal a target by numeric PID. The backend authenticates and tracks the real foreground shell child. Confirmed CLOSE waits for native wrapper exit; timeout never kills that wrapper. Crashes/SIGKILL retain uncertain cleanup ownership. Detached new sessions are outside the protocol and are not swept. Real job-control and shutdown behavior must still be verified on Darwin before release.
+### macOS
 
-## Memory exhaustion and OS shutdown
+Each shell leads its own session. Closing sends HUP, TERM and then KILL to that session. macOS has no cgroup equivalent, so a program that starts a new session can escape ([Unix PTY support](../crates/shellfox-terminal/UNIX.md#macos)).
 
-On Linux every local shell, in desktop and headless hosts, starts in its own transient systemd user scope (`shellfox-terminal-<id>.scope`, `OOMPolicy=continue`) and gets `oom_score_adj` 300. A runaway command is the kernel's preferred OOM victim, and killing it no longer makes systemd stop the manager's scope with every other terminal. Without a systemd user delegation (root without a user manager, containers, WSL or distros without systemd, cgroup v1), shells run in their controller's own session instead, which is swept on close, and keep only the higher OOM score. The host logs which mode it uses. macOS and Windows have no equivalent per-process OOM killer; WSL shells follow the guest distribution.
+## OS shutdown
 
-SIGTERM, SIGHUP, logind/macOS shutdown and Windows session end close owned shells and quit without a confirmation prompt or update installation, because the OS will not honour Cancel. SIGINT and normal quit still ask. Headless hosts already stop on these signals.
-
-## Agent detection
-
-Pi, Claude, Codex and OpenCode each have one switch for native executables and Node/Bun launches. Detection trusts an exact executable basename, OS process name or rewritten argv0 first. Custom name rules use the same matching. Exact executable-path rules match only that path, never a name or title. Names and paths are case-insensitive on Windows and case-sensitive on Unix.
-
-When no agent name is recognized, bundled rules check the Node/Bun script slot against package suffixes. This works across runtime versions and install directories. Bun direct scripts and `bun run <script-path>` are supported, not package.json task names, arbitrary wrappers or prompt arguments. Pi titles no longer require installer/shim provenance.
-
-Linux/WSL collectors expose proc comm and argv0; macOS exposes libproc names and argv0. Windows CIM exposes the executable Name and original command line, not Node's later console title. Windows title-only Node detection is therefore unavailable; native names and script paths still work. Truncated OS names must match exactly; argv0 can supply the full name. Native macOS execution remains unverified.
-
-Stored bundled launcher rules migrate to the unified switches. An existing per-agent toggle wins over the old Native agents toggle, including when disabled. If a per-agent rule is absent but the untouched native rule covered that agent, its old native toggle supplies the missing switch. Customized legacy rules retain their constraints and toggle under custom IDs; unrelated custom rules are untouched. Removed rules stay removed when no old native coverage exists. Detection changes do not grant tab ownership or cleanup authority.
-
-## Workspace behavior
-
-- Activation selects a live tab or opens one fresh shell only when no live/launching shell or unresolved cleanup remains.
-- Add tab owns another independent PTY, not an HWND-routed append.
-- Session/Settings switches retain shells while the app runs. Closed/stale generations cannot receive input.
-- Native quit confirmation is independent of renderer confirmation. Cancel keeps shells running; failed cleanup keeps the manager open. OS-initiated termination skips the prompt (see above).
-- Settling only changes session status. It keeps terminals, tabs and agents running. Unsettling clears that status without relaunching anything. Deletion requires confirmation and closes owned terminals before removing the session.
-- Legacy external sessions remain read-only saved sessions without tab/root records; the runtime does not adopt, watch or kill their processes. See [database retention](database-retention.md).
-- Interactive shell exit status is not arbitrary command-status detection.
-- Inaccessible tracking evidence stays unknown. Very short-lived, detached, elevated, remote/container or multiplexer activity is not guaranteed.
-
-Desktop and headless hosts support client attachment to their own terminals, including embedded Tailscale access. Closing a client does not close a separately owned host. Attachment to unrelated external terminals, split panes, survival after host exit, command restoration, and arbitrary executable templates are not implemented. See [headless deployment](headless.md) for package and startup-manager limits. Historical Windows Terminal routing and GNOME/.NET tests describe the retired backend, not embedded acceptance.
+Logout, shutdown, SIGTERM, SIGHUP and Windows `WM_ENDSESSION` make the desktop quit without asking. A host the desktop started stops with its shells (`crates/shellfox-desktop/src/system_end.rs`). A host the desktop didn't start, such as a headless host, keeps running.
