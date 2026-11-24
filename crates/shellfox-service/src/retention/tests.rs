@@ -1,5 +1,6 @@
 use super::*;
 use crate::activity::integration::ActivityUtcAnchor;
+use crate::activity::{Health, Observation};
 use crate::tests::{default_catalog_profile, scratch};
 use shellfox_core::{CreateSession, SettingsPatch};
 use std::time::Duration;
@@ -153,6 +154,58 @@ impl Fixture {
         let snapshot = self.service.host().snapshot().unwrap();
         snapshot.sessions.into_iter().find(|s| s.id == self.session)
     }
+    fn observations(&self) -> Vec<Option<Observation>> {
+        let service = &self.service;
+        service
+            .terminals
+            .values()
+            .map(|terminal| {
+                let runtime = &terminal.runtime;
+                service
+                    .activity
+                    .owner
+                    .terminal_facts(runtime.identity(), runtime.phase())
+                    .observation
+            })
+            .collect()
+    }
+    /// Waits in real time until every shell has started and its processes
+    /// have stopped changing for a second. Startup commands, such as a login
+    /// shell's profile scripts, are real activity and would otherwise keep
+    /// postponing expiry while the test's clock jumps hours ahead.
+    fn wait_until_idle(&mut self) {
+        let started = Instant::now();
+        let mut quiet = Instant::now();
+        loop {
+            self.service.pump();
+            let now = self.service.activity.now_ms().unwrap();
+            let service = &mut self.service;
+            let updates = service.activity.owner.poll_processes(
+                &service.terminals,
+                &service.activity.rules,
+                now,
+                16,
+                true,
+            );
+            if updates.iter().any(|update| update.activity_changed) {
+                quiet = Instant::now();
+            }
+            let observations = self.observations();
+            let healthy = observations.iter().all(|observation| {
+                observation
+                    .as_ref()
+                    .is_some_and(|observation| observation.health == Health::Healthy)
+            });
+            if healthy && quiet.elapsed() >= Duration::from_secs(1) {
+                return;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(20),
+                "the shell never went idle: {observations:?}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
     /// Runs the owner at its own retention deadlines, as `owner_pass_timeout`
     /// would, until `done` holds.
     fn run_until(&mut self, limit: u64, done: impl Fn(&Self) -> bool) {
@@ -164,7 +217,11 @@ impl Fixture {
             );
             let next = self.service.retention.next_ms().unwrap_or(self.now);
             self.now = next.max(self.now + REFRESH_STEP_MS);
-            assert!(self.now <= limit, "nothing happened before {limit}");
+            assert!(
+                self.now <= limit,
+                "nothing happened before {limit}: {:?}",
+                self.observations()
+            );
             self.service.pump();
             self.service.pump_retention_at(self.now);
             std::thread::sleep(Duration::from_millis(5));
@@ -246,6 +303,7 @@ fn deleting_closes_live_terminals() {
     let tab = f.current().unwrap().tabs[0].id;
     f.service.attach(tab, 1, false).unwrap();
     assert_eq!(f.service.active_terminals(), 1);
+    f.wait_until_idle();
     let start = f.now;
     f.run_until(start + 4 * HOUR, |f| {
         f.current().unwrap().settled_at.is_some()
