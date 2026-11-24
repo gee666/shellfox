@@ -298,15 +298,22 @@ internal object TerminalCoordinator {
     done(bytes.toString(Charsets.UTF_8))
   }
 
-  private fun command(id: String, sink: TerminalSink, critical: Boolean = false, task: (Entry) -> Unit) = execute({ sink.error(1) }, critical) {
+  /**
+   * Input, a resize or a selection the terminal can't take now is dropped, as
+   * 0.9.15 dropped input while it reattached; the view itself keeps working.
+   * Only an engine failure is a display error.
+   */
+  private fun command(id: String, sink: TerminalSink, critical: Boolean = false, task: (Entry) -> Unit) = execute({}, critical) {
     val entry = terminals[id]
     if (entry == null || entry.view !== sink || retiring.containsKey(entry.module)) return@execute
     try { task(entry) }
-    catch (_: NativeInputBusy) { sink.error(1) }
-    catch (_: NativeInputStale) { sink.error(3) }
-    catch (error: NativeCallException) { sink.error(error.status) }
+    catch (_: NativeInputBusy) {}
+    catch (_: NativeInputStale) {}
+    catch (error: NativeCallException) { if (error.status !in DROPPED_INPUT) sink.error(error.status) }
     catch (_: Exception) { sink.error(5) }
   }
+  /** BUSY, INVALID, STALE and EMPTY: the host or the encoder refused this one input. */
+  private val DROPPED_INPUT = setOf(1, 2, 3, 7)
 
   private fun flushAccepted(id: String, entry: Entry) {
     val target = RustBindings.progress(entry.handle)[0]

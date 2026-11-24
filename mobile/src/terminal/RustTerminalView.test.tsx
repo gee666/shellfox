@@ -55,6 +55,8 @@ vi.mock('../rust-client/specs/ShellfoxRustTerminalNativeComponent', () => ({ def
     <button aria-label="Native codegen default ready" onClick={() => props.onState?.({nativeEvent:{terminalHandle:props.terminalHandle,state:'ready',focusResult:{platform:'',source:'',attached:false,windowFocused:false,uiThread:false,inputAllowed:false,frameAvailable:false,focusRequest:'',focused:false,keyboardRequest:''}}})} />
     <button aria-label="Other terminal ready" onClick={() => props.onState?.({ nativeEvent: { terminalHandle: '999', state: 'ready' } })} />
     <button aria-label="Native failure" onClick={() => props.onError?.({ nativeEvent: { terminalHandle: props.terminalHandle, code: 5 } })} />
+    {[1, 3, 7].map(code => <button key={code} aria-label={`Native input dropped ${code}`}
+      onClick={() => props.onError?.({ nativeEvent: { terminalHandle: props.terminalHandle, code } })} />)}
     <button aria-label="Native selection" onClick={() => props.onSelection?.({
       nativeEvent: { terminalHandle: props.terminalHandle, text: 'selected 日本' },
     })} />
@@ -203,7 +205,30 @@ describe('native terminal in the existing mobile controls', () => {
     expect(native.operation.mock.calls.every(([, json]) => !json.includes('writeTerminal'))).toBe(true);
   });
 
-  it('fails closed on invalid readiness or native failure without replacing the native view', async () => {
+  it('keeps the view alive when input is dropped while the terminal reattaches', async () => {
+    const { native, onError } = await setup();
+    for (const code of [1, 3, 7]) fireEvent.click(screen.getByRole('button', { name: `Native input dropped ${code}` }));
+    expect(onError).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-readonly', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Esc', exact: true }));
+    expect(native.terminalInput).toHaveBeenCalledTimes(1);
+  });
+  it('reattaches when native reports a lost write, and drops input refused meanwhile', async () => {
+    const { native, onError } = await setup();
+    const attaches = () => native.operation.mock.calls.filter(([, json]) => json.includes('attachTerminal')).length;
+    const before = attaches();
+    native.terminalInput.mockRejectedValueOnce(Object.assign(new Error('stale'), { code: 'RUST_STALE' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Esc', exact: true }));
+    await tick();
+    expect(onError).not.toHaveBeenCalled();
+    native.event('77', { ok: false, error: { code: 'TERMINAL_CONTROL_REQUIRED', message: 'Take control first.', retryable: false } }, 0, true);
+    const [event] = native.events.slice(-1);
+    Object.assign(event, { reattach: [{ tabId: ids.tab, generation: ids.generation, afterSequence: 0 }] });
+    await tick();
+    expect(attaches()).toBe(before + 1);
+    expect(onError).not.toHaveBeenCalled();
+  });
+  it('fails closed on invalid readiness, and reopens the terminal once after an engine failure', async () => {
     const { native, onError } = await setup();
     fireEvent.click(screen.getByRole('button', { name: 'Native state invalid' }));
     expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-readonly', 'true');
@@ -214,7 +239,14 @@ describe('native terminal in the existing mobile controls', () => {
     expect(onError).toHaveBeenCalledTimes(2);
     expect(native.terminalInput).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Paste', exact: true })).toBeNull();
-    expect(native.createTerminal).toHaveBeenCalledTimes(1);
+    await tick(1100);
+    expect(native.createTerminal).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Native state ready' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Native failure' }));
+    await tick(1100);
+    // A second failure right after the reopen stays visible instead of looping.
+    expect(native.createTerminal).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledTimes(3);
   });
 
   it('retains selection/copy but hides all automation input controls', async () => {

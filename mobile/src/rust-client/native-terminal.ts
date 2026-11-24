@@ -78,6 +78,13 @@ export class NativeTerminalDriver {
   }
 }
 
+// Android names the status, iOS uses the ABI number: BUSY 1, STALE 3, EMPTY 7.
+const droppedInputCodes = new Set(['RUST_BUSY', 'RUST_STALE', 'RUST_EMPTY', 'RUST_1', 'RUST_3', 'RUST_7']);
+function droppedInput(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+    && droppedInputCodes.has(error.code);
+}
+
 export class NativeTerminalSession {
   private bound = false;
   private initializing?: Promise<void>;
@@ -160,7 +167,8 @@ export class NativeTerminalSession {
 
   async input(event: TerminalInput): Promise<void> {
     if (this.closed || this.readOnly || !this.parserReady || this.state !== 'attached') return;
-    await this.terminal.input(this.handle, event);
+    // As 0.9.15, input the terminal can't take while it reattaches is dropped.
+    await this.terminal.input(this.handle, event).catch((error: unknown) => { if (!droppedInput(error)) throw error; });
   }
 
   /** A key-bar tap: the press and then its release, for apps that track both. */

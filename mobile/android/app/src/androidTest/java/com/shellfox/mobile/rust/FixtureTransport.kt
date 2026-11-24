@@ -10,8 +10,11 @@ internal object FixtureTransport {
   private lateinit var paired: ByteArray
   private lateinit var attached: ByteArray
   val writes = ConcurrentLinkedQueue<JSONObject>()
+  val resizes = ConcurrentLinkedQueue<JSONObject>()
+  /** The next write gets this host error code instead of success. */
+  @Volatile var refuseNextWrite: String? = null
   fun initialize(pair: ByteArray, attachment: ByteArray) {
-    paired = pair.copyOf(); attached = attachment.copyOf(); writes.clear()
+    paired = pair.copyOf(); attached = attachment.copyOf(); writes.clear(); resizes.clear(); refuseNextWrite = null
   }
   @JvmStatic fun request(client: Long, generation: Long, request: Long, peer: ByteArray,
     path: ByteArray, body: ByteArray, deadlineMs: Int, maxResponse: Long) {
@@ -23,9 +26,18 @@ internal object FixtureTransport {
       "/v1/request" -> when (payload.getString("method")) {
         "attachTerminal" -> attached
         "writeTerminal" -> {
-          writes.add(payload)
-          """{"ok":true,"value":{"written":true}}""".toByteArray()
+          val refused = refuseNextWrite.also { refuseNextWrite = null }
+          if (refused != null) """{"ok":false,"error":{"code":"$refused","message":"refused","retryable":false}}""".toByteArray()
+          else {
+            writes.add(payload)
+            """{"ok":true,"value":{"written":true}}""".toByteArray()
+          }
         }
+        "resizeTerminal" -> {
+          resizes.add(payload.getJSONObject("payload"))
+          """{"ok":true,"value":{"resized":true}}""".toByteArray()
+        }
+        "acknowledgeTerminal" -> """{"ok":true,"value":{"acknowledged":true}}""".toByteArray()
         else -> error("Unexpected fixture method")
       }
       else -> error("Unexpected fixture endpoint")

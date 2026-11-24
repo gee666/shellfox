@@ -22,6 +22,7 @@ import { TerminalOperationError } from './errors';
 import { nativeFileLink } from './native-file-link';
 import {focusFeedbackSchema,focusActionNotice,isFocusFeedback,type FocusActionObservation} from './focus-feedback';
 import {retirementNotice} from './keyboard-retirement';
+import { nativeViewFailure } from './native-view-failure';
 import { appliesWantedKeyboard, closesForIme, keyBarState, keyboardTap, specialTap, surfaceFocused, wantsKeyboardAfterTap } from './key-bar-state';
 
 export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, fontSize,
@@ -54,6 +55,16 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
   const [selection, setSelection] = useState('');
   const [taking, setTaking] = useState(false);
   const dispatchedIntent = useRef<string | undefined>(undefined);
+  // A failed native view reopens its terminal once; a second failure soon after stays visible.
+  const [reopen, setReopen] = useState(0);
+  const reopenedAt = useRef(0);
+  const [reopenWanted, setReopenWanted] = useState(false);
+  useEffect(() => {
+    if (!reopenWanted) return;
+    const timer = setTimeout(() => { setReopenWanted(false); setReopen(value => value + 1); }, 1000);
+    return () => clearTimeout(timer);
+  }, [reopenWanted]);
+  useEffect(() => setReopenWanted(false), [driver, tabId, readOnly, connectionEpoch]);
   const { modifiers, current: modifiersRef, toggle, activity, reset } = useStickyModifiers(modifierReleaseDelayMs, () => undefined);
   const report = useCallback((cause: unknown) => callbacks.current.onError?.(
     cause instanceof Error ? cause : new Error('Native terminal failed.')), []);
@@ -110,7 +121,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
       disposed = true; unsubscribe(); errors(); clearKeyboardMode(true,'view_effect_cleanup'); current.current = null; invalidateAttachment();
       if (opened) void opened.close().catch(report);
     };
-  }, [driver, tabId, readOnly, connectionEpoch, changeState, reset, invalidateAttachment, report, clearKeyboardMode]);
+  }, [driver, tabId, readOnly, connectionEpoch, reopen, changeState, reset, invalidateAttachment, report, clearKeyboardMode]);
 
   useEffect(() => {
     if (session) void session.configure(terminalConfiguration(palette.terminal)).catch(report);
@@ -194,10 +205,14 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
             onFileOpen(target);
           } : undefined}
           onError={(event) => {
-            if (event.nativeEvent.terminalHandle === session.handle && current.current === session) {
-              setFocusObservation(null);session.nativeState('closed'); setNativeReady(false); reset(); invalidateAttachment();
-              clearKeyboardMode(true,'native_error',undefined,session); report(new Error('Native terminal display failed.'));
-            }
+            const { terminalHandle, code } = event.nativeEvent;
+            if (terminalHandle !== session.handle || current.current !== session) return;
+            const failure = nativeViewFailure(code);
+            if (failure === 'dropped') return;
+            if (failure === 'paste') { report(new Error('Paste a smaller section of text.')); return; }
+            setFocusObservation(null);session.nativeState('closed'); setNativeReady(false); reset(); invalidateAttachment();
+            clearKeyboardMode(true,'native_error',undefined,session); report(new Error('Native terminal display failed.'));
+            if (Date.now() - reopenedAt.current > 5000) { reopenedAt.current = Date.now(); setReopenWanted(true); }
           }}
         />}
         {!blocked && showKeyboardDiagnostics && actionNotice && <View pointerEvents="none" style={[styles.focusNotice,{backgroundColor:colors.bg}]}><Text style={{color:colors.muted}}>{actionNotice}</Text></View>}

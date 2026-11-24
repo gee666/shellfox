@@ -39,7 +39,8 @@ internal object ClientTerminalBindings {
   private val recovering = mutableSetOf<String>()
   private val clients = mutableMapOf<String, Client>()
   private val terminals = mutableMapOf<String, Binding>()
-  private val transport = NativeGoTransport::class.java
+  /** Tests swap in a fixture endpoint. */
+  @androidx.annotation.VisibleForTesting internal var transport: Class<*> = NativeGoTransport::class.java
 
   fun create(module: Any, peer: String, clientId: String): String {
     require(peer.toByteArray().size <= 256 && clientId.length <= 64)
