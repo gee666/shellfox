@@ -184,6 +184,43 @@ fn application_cursor_keypad_and_kitty_modes_come_from_the_terminal() {
     }
 }
 
+/// The terminal claims Tab and Shift+Tab (and so stops app focus traversal)
+/// however the platform names them, in legacy and in pi-tui's kitty flags.
+#[test]
+fn tab_and_shift_tab_reach_the_terminal_in_legacy_and_kitty_modes() {
+    // (flags, Tab, Shift+Tab, Tab repeat, Tab release). Tab stays legacy
+    // without "report all keys" (8), as the kitty spec requires.
+    let modes: [(&[u8], &[u8], &[u8], &[u8], &[u8]); 4] = [
+        (b"", b"\t", b"\x1b[Z", b"\t", b""),
+        (b"\x1b[>1u", b"\t", b"\x1b[9;2u", b"\t", b""),
+        (b"\x1b[>7u", b"\t", b"\x1b[9;2u", b"\t", b""),
+        (
+            b"\x1b[>31u",
+            b"\x1b[9u",
+            b"\x1b[9;2u",
+            b"\x1b[9;1:2u",
+            b"\x1b[9;1:3u",
+        ),
+    ];
+    for os in ALL {
+        for key_char in [None, Some("\t")] {
+            for (mode, tab, shift_tab, repeat, release) in modes {
+                let mut terminal = Terminal::new(80, 24).unwrap();
+                terminal.feed(mode).unwrap();
+                let mut send = |spec, action| {
+                    let event = event(os, &stroke(spec, key_char), action)
+                        .unwrap_or_else(|| panic!("{spec} not claimed"));
+                    terminal.encode_key_event(&event).unwrap()
+                };
+                assert_eq!(send("tab", KeyAction::Press), tab, "{mode:?}");
+                assert_eq!(send("shift-tab", KeyAction::Press), shift_tab, "{mode:?}");
+                assert_eq!(send("tab", KeyAction::Repeat), repeat, "{mode:?}");
+                assert_eq!(send("tab", KeyAction::Release), release, "{mode:?}");
+            }
+        }
+    }
+}
+
 #[test]
 fn repeat_and_release_keep_key_identity_without_text() {
     let press = event(Os::Linux, &stroke("ctrl-c", None), KeyAction::Repeat).unwrap();

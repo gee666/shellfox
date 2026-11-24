@@ -83,6 +83,11 @@ jobs:
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         timeout-minutes: 10
         run: env -u WAYLAND_DISPLAY SHELLFOX_X11_SOAK=1 xvfb-run -a -s '-screen 0 1920x1080x24' cargo test --locked -p shellfox-desktop --test x11_soak -- --nocapture
+      # Tab and Shift+Tab reach a program in the focused terminal, legacy and kitty.
+      - name: Desktop Tab keys under X11
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        timeout-minutes: 5
+        run: env -u WAYLAND_DISPLAY SHELLFOX_X11_KEYS=1 xvfb-run -a cargo test --locked -p shellfox-desktop --test x11_keys -- --nocapture
       - name: Service automation against the owned raw fixture
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         run: |
