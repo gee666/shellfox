@@ -14,11 +14,11 @@ impl Fixture {
     pub fn new() -> Self {
         let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
         fs::create_dir_all(&base).unwrap();
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = base.join(format!("pty-{}-{stamp}", std::process::id()));
+        // Parallel tests in one process can read the same clock value.
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = base.join(format!("pty-{}-{n}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
         fs::create_dir(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         Self {
