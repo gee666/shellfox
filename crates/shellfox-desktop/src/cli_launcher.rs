@@ -48,6 +48,7 @@ pub(crate) fn install_file(
     contents: Option<&str>,
     owner: &str,
     legacy: impl FnOnce(&str) -> bool,
+    #[cfg_attr(not(unix), allow(unused_variables))] mode: u32,
 ) -> Result<()> {
     use std::{
         fs,
@@ -94,7 +95,7 @@ pub(crate) fn install_file(
         use std::os::unix::fs::PermissionsExt;
         pending
             .as_file()
-            .set_permissions(fs::Permissions::from_mode(0o755))?;
+            .set_permissions(fs::Permissions::from_mode(mode))?;
     }
     pending.persist(path)?;
     Ok(())
@@ -129,6 +130,7 @@ pub(crate) fn install_windows_shims(
             (!remove).then_some(contents.as_str()),
             owner,
             |_| allow_legacy,
+            0o755,
         )?;
     }
     if legacy {
@@ -339,6 +341,7 @@ pub(crate) fn install_mac() -> Result<bool> {
         Some(&script),
         owner,
         |existing| existing.lines().any(|line| line == "# Shellfox/linux-v1"),
+        0o755,
     )?;
     Ok(true)
 }

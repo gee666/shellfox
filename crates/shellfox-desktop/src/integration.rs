@@ -196,6 +196,7 @@ fn ensure_bash_completion() -> anyhow::Result<()> {
         Some(script),
         owner,
         |_| false,
+        0o644,
     )
 }
 
