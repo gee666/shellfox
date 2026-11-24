@@ -1,0 +1,55 @@
+name: Pinned Ghostty
+description: >-
+  Restores or prepares the pinned libghostty-vt for the native target and sets GHOSTTY_VT_DIR.
+  Both the Zig archive and the prepared Ghostty are cached, so a ziglang.org outage
+  only matters when the pins change. Caches are saved right after preparation.
+runs:
+  using: composite
+  steps:
+    - name: Native target
+      id: target
+      shell: bash
+      run: |
+        target=$(node --input-type=module -e "import { targets } from './scripts/rust-package-common.mjs'; console.log(targets[process.platform + '-' + process.arch] ?? '')")
+        test -n "$target"
+        echo "target=$target" >> "$GITHUB_OUTPUT"
+    - name: Cached Zig archive
+      id: zig
+      uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: tmp/zig-archives
+        key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('crates/ghostty-vt-sys/build-support/zig-*.json') }}
+    - name: Cached Ghostty
+      id: ghostty
+      uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: tmp/rust-package-ghostty/${{ steps.target.outputs.target }}
+        key: ghostty-${{ steps.target.outputs.target }}-${{ hashFiles('crates/ghostty-vt-sys/build-support/zig-*.json', 'crates/ghostty-vt-sys/build-support/*.mjs', 'crates/ghostty-vt-sys/build-support/vendor/SHA256SUMS') }}
+    - name: Prepare pinned Ghostty
+      id: prepare
+      if: steps.ghostty.outputs.cache-hit != 'true'
+      shell: bash
+      run: node scripts/rust-package-prereqs.mjs
+    # The preparation script adds the WSL Files target on Windows; a cache hit skips it.
+    - name: WSL Files Rust target
+      if: runner.os == 'Windows' && steps.ghostty.outputs.cache-hit == 'true'
+      shell: bash
+      run: rustup target add "$(node --input-type=module -e "import { wslFilesTarget } from './scripts/rust-package-wsl-files.mjs'; console.log(wslFilesTarget())")"
+    - name: Save Zig archive
+      if: steps.prepare.outcome == 'success' && steps.zig.outputs.cache-hit != 'true' && hashFiles('tmp/zig-archives/*') != ''
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: tmp/zig-archives
+        key: ${{ steps.zig.outputs.cache-primary-key }}
+    # Windows x64 links the retained official DLL archive and prepares no directory.
+    - name: Save Ghostty
+      if: steps.prepare.outcome == 'success' && hashFiles(format('tmp/rust-package-ghostty/{0}/ghostty-vt-build.json', steps.target.outputs.target)) != ''
+      uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: tmp/rust-package-ghostty/${{ steps.target.outputs.target }}
+        key: ${{ steps.ghostty.outputs.cache-primary-key }}
+    - name: Ghostty location
+      shell: bash
+      run: |
+        prefix="$PWD/tmp/rust-package-ghostty/${{ steps.target.outputs.target }}"
+        if [ -d "$prefix" ]; then echo "GHOSTTY_VT_DIR=$prefix" >> "$GITHUB_ENV"; fi

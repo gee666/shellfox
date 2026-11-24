@@ -9,6 +9,7 @@ on:
     branches: [experiment/ghostty-rust]
     paths:
       - .github/workflows/linux-check.yml
+      - .github/actions/pinned-ghostty/**
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml
@@ -55,27 +56,9 @@ jobs:
         run: |
           bash .github/scripts/setup-ubuntu-apt.sh
           sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev acl xvfb xauth mesa-vulkan-drivers
-      # The prepared libghostty-vt depends only on the pinned Zig and Ghostty inputs.
-      # Saved right after preparation, so a later failing step doesn't lose it.
-      - name: Cached Ghostty
-        id: ghostty
-        uses: actions/cache/restore@v4
-        with:
-          path: tmp/rust-package-ghostty/${{ matrix.target }}
-          key: ghostty-${{ matrix.target }}-${{ hashFiles('crates/ghostty-vt-sys/build-support/zig-*.json', 'crates/ghostty-vt-sys/build-support/*.mjs', 'crates/ghostty-vt-sys/build-support/vendor/SHA256SUMS') }}
       - name: Prepare pinned Ghostty
-        id: prepare
-        if: steps.ghostty.outputs.cache-hit != 'true'
-        run: node scripts/rust-package-prereqs.mjs
+        uses: ./.github/actions/pinned-ghostty
         timeout-minutes: 35
-      - name: Save Ghostty
-        if: steps.prepare.outcome == 'success'
-        uses: actions/cache/save@v4
-        with:
-          path: tmp/rust-package-ghostty/${{ matrix.target }}
-          key: ${{ steps.ghostty.outputs.cache-primary-key }}
-      - name: Ghostty location
-        run: echo "GHOSTTY_VT_DIR=$PWD/tmp/rust-package-ghostty/${{ matrix.target }}" >> "$GITHUB_ENV"
       - name: Check
         id: check
         run: cargo check --locked --workspace --all-targets

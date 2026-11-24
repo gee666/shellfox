@@ -94,7 +94,7 @@ jobs:
         timeout-minutes: 20
       - name: Pinned Ghostty and Zig preparation
         if: inputs.build_native_packages
-        run: node scripts/rust-package-prereqs.mjs
+        uses: ./.github/actions/pinned-ghostty
         timeout-minutes: 35
       - name: macOS native folder picker configuration
         if: inputs.build_native_packages && matrix.platform == 'darwin'

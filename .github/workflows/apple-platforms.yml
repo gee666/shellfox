@@ -6,6 +6,7 @@ on:
     branches: [experiment/ghostty-rust]
     paths:
       - .github/workflows/apple-platforms.yml
+      - .github/actions/pinned-ghostty/**
       - .github/workflows/rust-platforms.yml
       - Cargo.*
       - rust-toolchain.toml
@@ -56,12 +57,12 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
+      - name: Rust pin
+        run: rustup show
       - name: Prepare static Ghostty
         id: prepare
-        run: |
-          rustup show
-          node scripts/rust-package-prereqs.mjs
-        timeout-minutes: 25
+        uses: ./.github/actions/pinned-ghostty
+        timeout-minutes: 35
       - name: Check desktop, including the wry/WKWebView HTML preview
         run: cargo check --locked -p shellfox-desktop
         timeout-minutes: 25
@@ -145,11 +146,12 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
-      - name: Prepare static Ghostty and JavaScript test fixtures
-        run: |
-          node scripts/rust-package-prereqs.mjs
-          pnpm install --frozen-lockfile --ignore-scripts
-        timeout-minutes: 30
+      - name: Prepare static Ghostty
+        uses: ./.github/actions/pinned-ghostty
+        timeout-minutes: 35
+      - name: JavaScript test fixtures
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        timeout-minutes: 10
       - name: Build the P4 Files fixtures
         shell: bash
         env:
@@ -248,12 +250,26 @@ jobs:
             'native/mobile/**', 'native/tailscale/go.*', 'native/tailscale/controlurl/**', 'native/tailscale/nethealth/**',
             'native/tailscale/TAILSCALE-LICENSE', 'mobile/ios/scripts/build-rust.mjs',
             'scripts/mobile-native.mjs', 'scripts/rust-package-prereqs.mjs', 'package.json') }}
+      - name: Cached Zig archive
+        if: steps.ios-frameworks.outputs.cache-hit != 'true'
+        id: zig
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: tmp/zig-archives
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('crates/ghostty-vt-sys/build-support/zig-*.json') }}
       - name: Build Rust static libraries for device and simulator
+        id: ios-rust
         if: steps.ios-frameworks.outputs.cache-hit != 'true'
         run: |
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
           node mobile/ios/scripts/build-rust.mjs --fetch-zig
         timeout-minutes: 35
+      - name: Save Zig archive
+        if: steps.ios-rust.outcome == 'success' && steps.zig.outputs.cache-hit != 'true' && hashFiles('tmp/zig-archives/*') != ''
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: tmp/zig-archives
+          key: ${{ steps.zig.outputs.cache-primary-key }}
       - name: Build embedded Go transport
         if: steps.ios-frameworks.outputs.cache-hit != 'true'
         run: |
@@ -317,12 +333,15 @@ jobs:
         with:
           name: ios-native-contracts-failure
           path: tmp/ios-native-tests.log
+      - name: Prepare static Ghostty for the host
+        if: ${{ !cancelled() && steps.pods.outcome == 'success' }}
+        uses: ./.github/actions/pinned-ghostty
+        timeout-minutes: 35
       - name: Build isolated Rust host and loopback testcontrol
         id: ui-host
         if: ${{ !cancelled() && steps.pods.outcome == 'success' }}
         run: |
           mkdir -p tmp/apple-ios
-          node scripts/rust-package-prereqs.mjs
           node scripts/tailscale.mjs build
           (cd native/tailscale && go build -mod=readonly -o ../../tmp/apple-ios/testcontrol ./cmd/testcontrol)
         timeout-minutes: 25
