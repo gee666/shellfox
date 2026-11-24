@@ -1,43 +1,29 @@
 # Database retention
 
-Shellfox stores `manager.sqlite3` in Electron's user-data directory. It uses SQLite WAL journaling and schema version 5.
+The host keeps its metadata in `shellfox-rust-v1.sqlite3` in its data directory (`<Shellfox>/rust-v1/host` for installed builds, see the [README](../README.md#where-data-lives)). It uses WAL journaling and schema version 6 (`crates/shellfox-host/src/storage.rs`). Only one host opens a data directory at a time. A host refuses a store written by a newer schema.
 
-## What stays
+## What it stores
 
-- Live sessions retain their ID, title, working directory, adapter, shell ID/executable, creation/update timestamps, pin timestamp, configured environment variables and session error.
-- Open or unresolved tabs retain their ID, session ID, title, working directory, order, creation timestamp, lifecycle, generation/operation ID and error. Embedded metadata contains the profile ID, user-title override and exit-code field. Legacy records may contain shell registrations and window/member ownership identities until retired.
-- Launch operations retain request IDs, kind, state, timestamps and errors while their tab exists. Request deduplication ends when the tab and its operations are removed.
-- Settled sessions retain the same session and tab data as other sessions. Settling only records a timestamp; unsettling clears it. Neither action closes terminals, stops agents or removes launch operations.
-- App settings, process-matching rules, integration preferences and manager-window geometry remain independent of session deletion.
+- Sessions: ID, title, folder, created, updated, settled and pinned times, and the session's environment variables.
+- Tabs: ID, session, title, folder, order, creation time, terminal profile, the WSL account a WSL tab first launched as, and whether the tab is pending or archived.
+- Settings, including host-wide terminal environment variables, plus device approvals, desktop window state and the request IDs that stop a repeated `session create` from making a second session.
 
-Configured environment values can contain secrets. Session values remain until the session is deleted or its environment is edited. Host-wide terminal values remain in app settings until edited or cleared, independent of session deletion. Shellfox does not persist inherited shell environments wholesale.
+Environment variables can hold secrets. They stay until you edit them or delete the session.
 
-## What is removed
+The database has no commands, terminal output, scrollback or screen contents. Those live in the host's memory and end with it. Shells may still write their own history files.
 
-A confirmed tab exit removes the tab row, all its launch/retry operations and request IDs, terminal metadata and legacy member metadata. The same applies to failed or cancelled launches that own no live shell. Session-level launch errors remain on the session for reporting.
+## What gets removed
 
-Settling is non-destructive. The `settle` and `unsettle` commands change status without confirmation and leave live terminals and agents alone. Accepted typing, paste and mouse clicks, drags or scrolling reported to the terminal app resume the session. Focus notifications and button-free mouse motion reach the terminal app without clearing settlement or counting as input activity.
+Closing a tab removes its row once the host has confirmed that the tab's processes are gone. Deleting a session needs confirmation (`--yes` in the CLI). The host closes its terminals and removes the session and its tabs only after every close is confirmed. If a close fails, the session stays, and terminals that haven't closed keep running.
 
-Deleting a session closes its owned terminals and removes the session, dependent rows and keyed preferences after confirmation. If terminal closure cannot be confirmed, deletion fails. Closing some tabs before a later closure fails does not undo their exits; still-running tabs remain owned. Missing sessions leave other sessions untouched.
+Settling only records a time, and unsettling clears it. Neither stops terminals or removes anything.
 
-At restart, old embedded handles cannot be restored from saved PIDs. Their tabs and dependent records are removed without launching a shell. Empty embedded sessions stay live and can be reopened. Retired external sessions keep their saved metadata; Shellfox removes their tab/root records without observing or killing external processes. Opening one starts a new embedded shell.
+A restart doesn't restore shells. Saved sessions come back, and selecting one opens a fresh shell.
 
-## Automatic lifecycle
+Settings has **Settle after (hours)** and **Delete settled after (hours)**, 24 and 720 by default. The host saves them but doesn't settle or delete sessions on its own yet.
 
-`sessionSettleHours` defaults to 24 hours. `sessionDeleteHours` defaults to 720 hours, or 30 days. Both are configurable. A minute sweep marks inactive sessions settled after the first interval. That starts a fresh deletion grace period, including after a long shutdown. After the second interval without activity, the sweep closes owned terminals and deletes unpinned settled sessions. Pinned sessions are exempt from automatic deletion, not from settling or explicit deletion.
+Deleting removes database rows. It isn't secure erasure. SQLite free pages, the WAL file and backups can still hold old bytes.
 
-Startup preserves each session's settled state and last activity, including sessions migrated from external terminals. Removing obsolete terminal handles does not settle a session.
+## Data from 0.9
 
-Session selection, terminal input/output and process activity update the session's activity time. The deletion interval starts from whichever is later, the settled timestamp or the latest activity. Automatic cleanup uses the same ownership checks as explicit deletion and retries on later sweeps if closure or storage fails.
-
-## Existing databases
-
-The version 5 migration transaction removes old closed or orphaned tabs, orphan launch/terminal records and stale `tab-member:` / `session-window:` preferences. It preserves session metadata, open-tab data, settings and unrelated preferences regardless of settled status. A failed migration rolls back its deletions and version change; newer schema versions are refused.
-
-There is no deleted-session table or soft-delete flag in the existing schema. Previously deleted sessions were already removed; the migration cleans obsolete dependent records where present.
-
-## Not command history
-
-The database contains no shell commands, PTY output, scrollback, serialized terminal screens or process-statistics history. Terminal output and screen restoration buffers live in memory. Shells can still write their own history files outside this database.
-
-Deletion here means removal from the application's database records. It is not a forensic secure-erasure guarantee: SQLite free pages, WAL files, filesystem snapshots and existing upgrade backups can contain older bytes. Shellfox does not erase backups or unrelated files as part of retention cleanup.
+The Electron database `manager.sqlite3` sits one level up, in `<Shellfox>`. The first Rust start imports settings and sessions from a private copy of it, and the host deletes the original 30 days later. See [updating from Electron](self-update.md#updating-from-electron-0915).
