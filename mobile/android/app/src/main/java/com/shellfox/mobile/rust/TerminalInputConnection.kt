@@ -24,13 +24,30 @@ internal class TerminalInputConnection(
   private var anchor = floatArrayOf(0f, 0f, 0f, 0f)
   private var lastAnchor = ""
   private var recomposed = false
+  private var batch = 0
+  private val ime get() = view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
   override fun getEditable(): Editable = editor
 
   private inline fun edit(action: () -> Boolean): Boolean {
     if (!writable()) return false
     val handled = action()
     report()
+    if (batch == 0) publishSelection()
     return handled
+  }
+  // The keyboard learns the result of its edits only from updateSelection, as
+  // from a text field. Without it, Gboard can keep a tapped suggestion as
+  // composing text until the next word.
+  override fun beginBatchEdit(): Boolean { batch++; return true }
+  override fun endBatchEdit(): Boolean {
+    if (batch > 0 && --batch == 0) publishSelection()
+    return batch > 0
+  }
+  private fun publishSelection() {
+    val composingStart = getComposingSpanStart(editor)
+    val composingEnd = getComposingSpanEnd(editor)
+    ime?.updateSelection(view, Selection.getSelectionStart(editor).coerceAtLeast(0),
+      Selection.getSelectionEnd(editor).coerceAtLeast(0), composingStart, composingEnd)
   }
   override fun setComposingText(text: CharSequence?, newCursorPosition: Int) = edit {
     super.setComposingText(text, newCursorPosition)
@@ -97,7 +114,7 @@ internal class TerminalInputConnection(
   }
   /** Drops a fresh preedit, but keeps a reopened word: the terminal already lost it. */
   fun cancelComposition() = if (recomposed) finishAndClear() else clear()
-  override fun closeConnection() { monitorCursor = false; clear(); super.closeConnection() }
+  override fun closeConnection() { monitorCursor = false; batch = 0; clear(); super.closeConnection() }
 
   private fun report() {
     val start = getComposingSpanStart(editor)
@@ -134,8 +151,7 @@ internal class TerminalInputConnection(
     preedit("")
     input.editorReset()
     // The keyboard reads its context again from the now empty editor.
-    (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
-      ?.updateSelection(view, 0, 0, -1, -1)
+    ime?.updateSelection(view, 0, 0, -1, -1)
     if (monitorCursor) publishCursor()
   }
 
@@ -163,8 +179,7 @@ internal class TerminalInputConnection(
       .setInsertionMarkerLocation(anchor[0], anchor[1], anchor[2], anchor[3], android.view.inputmethod.CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION)
     val composingStart = getComposingSpanStart(editor)
     if (composingStart >= 0) builder.setComposingText(composingStart, editor.subSequence(composingStart, getComposingSpanEnd(editor)))
-    (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
-      ?.updateCursorAnchorInfo(view, builder.build())
+    ime?.updateCursorAnchorInfo(view, builder.build())
   }
   private companion object {
     const val LONG_COMMIT = 1024

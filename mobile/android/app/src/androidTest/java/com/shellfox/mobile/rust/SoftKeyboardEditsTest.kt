@@ -184,4 +184,36 @@ class SoftKeyboardEditsTest {
     call { commitText("y", 1) }
     assertEquals(long + "y", line.toString())
   }
+  @Test fun aSuggestionTapInABatchCommitsOnceRightAway() {
+    for (prefix in listOf("h", "he", "hel")) call { setComposingText(prefix, 1) }
+    call { beginBatchEdit(); commitText("hello ", 1); endBatchEdit() }
+    assertEquals("hello ", line.toString())
+    call { setComposingText("wor", 1) }
+    assertEquals("hello ", line.toString())
+    call { beginBatchEdit(); setComposingText("world", 1); finishComposingText(); endBatchEdit() }
+    assertEquals("hello world", line.toString())
+    call { commitText(" ", 1) }
+    assertEquals("hello world ", line.toString())
+  }
+  @Test fun aSuggestionAfterAutocorrectReplacesTheWordOnce() {
+    call { setComposingText("teh", 1) }
+    call { beginBatchEdit(); commitText("the", 1); commitText(" ", 1); endBatchEdit() }
+    call { beginBatchEdit(); setComposingRegion(0, 3); setComposingText("then", 1); finishComposingText(); endBatchEdit() }
+    assertEquals("then ", line.toString())
+  }
+  @Test fun stickyCtrlJTwiceIsTwoLineFeeds() {
+    var bytes = byteArrayOf()
+    input = TerminalInput { json ->
+      native { EncodedInput.decode(RustBindings.inputEx(terminal, json.toString().toByteArray())) }
+        ?.let { bytes += it.bytes }
+    }
+    instrumentation.runOnMainSync { ime = TerminalInputConnection(View(instrumentation.targetContext), input, {}, { true }) }
+    input.stickyModifiers = TerminalInput.CTRL
+    // Each chord resets the editor; the keyboard starts its next word fresh.
+    call { setComposingText("j", 1) }
+    call { setComposingText("j", 1) }
+    input.stickyModifiers = 0
+    call { commitText("ls", 1) }
+    assertEquals("\n\nls", String(bytes, Charsets.UTF_8))
+  }
 }
