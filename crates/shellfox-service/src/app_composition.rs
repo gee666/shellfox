@@ -1,7 +1,4 @@
 //! Shared Desktop/CLI application composition, not another Host or persistence owner.
-pub mod providers;
-pub use providers::ApplicationProviderResources;
-mod package_arguments;
 use crate::{
     local::RemoteBootOptions,
     native_providers::NativeHostProviders,
@@ -24,24 +21,16 @@ pub struct ApplicationArguments {
     state: Option<PathBuf>,
     hostname: Option<String>,
     control_server: Option<ControlServerOrigin>,
-    package: package_arguments::PackageArguments,
 }
 impl ApplicationArguments {
     pub fn is_flag(flag: &std::ffi::OsStr) -> bool {
         matches!(
             flag.to_str(),
-            Some(
-                "--remote-state-dir"
-                    | "--remote-hostname"
-                    | "--remote-control-url"
-                    | "--package-manifest"
-                    | "--package-manifest-sha256"
-            )
+            Some("--remote-state-dir" | "--remote-hostname" | "--remote-control-url")
         )
     }
     pub fn push(&mut self, flag: &str, value: OsString) -> Result<()> {
         match flag {
-            "--package-manifest" | "--package-manifest-sha256" => self.package.push(flag, value)?,
             "--remote-state-dir" => {
                 ensure!(self.state.is_none(), "Duplicate --remote-state-dir");
                 self.state = Some(value.into());
@@ -73,9 +62,6 @@ impl ApplicationArguments {
     pub fn finish(self, data: &Path) -> Result<NativeApplicationConfig> {
         let mut config = NativeApplicationConfig::new(data, self.state, self.hostname)?;
         config.control_server = self.control_server;
-        if let Some(package) = self.package.finish(data)? {
-            config = config.with_provider_resources(package.resources()?);
-        }
         Ok(config)
     }
 }
@@ -85,7 +71,6 @@ pub struct NativeApplicationConfig {
     pub remote_state_dir: PathBuf,
     pub hostname: String,
     pub control_server: Option<ControlServerOrigin>,
-    provider_resources: Option<ApplicationProviderResources>,
 }
 impl NativeApplicationConfig {
     /// Planning-only: explicit application namespace, never production/home/cwd discovery.
@@ -132,14 +117,7 @@ impl NativeApplicationConfig {
             remote_state_dir: state,
             hostname,
             control_server: None,
-            provider_resources: None,
         })
-    }
-    /// Trusted resource producer/argument adapter hookup shared by Desktop/CLI.
-    /// No profile discovery or SSH namespace is materialized by this builder.
-    pub fn with_provider_resources(mut self, resources: ApplicationProviderResources) -> Self {
-        self.provider_resources = Some(resources);
-        self
     }
     pub fn validate_separate(&self, roots: &[&Path]) -> Result<()> {
         for root in roots {
@@ -165,10 +143,7 @@ impl NativeApplicationConfig {
                 RemoteBootResources::planned(self.remote_state_dir.clone(), self.hostname.clone())?
             }
         };
-        let providers = match &self.provider_resources {
-            Some(resources) => resources.build(interactive),
-            None => unconfigured_providers(interactive),
-        };
+        let providers = unconfigured_providers(interactive);
         RemoteBootOptions::native(
             supervisor,
             providers.system_services(),

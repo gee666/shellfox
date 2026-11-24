@@ -98,20 +98,9 @@ fn control_server_override_is_typed_loopback_planning_only_and_default_none() {
     assert!(!configured.remote_state_dir.exists());
 }
 #[test]
-fn trusted_resource_input_reaches_boot_options_without_materializing_storage() {
+fn boot_options_are_planned_without_materializing_storage() {
     let host = host();
-    let resources = ApplicationProviderResources::new(
-        Arc::new(UnconfiguredInstallResources),
-        SystemInstallPolicy {
-            allow_user_install: false,
-            allow_open: false,
-        },
-    );
-    let configured = ApplicationArguments::default()
-        .finish(&host)
-        .unwrap()
-        .with_provider_resources(resources);
-    assert!(configured.provider_resources.is_some());
+    let configured = ApplicationArguments::default().finish(&host).unwrap();
     // This is only the explicit supervisor planning fixture, never askpass or package authority.
     configured
         .remote_options(std::env::current_exe().unwrap(), false)

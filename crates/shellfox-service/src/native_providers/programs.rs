@@ -162,9 +162,6 @@ impl NativeProgramResource {
     pub fn path(&self) -> &Path {
         &self.path
     }
-    pub(crate) fn read_verified(&self, maximum: usize) -> Result<Vec<u8>> {
-        Ok(self._verified.read_verified(maximum)?)
-    }
     pub fn validate_current(&self) -> Result<()> {
         #[cfg(windows)]
         if let Some(pinned) = &self.pinned_windows {

@@ -22,7 +22,7 @@ $sel = @('--data-dir', $data, '--helper', $helper, '--helper-sha256', $sha)
 & target/debug/shellfox-cli.exe @sel session create . --title Demo --json
 ```
 
-`--data-dir` names the Rust host directory itself, with no 0.9 import, legacy-host checks or desktop cold start. `--helper-sha256` must come from a trusted helper build, never from hashing a file you found. Remote test flags (`--remote-state-dir`, `--remote-hostname`, `--remote-control-url`) and the package-manifest flags go in the same prefix.
+`--data-dir` names the Rust host directory itself, with no 0.9 import, legacy-host checks or desktop cold start. `--helper-sha256` must come from a trusted helper build, never from hashing a file you found. Remote test flags (`--remote-state-dir`, `--remote-hostname`, `--remote-control-url`) go in the same prefix.
 
 With an explicit selection, development operator commands that 0.9 did not have also work and print raw JSON: `tab list|create|rename|close`, `attach TAB [--takeover]`, `settings get|set`, `host power status|on|off`, `host network status|on|off|login|cancel|continue|peer PEER OP`. Scripts and tests use them; users don't need them.
 

@@ -1,8 +1,6 @@
 //! Trusted native application resources. No network request can construct these.
 mod programs;
 pub use programs::NativeProgramResource;
-mod portable;
-pub use portable::portable_install_resources;
 
 use crate::system::{HostSystemServices, NativeSystemBackend};
 use anyhow::Result;
