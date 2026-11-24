@@ -120,9 +120,13 @@ final class NativeV1UITests: XCTestCase {
 
   private func focusKeyboard(_ app: XCUIApplication, terminal: XCUIElement) {
     if !app.keyboards.firstMatch.exists {
+      // Tap once, possibly while the terminal is still reattaching: the request
+      // must wait for readiness, so it is never retried here.
       let keyboard = app.buttons["Keyboard"]
       if keyboard.exists { keyboard.tap() } else { terminal.tap() }
     }
+    // The input keys appear only once the terminal takes input.
+    wait("the terminal is ready for input", timeout: 60) { app.buttons["Ctrl"].exists }
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 15), app.debugDescription)
   }
 
