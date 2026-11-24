@@ -1,5 +1,6 @@
 //! A real host on isolated data settles idle sessions and deletes old settled
-//! ones on its own, and leaves pinned ones alone (docs/database-retention.md).
+//! ones on its own, leaves pinned ones alone, and counts CLI activation as
+//! activity (docs/database-retention.md).
 //! The stored times are moved back before the host starts; its first sweep
 //! runs one minute after start.
 #![cfg(any(windows, target_os = "macos", target_os = "linux"))]
@@ -34,7 +35,7 @@ fn the_host_settles_and_deletes_idle_sessions() -> Result<()> {
         .tempdir_in(&tmp)?;
     let data = scratch.path().join("data");
     std::fs::create_dir(&data)?;
-    let [idle, settled, pinned] = seed(&data)?;
+    let [idle, settled, pinned, activated] = seed(&data)?;
 
     let cli = |args: &[&str]| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_shellfox-cli"));
@@ -80,6 +81,13 @@ fn the_host_settles_and_deletes_idle_sessions() -> Result<()> {
                 .and_then(|all| all.iter().find(|s| s["id"] == id.to_string()))
                 .cloned()
         };
+        json(&[
+            "api",
+            "activateSession",
+            "--input",
+            &format!(r#"{{"sessionId":"{activated}"}}"#),
+            "--json",
+        ])?;
         // Nothing changes before the first sweep.
         let early = json(&["session", "list", "--json"])?;
         ensure!(
@@ -99,6 +107,11 @@ fn the_host_settles_and_deletes_idle_sessions() -> Result<()> {
                 ensure!(
                     kept["settledAt"].is_null(),
                     "Pinned session settled: {kept}"
+                );
+                let selected = find(&sessions, activated).context("Activated session deleted")?;
+                ensure!(
+                    selected["settledAt"].is_null() && selected["updatedAt"] != LONG_AGO,
+                    "Activation was not activity: {selected}"
                 );
                 // Settling keeps the session's tab.
                 let idle = find(&sessions, idle).context("idle")?;
@@ -124,16 +137,16 @@ fn the_host_settles_and_deletes_idle_sessions() -> Result<()> {
     Ok(())
 }
 
-/// Three sessions last active long ago, with one-hour settings: one idle,
-/// one already settled, one pinned.
-fn seed(data: &Path) -> Result<[SessionId; 3]> {
+/// Sessions last active long ago, with one-hour settings: idle, already
+/// settled, pinned, and one the test activates.
+fn seed(data: &Path) -> Result<[SessionId; 4]> {
     let host = Host::open(data)?;
     host.save_global_settings(SettingsPatch {
         session_settle_hours: Some(1.0),
         session_delete_hours: Some(1.0),
         ..SettingsPatch::default()
     })?;
-    let mut ids = [SessionId::new(); 3];
+    let mut ids = [SessionId::new(); 4];
     for (index, id) in ids.iter_mut().enumerate() {
         let snapshot = host.create_session(CreateSession {
             request_id: SessionId::new(),

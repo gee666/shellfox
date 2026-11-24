@@ -28,12 +28,12 @@ Settings has **Settle after (hours)** and **Delete settled after (hours)**, 24 a
 
 A session settles after the first interval without activity. Its terminals keep running. After the second interval, counted from the later of settling and the last activity, the host closes the session's terminals and deletes it, as an explicit delete does. If a close can't be confirmed, the session stays and the host tries again a minute later. Pinned sessions are never settled or deleted automatically, including ones settled by hand.
 
-Activity is typed input, paste, mouse clicks and scrolling, terminal output, a change in a shell's processes, a tab exiting, selecting the session, and renaming it or changing its folder. Focus changes and mouse motion without buttons don't count.
+Activity is typed input, paste, mouse clicks and scrolling, terminal output, a change in a shell's processes, a tab exiting, selecting the session, pinning or unpinning it, and renaming it or changing its folder. Focus changes and mouse motion without buttons don't count.
 
-Before settling or deleting a session with running tabs, the host inspects each tab's processes again, hidden sessions included, and activity found then postpones the step. A running tab needs fresh local process evidence, so sessions with running WSL or SSH tabs, and any running tab on macOS, are not expired.
+Before settling or deleting a session with running tabs, the host inspects each tab's processes again, hidden sessions included, and activity found then postpones the step. A WSL tab's evidence is its local `wsl.exe`, as in 0.9; processes inside the distribution aren't seen. Without fresh evidence for every running tab, the step waits a minute and tries again.
 
 The host works out when the next session is due and wakes at that time. The first check runs a minute after the host starts. Saved times survive restarts: a session that went idle while the host was off settles a minute after start, and its deletion interval starts then. Desktop and headless hosts behave the same. Clients see the result as they see a manual settle or delete.
 
 ## Data from 0.9
 
-The Electron database `manager.sqlite3` sits one level up, in `<Shellfox>`. The first Rust start imports settings and sessions from a private copy of it, and the host deletes the original 30 days later. See [updating from Electron](self-update.md#updating-from-electron-0915).
+The Electron database `manager.sqlite3` sits one level up, in `<Shellfox>`. The first Rust start imports settings and sessions, with their activity, settled and pinned times, from a private copy of it. Tabs aren't imported: opening an imported session starts a new shell. The host deletes the original 30 days later. See [updating from Electron](self-update.md#updating-from-electron-0915).
