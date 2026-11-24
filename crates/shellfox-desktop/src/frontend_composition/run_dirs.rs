@@ -2,8 +2,10 @@
 //! and holds an OS file lock on its `owner.lock` while it runs. The lock ends
 //! with the process on every OS, so a lock that can be taken marks a dead
 //! owner regardless of pid reuse. `remove_dir_all` never follows links.
-//! The locks of every window's run directory are held until the process
-//! exits, although the window's `FrontendDirectories` is dropped early.
+//! One process-wide holder keeps the lock of every run directory this
+//! process prepared until it exits, though a window's `FrontendDirectories`
+//! is dropped early. A directory is locked once: on Unix, flock conflicts
+//! between two descriptors of the same process, so a second lock would fail.
 use std::{
     fs::File,
     path::{Path, PathBuf},
@@ -23,18 +25,28 @@ struct RunLock {
 }
 static HELD: Mutex<Vec<RunLock>> = Mutex::new(Vec::new());
 
+/// Locks `run` for this process. Preparing the same directory again, as
+/// a second `FrontendDirectories` for it does, shares the held lock.
 pub(super) fn claim(run: &Path) -> std::io::Result<()> {
+    let mut held = held();
+    if holds(&held, run) {
+        return Ok(());
+    }
     let file = File::options()
         .create(true)
         .truncate(false)
         .write(true)
         .open(run.join(LOCK))?;
     file.try_lock().map_err(std::io::Error::other)?;
-    held().push(RunLock {
+    held.push(RunLock {
         dir: run.to_owned(),
         _file: file,
     });
     Ok(())
+}
+
+fn holds(held: &[RunLock], run: &Path) -> bool {
+    held.iter().any(|lock| lock.dir == run)
 }
 
 fn held() -> std::sync::MutexGuard<'static, Vec<RunLock>> {
@@ -88,9 +100,12 @@ fn sweep_older(ui: &Path, unlocked_age: Duration) {
             .file_name()
             .to_str()
             .is_some_and(|name| name.starts_with("run-"));
-        // DirEntry::file_type does not follow links.
+        // DirEntry::file_type does not follow links. This process's own
+        // directories are skipped by name: lock semantics within one process
+        // differ between OSes.
         if is_run
             && entry.file_type().is_ok_and(|kind| kind.is_dir())
+            && !holds(&held(), &entry.path())
             && abandoned(&entry.path(), unlocked_age)
         {
             let _ = std::fs::remove_dir_all(entry.path());
@@ -142,6 +157,22 @@ mod tests {
         assert!(live.exists() && !unlocked.exists() && other.exists());
         release_where(|dir| dir == live);
         assert!(!live.exists());
+    }
+
+    #[test]
+    fn one_process_prepares_a_run_directory_twice_and_keeps_it() {
+        let ui = tempfile::tempdir().unwrap();
+        let run = ui.path().join("run-5-5");
+        std::fs::create_dir(&run).unwrap();
+        claim(&run).unwrap();
+        claim(&run).unwrap();
+        let other = ui.path().join("run-6-6");
+        std::fs::create_dir(&other).unwrap();
+        claim(&other).unwrap();
+        sweep_older(ui.path(), Duration::ZERO);
+        assert!(run.exists() && other.exists());
+        release_where(|dir| dir == run || dir == other);
+        assert!(!run.exists() && !other.exists());
     }
 
     #[cfg(unix)]
