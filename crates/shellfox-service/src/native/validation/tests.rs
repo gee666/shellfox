@@ -4,7 +4,10 @@ use shellfox_ghostty_vt::{key::KeyEvent, Modifiers, MouseAction};
 fn action(command: NativeCommand) -> NativeAction {
     let input = matches!(
         &command,
-        NativeCommand::Key(_) | NativeCommand::Paste(_) | NativeCommand::Mouse { .. }
+        NativeCommand::Key(_)
+            | NativeCommand::Keys(_)
+            | NativeCommand::Paste(_)
+            | NativeCommand::Mouse { .. }
     )
     .then_some(NativeInputContext {
         captured_settlement: shellfox_host::CapturedSettlement::Captured(None),
@@ -33,6 +36,12 @@ fn admission_rejects_large_or_invalid_input_before_queueing() {
     assert!(action(NativeCommand::Key(KeyEvent::text("é🦊")))
         .validate()
         .is_ok());
+    let keys = |count, text: &str| NativeCommand::Keys(vec![KeyEvent::text(text); count]);
+    assert!(action(keys(256, "ab")).validate().is_ok());
+    assert!(action(keys(0, "a")).validate().is_err());
+    assert!(action(keys(257, "a")).validate().is_err());
+    assert!(action(keys(2, "\0")).validate().is_err());
+    assert!(action(keys(2, &"x".repeat(40_000))).validate().is_err());
     assert!(action(NativeCommand::Resize { cols: 0, rows: 24 })
         .validate()
         .is_err());

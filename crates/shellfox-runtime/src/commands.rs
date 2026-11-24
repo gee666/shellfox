@@ -64,6 +64,7 @@ impl Owner {
             | Command::ObserverLayoutAck { .. }
             | Command::Unobserve { .. } => return self.observer_command(command),
             Command::Key { lease, .. }
+            | Command::Keys { lease, .. }
             | Command::Paste { lease, .. }
             | Command::RawInput { lease, .. }
             | Command::Mouse { lease, .. }
@@ -90,6 +91,7 @@ impl Owner {
         self.delivery.check(lease).map_err(RuntimeError::control)?;
         match &command {
             Command::Key { .. }
+            | Command::Keys { .. }
             | Command::Paste { .. }
             | Command::RawInput { .. }
             | Command::Mouse { .. }
@@ -133,23 +135,8 @@ impl Owner {
                 stamp,
                 ..
             } => return self.stamped_mouse(request_id, lease, event, geometry, stamp),
-            Command::Key { event, .. } => {
-                self.active()?;
-                let bytes = self.terminal.encode_key_event(&event).map_err(engine)?;
-                let result = self.accept_input(
-                    request_id,
-                    &bytes,
-                    InputKind::Key {
-                        action: event.action,
-                        has_committed_text: !event.composing && !event.text.is_empty(),
-                    },
-                )?;
-                if event.action != shellfox_ghostty_vt::key::KeyAction::Release && !bytes.is_empty()
-                {
-                    self.follow_accepted_input(lease);
-                }
-                return Ok(result);
-            }
+            Command::Key { event, .. } => return self.keys(request_id, lease, &[event]),
+            Command::Keys { events, .. } => return self.keys(request_id, lease, &events),
             Command::Paste { text, .. } => {
                 self.active()?;
                 let bytes = self.terminal.encode_paste(&text).map_err(engine)?;

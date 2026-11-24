@@ -94,7 +94,10 @@ impl NativeAction {
                 command.validate()?;
                 let is_input = matches!(
                     command,
-                    NativeCommand::Key(_) | NativeCommand::Paste(_) | NativeCommand::Mouse { .. }
+                    NativeCommand::Key(_)
+                        | NativeCommand::Keys(_)
+                        | NativeCommand::Paste(_)
+                        | NativeCommand::Mouse { .. }
                 );
                 ensure!(
                     is_input == input.is_some(),
@@ -207,6 +210,15 @@ impl NativeCommand {
                     event.text.len() <= shellfox_runtime::MAX_INPUT_BYTES
                         && event.validate().is_ok(),
                     "Invalid native key event."
+                );
+            }
+            Self::Keys(events) => {
+                ensure!(
+                    (1..=shellfox_runtime::MAX_KEY_BATCH).contains(&events.len())
+                        && events.iter().map(|event| event.text.len()).sum::<usize>()
+                            <= shellfox_runtime::MAX_INPUT_BYTES
+                        && events.iter().all(|event| event.validate().is_ok()),
+                    "Invalid native key batch."
                 );
             }
             Self::Paste(text) => ensure!(

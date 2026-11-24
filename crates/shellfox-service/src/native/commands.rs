@@ -14,6 +14,7 @@ impl crate::Service {
         let lease = self.lease(tab, attachment)?;
         let command = match command {
             NativeCommand::Key(event) => Command::Key { lease, event },
+            NativeCommand::Keys(events) => Command::Keys { lease, events },
             NativeCommand::Paste(text) => Command::Paste { lease, text },
             NativeCommand::Mouse { event, geometry } => Command::Mouse {
                 lease,

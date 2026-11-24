@@ -29,6 +29,7 @@ impl Service {
             command,
             Command::RawInput { .. }
                 | Command::Key { .. }
+                | Command::Keys { .. }
                 | Command::Paste { .. }
                 | Command::Mouse { .. }
                 | Command::InteractiveBytes { .. }

@@ -65,6 +65,44 @@ impl Owner {
             kind,
         }))
     }
+    /// Encodes each key with the live keyboard modes, in order, and writes
+    /// them at once. A batch counts as a press when any key in it is one.
+    pub(crate) fn keys(
+        &mut self,
+        request_id: RequestId,
+        lease: Lease,
+        events: &[shellfox_ghostty_vt::key::KeyEvent],
+    ) -> Result<Response, RuntimeError> {
+        self.active()?;
+        let mut bytes = Vec::new();
+        for event in events {
+            bytes.extend(
+                self.terminal
+                    .encode_key_event(event)
+                    .map_err(crate::commands::engine)?,
+            );
+        }
+        let action = events
+            .iter()
+            .map(|event| event.action)
+            .find(|action| *action != KeyAction::Release)
+            .unwrap_or(KeyAction::Release);
+        let has_committed_text = events
+            .iter()
+            .any(|event| !event.composing && !event.text.is_empty());
+        let result = self.accept_input(
+            request_id,
+            &bytes,
+            InputKind::Key {
+                action,
+                has_committed_text,
+            },
+        )?;
+        if action != KeyAction::Release && !bytes.is_empty() {
+            self.follow_accepted_input(lease);
+        }
+        Ok(result)
+    }
     pub(crate) fn follow_accepted_input(&mut self, lease: Lease) {
         if let Err(error) = self.follow_input(lease) {
             // A display failure cannot erase an already-confirmed write receipt.

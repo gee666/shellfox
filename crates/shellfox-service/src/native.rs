@@ -144,6 +144,8 @@ pub enum NativeAction {
 #[serde(deny_unknown_fields)]
 pub enum NativeCommand {
     Key(KeyEvent),
+    /// Keys typed in a row, sent in one request.
+    Keys(Vec<KeyEvent>),
     Paste(String),
     Mouse {
         event: MouseEvent,

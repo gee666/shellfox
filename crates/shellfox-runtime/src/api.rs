@@ -12,6 +12,8 @@ pub const MAX_INPUT_PAYLOAD_BYTES: usize = 64 * 1024;
 pub const MAX_ENCODED_INPUT_BYTES: usize = 64 * 1024;
 /// Compatibility name for the original payload admission bound.
 pub const MAX_INPUT_BYTES: usize = MAX_INPUT_PAYLOAD_BYTES;
+/// Most key events in one `Command::Keys`.
+pub const MAX_KEY_BATCH: usize = 256;
 pub const MAX_SCREEN_CELLS: usize = 1024 * 1024;
 pub const DEFAULT_SCREEN_CELLS: usize = 256 * 1024;
 pub const MAX_SCREEN_TEXT_BYTES: usize = 16 * 1024 * 1024;
@@ -131,6 +133,11 @@ pub enum Command {
         lease: Lease,
         event: KeyEvent,
     },
+    /// Keys typed in a row, each encoded like `Key`, written in one PTY write.
+    Keys {
+        lease: Lease,
+        events: Vec<KeyEvent>,
+    },
     Paste {
         lease: Lease,
         text: String,
@@ -235,6 +242,12 @@ impl Command {
             Self::Paste { text, .. } => text.len(),
             Self::RawInput { bytes, .. } | Self::InteractiveBytes { bytes, .. } => bytes.len(),
             Self::Key { event, .. } => event.text.len(),
+            Self::Keys { events, .. } => {
+                if events.is_empty() || events.len() > MAX_KEY_BATCH {
+                    return Err(RuntimeError::validation("invalid key batch"));
+                }
+                events.iter().map(|event| event.text.len()).sum()
+            }
             Self::Resize { cols, rows, .. } => return limits.validate_size(*cols, *rows),
             _ => 0,
         };

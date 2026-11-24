@@ -197,6 +197,48 @@ fn native_key_receipt_reports_action_and_text_presence_without_retaining_the_tex
     );
 }
 #[test]
+fn a_key_batch_is_encoded_in_order_and_written_once() {
+    let (mut host, observer) = host("--child-idle");
+    host.until(|host| String::from_utf8_lossy(&host.output).contains("RUNTIME_IDLE_READY"));
+    let key = |physical, c: char| KeyEvent {
+        text: c.into(),
+        unshifted_codepoint: Some(c),
+        ..KeyEvent::press(physical, KeyModifiers::NONE)
+    };
+    let (o, k) = (key(PhysicalKey::KeyO, 'o'), key(PhysicalKey::KeyK, 'k'));
+    let events = vec![o.clone(), o.release(), k.clone(), k.release()];
+    let result = receipt(
+        host.request(Command::Keys {
+            lease: host.lease,
+            events,
+        })
+        .unwrap(),
+    );
+    assert_eq!(result.accepted_bytes, 2);
+    assert_eq!(
+        result.kind,
+        InputKind::Key {
+            action: KeyAction::Press,
+            has_committed_text: true
+        }
+    );
+    assert_eq!(observer.calls.load(Ordering::Relaxed), 1);
+    for events in [Vec::new(), vec![o; MAX_KEY_BATCH + 1]] {
+        let command = Command::Keys {
+            lease: host.lease,
+            events,
+        };
+        let request = Request {
+            id: RequestId(999),
+            command,
+        };
+        assert!(matches!(
+            host.runtime.try_send(request),
+            Err(SubmitError::Invalid(_))
+        ));
+    }
+}
+#[test]
 fn confirmed_write_receipt_keeps_request_identity_and_contains_no_input_text() {
     let (mut host, observer) = host("--child-echo");
     host.until(|host| String::from_utf8_lossy(&host.output).contains("RUNTIME_READY"));
