@@ -35,7 +35,7 @@ jobs:
       - name: Verify retained upstream inputs
         run: node crates/ghostty-vt-sys/build-support/prepare.mjs verify
       - name: Test preparation rules
-        run: node --test crates/ghostty-vt-sys/build-support/prepare.test.mjs
+        run: node --test crates/ghostty-vt-sys/build-support/prepare.test.mjs crates/ghostty-vt-sys/build-support/zig.test.mjs
       - name: Check workspace formatting
         run: cargo fmt --all -- --check
       - name: Test owned public ABI and build validation

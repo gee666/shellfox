@@ -25,7 +25,7 @@ test('retries a transport timeout and a transient HTTP result before returning t
     async pause(ms) { waits.push(ms); },
   });
   assert.equal(data.toString(), 'fixture');
-  assert.deepEqual(waits, [1000, 2000]);
+  assert.deepEqual(waits, [5000, 10000]);
 });
 
 test('does not retry a permanent download failure', async () => {

@@ -17,11 +17,12 @@ export const archives = Object.freeze({
   'libghostty-vt-1.0.1-deps.tar.gz': '91a4e10960a52bf5bf4b15aa2a2cddaff8a89d6cd903d3055bda4fd17de3356d',
 });
 
-export async function fetchPinnedBytes(url, { request = fetch, pause = delay } = {}) {
+// Each attempt may take minutes on a slow mirror; transient failures back off exponentially.
+export async function fetchPinnedBytes(url, { request = fetch, pause = delay, attempts = 3, timeoutMs = 300_000 } = {}) {
   let last;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const response = await request(url, { signal: AbortSignal.timeout(120_000) });
+      const response = await request(url, { signal: AbortSignal.timeout(timeoutMs) });
       if (response.ok) return Buffer.from(await response.arrayBuffer());
       const error = new Error(`Download failed: HTTP ${response.status} for ${url}`);
       if (response.status !== 429 && response.status < 500) throw error;
@@ -30,9 +31,9 @@ export async function fetchPinnedBytes(url, { request = fetch, pause = delay } =
       if (error?.name !== 'TimeoutError' && error?.name !== 'TypeError') throw error;
       last = error;
     }
-    if (attempt < 3) {
+    if (attempt < attempts) {
       console.warn(`Retrying pinned archive download ${url} after ${last.message}`);
-      await pause(attempt * 1_000);
+      await pause(5_000 * 2 ** (attempt - 1));
     }
   }
   throw last;
@@ -46,16 +47,17 @@ export function verifyArchive(name, data) {
   }
 }
 
-// Support the hashed Ed25519 minisign format used by this release, not arbitrary signatures.
-export function verifyManifest(message, signature) {
+// Support the hashed Ed25519 minisign format used by Ghostty and Zig, not arbitrary signatures.
+// Returns the authenticated trusted comment.
+export function verifyMinisign(message, signature, signingKey) {
   const lines = signature.trimEnd().split(/\r?\n/);
-  const key = Buffer.from(publicKey, 'base64');
+  const key = Buffer.from(signingKey, 'base64');
   const packet = Buffer.from(lines[1] ?? '', 'base64');
   const globalSignature = Buffer.from(lines[3] ?? '', 'base64');
   if (lines.length !== 4 || packet.length !== 74 || packet.toString('ascii', 0, 2) !== 'ED'
       || !packet.subarray(2, 10).equals(key.subarray(2, 10))
       || !lines[2].startsWith('trusted comment: ') || globalSignature.length !== 64) {
-    throw new Error('Unexpected upstream minisign format or signing key');
+    throw new Error('Unexpected minisign format or signing key');
   }
   const ed25519 = createPublicKey({
     key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), key.subarray(10)]),
@@ -65,8 +67,13 @@ export function verifyManifest(message, signature) {
   const commentMessage = Buffer.concat([packet.subarray(10), Buffer.from(lines[2].slice(17))]);
   if (!verify(null, digest, ed25519, packet.subarray(10))
       || !verify(null, commentMessage, ed25519, globalSignature)) {
-    throw new Error('Upstream minisign signature verification failed');
+    throw new Error('Minisign signature verification failed');
   }
+  return lines[2].slice(17);
+}
+
+export function verifyManifest(message, signature) {
+  verifyMinisign(message, signature, publicKey);
   const checksums = new Map(message.toString('utf8').trim().split(/\r?\n/).map(line => {
     const match = /^([a-f0-9]{64})  (\S+)$/.exec(line);
     if (!match) throw new Error('Invalid upstream SHA256SUMS entry');
