@@ -89,9 +89,14 @@ pub fn update(desktop: &Path, check: bool) -> Result<i32> {
 }
 
 /// The desktop installed with this CLI installs or repairs one integration.
-/// Headless packages have none, as 0.9's headless host had no provider.
+/// A headless package reports its bundled CLI read-only and has no file-manager
+/// provider, as in 0.9.
 pub fn ensure_integration(kind: crate::manager::Integration) -> Result<serde_json::Value> {
     use crate::output::CliError;
+    if kind == crate::manager::Integration::Cli && crate::headless_layout::current_root().is_some()
+    {
+        return Ok(headless_cli_state());
+    }
     let desktop = desktop_binary().ok_or_else(|| {
         CliError::coded(
             "UNSUPPORTED",
@@ -107,6 +112,16 @@ pub fn ensure_integration(kind: crate::manager::Integration) -> Result<serde_jso
         .output()
         .with_context(|| format!("Could not start {}", desktop.display()))?;
     integration_reply(&output.stdout)
+}
+
+/// 0.9's read-only bundled-CLI state, with the headless package's own wording.
+fn headless_cli_state() -> serde_json::Value {
+    serde_json::json!({
+        "supported": false,
+        "installed": true,
+        "command": "shellfox",
+        "reason": "The bundled CLI is in the headless installation folder. Shellfox doesn't change the global PATH.",
+    })
 }
 
 /// The desktop's 0.9 `Result` JSON: the state, or the error as a CLI error.
@@ -138,6 +153,13 @@ fn integration_reply(stdout: &[u8]) -> Result<serde_json::Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn headless_cli_state_is_installed_and_read_only() {
+        let state: shellfox_protocol::CliIntegration =
+            serde_json::from_value(headless_cli_state()).unwrap();
+        assert!(state.installed && !state.supported);
+        assert_eq!(state.command, "shellfox");
+    }
     #[test]
     fn integration_replies_carry_the_state_or_the_desktop_error() {
         let state = integration_reply(br#"{"ok":true,"value":{"installed":true}}"#).unwrap();
