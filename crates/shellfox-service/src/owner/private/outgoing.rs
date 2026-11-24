@@ -46,6 +46,7 @@ impl OwnerClient {
             epoch,
             reply,
         })
+        .await
         .map_err(|_| TransportError::Unavailable)?;
         let original = tokio::select! {
             biased;

@@ -71,3 +71,32 @@ async fn registered_native_bootstrap_returns_queued_before_coordinator_and_reuse
         crate::PresentationShutdownState::NoKnownFailure
     );
 }
+
+#[tokio::test]
+async fn a_burst_larger_than_the_inbox_is_admitted() {
+    let data = crate::tests::scratch();
+    let mut owner = ServiceOwner::start(
+        data.path().into(),
+        std::env::current_exe().unwrap(),
+        CancellationToken::new(),
+        (),
+    )
+    .await
+    .unwrap();
+    let client = owner.client(uuid::Uuid::new_v4());
+    let mut burst = tokio::task::JoinSet::new();
+    for _ in 0..CAPACITY * 4 {
+        let client = client.clone();
+        burst.spawn(async move {
+            client
+                .private_request(PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}))
+                .await
+        });
+    }
+    while let Some(reply) = burst.join_next().await {
+        reply
+            .unwrap()
+            .expect("a full inbox delays a request instead of failing it");
+    }
+    owner.shutdown().await.unwrap();
+}

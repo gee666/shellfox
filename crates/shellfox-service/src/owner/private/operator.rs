@@ -68,7 +68,8 @@ impl OwnerClient {
             control,
             request,
             reply,
-        })))?;
+        })))
+        .await?;
         let admitted = response
             .await
             .context("Operator admission receipt lost; outcome unknown, not retried")??;

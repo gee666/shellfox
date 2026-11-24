@@ -3,13 +3,22 @@ use crate::{desktop_launch::*, local::PrivateRequest};
 use private::PrivateTask;
 
 impl OwnerClient {
-    pub(super) fn submit_private(&self, task: PrivateTask) -> Result<()> {
-        match self.sender.try_send(Task::Private(Box::new(task))) {
-            Ok(()) => Ok(()),
-            Err(TrySendError::Full(_)) => {
-                bail!("Private owner request was not admitted: queue full.")
+    /// A full inbox is a burst (every view fetching and acknowledging frames at
+    /// once), so the request waits for room. Its connection deadline and its
+    /// caller going away still end the wait.
+    pub(super) async fn submit_private(&self, task: PrivateTask) -> Result<()> {
+        let mut task = Task::Private(Box::new(task));
+        let mut pause = Duration::from_millis(1);
+        loop {
+            match self.sender.try_send(task) {
+                Ok(()) => return Ok(()),
+                Err(TrySendError::Full(refused)) => task = refused,
+                Err(TrySendError::Disconnected(_)) => {
+                    bail!("Private owner stopped before admission.")
+                }
             }
-            Err(TrySendError::Disconnected(_)) => bail!("Private owner stopped before admission."),
+            tokio::time::sleep(pause).await;
+            pause = (pause * 2).min(Duration::from_millis(20));
         }
     }
     /// Protected native bootstrap only. Backend resources are externally validated;
@@ -19,7 +28,8 @@ impl OwnerClient {
         backend: std::sync::Arc<crate::system::NativeSystemBackend>,
     ) -> Result<()> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::InstallSystem { backend, reply })?;
+        self.submit_private(PrivateTask::InstallSystem { backend, reply })
+            .await?;
         response
             .await
             .context("Native system installation reply lost; no automatic retry.")?
@@ -27,7 +37,8 @@ impl OwnerClient {
     /// Trusted bootstrap resources only; never exposed by any wire DTO.
     pub(crate) async fn install_ssh_profiles(&self, store: crate::ssh::Store) -> Result<()> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::InstallSshProfiles { store, reply })?;
+        self.submit_private(PrivateTask::InstallSshProfiles { store, reply })
+            .await?;
         response
             .await
             .context("SSH bootstrap installation reply lost; no automatic retry.")?
@@ -45,7 +56,8 @@ impl OwnerClient {
             client_id: self.client_id,
             epoch,
             reply,
-        })?;
+        })
+        .await?;
         response
             .await
             .context("Private lifetime opening reply lost.")?
@@ -129,7 +141,8 @@ impl OwnerClient {
             client_id: self.client_id,
             epoch,
             reply,
-        })?;
+        })
+        .await?;
         response.await.context(
             "Private owner reply lost; mutation outcome is uncertain and was not retried.",
         )?
@@ -137,7 +150,7 @@ impl OwnerClient {
     /// Trusted in-process native API only. No corresponding wire DTO exists.
     pub async fn desktop_register(&self) -> Result<DesktopRegistration> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::Register { reply })?;
+        self.submit_private(PrivateTask::Register { reply }).await?;
         response
             .await
             .context("Desktop registration reply lost; no automatic retry.")?
@@ -155,19 +168,22 @@ impl OwnerClient {
             intent,
             submission,
             reply,
-        })?;
+        })
+        .await?;
         response
             .await
             .context("Desktop submit reply lost; intent must not be replayed.")?
     }
     pub async fn desktop_unregister(&self, token: DesktopClientToken) -> Result<()> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::Unregister { token, reply })?;
+        self.submit_private(PrivateTask::Unregister { token, reply })
+            .await?;
         response.await.context("Desktop unregister reply lost.")?
     }
     pub async fn desktop_claim(&self, delivery: DesktopLaunchDelivery) -> Result<LaunchClaim> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::Claim { delivery, reply })?;
+        self.submit_private(PrivateTask::Claim { delivery, reply })
+            .await?;
         response
             .await
             .context("Desktop claim reply lost; UI effects must not be applied.")?
@@ -182,7 +198,8 @@ impl OwnerClient {
             delivery,
             handling,
             reply,
-        })?;
+        })
+        .await?;
         response
             .await
             .context("Desktop completion reply lost; UI effects must not be replayed.")?
