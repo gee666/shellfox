@@ -146,6 +146,7 @@ jobs:
           export GHOSTTY_VT_DIR="$PWD/tmp/rust-package-ghostty/x86_64-unknown-linux-gnu"
           cargo build --locked -p shellfox-desktop -p shellfox-cli
           cargo build --locked -p shellfox-terminal --features test-support --bin shellfox-raw-test-helper
+          cargo build --locked -p shellfox-service --bin shellfox-test-supervisor
       - name: Service tests as root
         if: ${{ !cancelled() }}
         run: |
