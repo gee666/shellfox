@@ -13,11 +13,17 @@ pub struct Fixture {
     pub data: PathBuf,
     pub helper: PathBuf,
     pub digest: [u8; 32],
+    exe: PathBuf,
     host: Option<OwnedHost>,
 }
 
 impl Fixture {
+    #[allow(dead_code, reason = "package-layout tests start their own copy")]
     pub fn start(helper: PathBuf, digest: [u8; 32]) -> Result<Self> {
+        Self::start_as(env!("CARGO_BIN_EXE_shellfox-cli").into(), helper, digest)
+    }
+    /// A host run by `exe`, a copy of this CLI placed in some package layout.
+    pub fn start_as(exe: PathBuf, helper: PathBuf, digest: [u8; 32]) -> Result<Self> {
         let tmp = Path::new(env!("CARGO_MANIFEST_DIR"))
             .ancestors()
             .nth(2)
@@ -34,6 +40,7 @@ impl Fixture {
             data,
             helper,
             digest,
+            exe,
             host: None,
         };
         let host = fixture
@@ -73,7 +80,7 @@ impl Fixture {
         argv
     }
     pub fn command(&self, words: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_shellfox-cli"));
+        let mut command = Command::new(&self.exe);
         command
             .args(self.argv(words))
             .current_dir(self.scratch.path())

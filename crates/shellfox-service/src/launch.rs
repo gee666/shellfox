@@ -4,16 +4,20 @@ use shellfox_core::{Generation, TerminalIdentity};
 use shellfox_runtime::{Identity, Runtime};
 use shellfox_terminal::{PtyConfig, ShellProfileId};
 
-/// The installed Shellfox CLI launcher's directory, which 0.9 put first on
-/// PATH in every tab.
-fn cli_bin() -> Option<PathBuf> {
+/// The Shellfox CLI launcher's directory, which 0.9 put first on PATH in
+/// every tab: a headless host's own package launcher, otherwise the
+/// installed one. `supervisor` is the CLI executable running this host.
+fn cli_bin(supervisor: &Path) -> Option<PathBuf> {
+    if let Some(dir) = crate::headless_layout::launcher_dir(supervisor) {
+        return Some(dir);
+    }
     let var = |name| {
         std::env::var_os(name)
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
     };
     #[cfg(windows)]
-    let launchers = [var("LOCALAPPDATA").map(|dir| dir.join("Shellfox/bin/shellfox.cmd"))];
+    let launchers = [var("LOCALAPPDATA").map(|dir| dir.join(r"Shellfox\bin\shellfox.cmd"))];
     #[cfg(target_os = "linux")]
     let launchers = [
         Some(PathBuf::from("/usr/bin/shellfox")),
@@ -41,7 +45,7 @@ impl Service {
             .into_iter()
             .map(|entry| (entry.name.into(), entry.value.into()))
             .collect();
-        config.cli_bin = cli_bin();
+        config.cli_bin = cli_bin(&self.supervisor);
         // The CLI in a tab talks to this host, as 0.9 did.
         if let Some(root) = crate::electron_import::electron_root(&self.directory) {
             config
@@ -385,6 +389,57 @@ mod tests {
         assert!(config
             .env
             .contains_key(std::ffi::OsStr::new("NODE_OPTIONS")));
+    }
+
+    /// A headless package as extracted: `<root>/bin/shellfox-cli` and the
+    /// `shellfox` launcher users put on PATH.
+    fn headless_package(root: &Path, version: &str) -> PathBuf {
+        use crate::headless_layout::{arch, exe, platform};
+        std::fs::create_dir_all(root.join("bin")).unwrap();
+        let build = format!(
+            r#"{{"product":"headless","version":"{version}","platform":"{}","arch":"{}"}}"#,
+            platform(),
+            arch()
+        );
+        std::fs::write(root.join("build.json"), build).unwrap();
+        for launcher in ["shellfox", "shellfox.cmd"] {
+            std::fs::write(root.join(launcher), "").unwrap();
+        }
+        let cli = root.join("bin").join(exe("shellfox-cli"));
+        std::fs::write(&cli, "").unwrap();
+        cli
+    }
+
+    #[test]
+    fn headless_tabs_get_the_original_package_launcher_on_path() {
+        use crate::headless_layout::{activate, arch, normalize, platform, root_name};
+        let scratch = crate::tests::scratch();
+        let parent = normalize(scratch.path());
+        let anchor = parent.join(root_name());
+        let original = headless_package(&anchor, "0.9.15");
+        assert_eq!(cli_bin(&original), Some(anchor.clone()));
+        // After `shellfox update` the host runs from the new version, but the
+        // anchor's launcher is the one users and services call.
+        let version = parent
+            .join(format!(
+                "shellfox-headless-0.10.0-{}-{}-Ab12",
+                platform(),
+                arch()
+            ))
+            .join("installation")
+            .join(root_name());
+        let updated = headless_package(&version, "0.10.0");
+        activate(&anchor, &version).unwrap();
+        assert_eq!(cli_bin(&updated), Some(anchor.clone()));
+
+        let data = scratch.path().join("data");
+        std::fs::create_dir(&data).unwrap();
+        let service = Service::open_owned(&data, &updated).unwrap();
+        let tab = tab_in(&service, "cmd");
+        let config = service
+            .launch_config(service.host().terminal_launch(tab).unwrap())
+            .unwrap();
+        assert_eq!(config.cli_bin, Some(anchor));
     }
 
     #[cfg(windows)]

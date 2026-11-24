@@ -10,6 +10,7 @@ pub mod desktop_session;
 mod electron_import;
 pub mod facts;
 mod grant;
+pub mod headless_layout;
 mod launch;
 pub mod local;
 pub mod local_api;
