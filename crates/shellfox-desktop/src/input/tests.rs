@@ -190,7 +190,13 @@ fn application_cursor_keypad_and_kitty_modes_come_from_the_terminal() {
 fn tab_and_shift_tab_reach_the_terminal_in_legacy_and_kitty_modes() {
     // (flags, Tab, Shift+Tab, Tab repeat, Tab release). Tab stays legacy
     // without "report all keys" (8), as the kitty spec requires.
-    type Mode = (&'static [u8], &'static [u8], &'static [u8], &'static [u8], &'static [u8]);
+    type Mode = (
+        &'static [u8],
+        &'static [u8],
+        &'static [u8],
+        &'static [u8],
+        &'static [u8],
+    );
     let modes: [Mode; 4] = [
         (b"", b"\t", b"\x1b[Z", b"\t", b""),
         (b"\x1b[>1u", b"\t", b"\x1b[9;2u", b"\t", b""),
