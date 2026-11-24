@@ -1,37 +1,55 @@
-# In-app updates
+# Updates
 
-For terminal-only deployments, see [headless updates](headless.md#updates). The headless CLI installs a verified matching version beside the current installation and atomically selects it for future original-launcher and service starts. The running host stays unchanged until an explicit restart. It does not invoke a desktop installer or the graphical confirmation flow below.
+Shellfox has two updaters. Desktop installs use the one in the desktop app (`crates/shellfox-desktop/src/update/`). Headless packages use `shellfox update` in the CLI (`crates/shellfox-cli/src/headless_update.rs`). Both read only the latest stable release of `gee666/shellfox` on GitHub.
 
-Installed builds check the latest stable GitHub release at startup and once an hour while running. Automatic updates are on by default, including for existing settings. When a verified installer is available, Shellfox downloads and stages it without closing terminals or quitting. It installs through the existing verified handoff when you quit normally. With owned terminals open, the terminal-close confirmation still applies. OS shutdown and the CLI stop command skip installation.
+## Desktop app
 
-Turn off Automatic updates in Settings to stop automatic downloads and quit-time installation. A download already in progress may finish, but it will not install on quit while the setting is off. The bottom sidebar download and install buttons remain available in either mode. Attached desktop clients read the same host setting; the headless host's CLI update behavior does not change.
+The app checks at startup and then every hour. A newer release shows a compact notice at the bottom of the sidebar: a download button, then a progress bar with the estimated time left, then **install and restart**.
 
-The renderer refreshes the notice once a minute and polls download progress twice a second. The compact sidebar control shows only a download button, a progress bar with estimated time remaining, or an install button.
+With **Automatic updates** on (Settings > General, on by default), the app downloads the update in the background and installs it when you quit. Terminals keep running during the download. With it off, nothing downloads on its own, but the sidebar buttons still work.
 
-For manual updates, click **download vX.Y.Z** to fetch and verify an installer without interrupting any terminal. Once the download is ready, click **install and restart**. A themed in-app confirmation defaults to Cancel and explicitly warns that all embedded terminals and their running commands will stop. Cancellation leaves the download ready and terminals running. Legacy external terminals are never closed.
+**install and restart** opens a confirmation that defaults to Cancel. If shells are open, it says how many will close and that running commands stop. Cancel leaves the download ready and the shells running. External terminals are never closed.
 
-After confirmation, the main process starts an installer helper and waits for a readiness acknowledgement before closing any terminal. Terminal closure is reversible at the service level. It pauses new launches and closes owned shells without disposing the backend or subscriptions. Once exit metadata has been saved, the main process sends commit and waits for a second helper acknowledgement. Only then does it finalize the service and quit. The helper requires both explicit commit and manager-process exit before replacing files. Restarting creates fresh shells; running commands do not survive an update.
+The installer runs only after a clean quit, once the terminal host has stopped, because the update replaces the files the host runs from. A detached helper script checks the download again, waits for the app and its `shellfox-cli --desktop-host` process to exit, then installs. Quitting installs without relaunching; **install and restart** relaunches. If the install fails, the helper shows an error (on Linux only when `zenity` is installed), keeps `install.log` in the temporary `shellfox-update-*` folder, and reopens the old app if you asked for a restart.
 
-The [desktop CLI update command](cli.md#updates) uses separate platform installer scripts, not this in-app confirmation and verification flow. It rejects `--json` and remote `--host` targets. Portable/source limitations still apply even when the CLI can control an installed host.
+Supported installs:
 
-## Supported installations
+- Windows x64 installed with `ShellfoxSetup.exe` (`Shellfox.exe` in an `app-<version>` folder beside Squirrel's `Update.exe`). The helper waits for every process under the install root, then runs the new `ShellfoxSetup.exe --silent`.
+- Linux x64 and ARM64 from the `shellfox` `.deb`, with `apt-get`, `dpkg-deb`, `sha256sum` and `pkexec` present. Before staging, the app checks the package name, version and architecture with `dpkg-deb`. The install runs `pkexec apt-get install`, which needs a graphical PolicyKit agent.
+- macOS x64 and ARM64 `Shellfox.app` (bundle ID `local.shellfox`) in a writable folder. The ZIP is checked for unsafe entries, extracted with `ditto`, and must have the expected bundle ID and version and pass `codesign --verify --deep --strict`. The new app is staged beside the old one and swapped in with two renames. If the second rename fails, the old app is restored.
 
-- Windows x64 installed through `ShellfoxSetup.exe`, with Squirrel's `Update.exe` present. Windows ZIP and ARM64 builds require manual updates.
-- Linux x64 and ARM64 `.deb` installations whose executable belongs to the `shellfox` package. In-app installation requires `apt-get`, `sha256sum`, `pkexec` and a working graphical PolicyKit authentication agent. The installer checks the package name, version and architecture before offering installation.
-- macOS x64 and ARM64 `Shellfox.app` bundles in a writable parent directory. ZIP contents, bundle identifier, version and code-signature validity are checked before staging. Replacement uses same-filesystem renames and attempts rollback if the second rename fails. Read-only volumes and non-writable Applications directories require manual installation.
+Anything else, including the Windows ZIP, the Linux `.tar.gz`, other architectures and source builds, shows the reason and a link to the releases page instead of a download button.
 
-## Trust and failure handling
+## `shellfox update` on a desktop install
 
-The renderer cannot supply a URL, filesystem path or command. IPC validates the exact main-frame sender and strict payload schemas. Installation additionally requires approval through an in-app confirmation controlled by the main process. Only the trusted application frame can answer its pending request; stale or unsolicited approvals are rejected. If the renderer is unavailable or crashes, approval is cancelled without opening a system dialog.
+When `shellfox-cli` sits next to a desktop binary, `shellfox update [--check]` runs `Shellfox --cli-update [--check]` in the same console (`crates/shellfox-desktop/src/update/cli.rs`). It uses the same release and package checks as the app, with no dialog. It rejects `--json` and remote `--host`.
 
-The updater only selects the expected asset name from the pinned `gee666/shellfox` GitHub repository. It rejects draft/prerelease versions, duplicate matching assets, unexpected download locations, missing SHA-256 digests, empty files and files larger than 768 MiB. The download must match both the API's size and SHA-256 digest. A missing GitHub asset digest disables in-app installation for that release. This trusts the GitHub repository and its release publisher; it does not add a separate publisher-signing key.
+`update` refuses while this installation's app, its desktop host or another `shellfox` command is running. Use the button in the app, or quit Shellfox and run it again. On Linux it installs with `sudo apt-get` when run in a terminal, otherwise `pkexec`. On macOS it swaps the bundle in the foreground. On Windows the helper finishes in the background, because Setup kills every process under the install root, the CLI included. Start Shellfox again a few seconds later.
 
-macOS ZIP validation rejects traversal, absolute paths, duplicate/case-colliding paths, mismatched local headers, unsupported archive formats and symlinks that escape the bundle or have archive entries written beneath them. macOS ZIP64 archives are unsupported. Existing ad-hoc code signatures are accepted when `codesign --verify --deep --strict` succeeds; this is an integrity check, not an independent publisher identity check. Quarantine attributes are not stripped.
+Exit codes are 0 for up to date, available or installed, 1 for a failure or Shellfox still running, 2 for a usage error and 3 for an install it can't update.
 
-Offline checks retain the last known release. Failed downloads show an error and can be retried. Quit never waits for an unfinished download. When no ready installer can be handed off, normal quit cancels any uncommitted helper, aborts pending downloads and removes staged files. Quit-time or manually confirmed installation hands the temporary directory to the detached helper. Quit-time installation does not relaunch Shellfox. The manual install action still relaunches it. Successful installation removes it; failed installations retain `install.log` inside the OS temporary directory's `shellfox-update-*` folder. Windows and macOS show a failure dialog. Linux does so when `zenity` is installed. After an installer failure or declined elevation, the helper attempts to reopen the previous app only for a manual install-and-restart request. Quit-time installation leaves it closed.
+## Headless packages
 
-Helper startup failures leave terminals untouched. Terminal-close or commit failures cancel the helper before resuming the service, and installation can be retried or the app can be quit normally. If cancellation cannot be confirmed, the service stays paused until a retry or normal quit confirms cancellation. Previously closed shells cannot be restored, but the retained backend can open fresh shells after recovery. Exit-persistence failures also leave the backend intact rather than exposing a manager backed by a disposed terminal service.
+`shellfox update` in an extracted headless package downloads the archive for its OS and architecture, extracts and validates it next to the current installation, then points `headless-update.json` in the original installation at it. The running host is left alone until you restart it. `--json` works here. See [headless updates](headless.md#updates) for launcher paths, restart, rollback and locking.
 
-## Tests
+## Release checks and pre-releases
 
-Unit tests cover release selection, size/digest verification, streaming progress, concurrent requests, hourly checks, abort/cleanup, explicit IPC consent, compact UI progress and ETA, helper readiness/commit/cancellation with real child processes, reversible shutdown and fresh-shell recovery, platform installer arguments, Linux package identity, macOS staging/rollback commands and hostile ZIP entries. The Windows helper is parsed by Windows PowerShell without executing an installer. The macOS packaged smoke test runs the same strict code-signature verification as the updater, matching Forge's default signing verification for both ad-hoc and certificate-signed bundles. These tests do not install real packages or execute downloaded installers. Platform release-install smoke tests are still required before distributing an updater release.
+Every updater reads `releases/latest` from the GitHub API and drops a release that is a draft, is marked pre-release, or has a pre-release or build suffix in its tag. The release workflow publishes any tag with a `-`, such as `v0.10.0-beta.1`, as a pre-release and doesn't mark it latest, so no updater offers it. Testers install those by hand. A test build such as 0.10.0-beta.2 is offered the final 0.10.0, which sorts above it.
+
+The updater picks the asset by its exact name (`ShellfoxSetup.exe`, `shellfox_<version>_<amd64|arm64>.deb`, `Shellfox-darwin-<x64|arm64>-<version>.zip`, or the headless archive). It needs exactly one match, a download URL under the release's own `download/<tag>/` path, a size between 1 byte and 768 MiB and a SHA-256 digest in the metadata. Redirects may only go to GitHub's asset hosts. The file must match the size and digest. Shellfox checks the digest again before it hands the file to the installer. This trusts the GitHub repository and whoever publishes its releases. There is no separate signing key.
+
+## Updating from Electron 0.9.15
+
+0.10.0 keeps the 0.9 installer names and package IDs: Squirrel `shellfox`, deb `shellfox`, macOS `local.shellfox`. So 0.9.15's own updater installs it in place like any other release, and the Rust app handles the Squirrel install events. Linux 0.10.0 needs glibc 2.31. On older distributions the 0.9.15 updater reports a failed install and keeps the old app (see [platform support](platform-support.md#linux-glibc-floor)).
+
+On its first start, a host whose data directory is `<Shellfox>/rust-v1/host` imports from the 0.9 files in `<Shellfox>` (`crates/shellfox-service/src/electron_import.rs`):
+
+- settings and window bounds;
+- saved sessions, without their shells;
+- SSH profiles and known host keys;
+- device approvals and remote access preferences from `remote.json`;
+- the Tailscale node identity, copied, so paired devices keep working without a new login.
+
+Each item fills only an empty Rust store, and marker files in the host's private directory make the import run once. The import reads SQLite from a private snapshot and doesn't change the 0.9 files. It holds Electron's `.host-lock` while the host runs, so 0.9 can't start next to it with the same node identity. Running terminals are not carried over.
+
+Chromium caches are deleted right after the import. Everything else stays for 30 days, so you can reinstall 0.9.15 and find its data. When the 30 days are up, the host deletes the 0.9 files it found at import time (the database, `remote.json`, SSH files, `tailscale/`, Chromium profile data and the lock directory), by exact name and without following links. It skips the cleanup for good if any of those files changed after the import, because that means 0.9 ran again. Unknown files and `rust-v1` are never touched. Changes made in 0.9 after the import are not imported again.
