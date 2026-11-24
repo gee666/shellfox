@@ -124,6 +124,10 @@ impl LocalRequestFailure {
         self.method == shellfox_protocol::automation::AutomationWrite::METHOD
             && self.error.code == shellfox_protocol::ErrorCode::TargetLost
     }
+    /// The host's runtime error, for the codes a terminal view acts on.
+    pub fn runtime_error(&self) -> Option<shellfox_runtime::RuntimeError> {
+        super::runtime_codes::from_wire(&self.error)
+    }
 }
 /// Uses the shared typed client. It never opens SQLite or launches a shell.
 pub struct LocalClient {

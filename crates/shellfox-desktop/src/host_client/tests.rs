@@ -172,3 +172,29 @@ fn frame_cache_rejects_invalid_grid_and_more_than_128_views_before_acceptance() 
     let tab = TabId::new();
     assert!(frames.accept(tab, false, frame(tab, 129, 0)).is_err());
 }
+
+#[test]
+fn host_control_refusal_reaches_the_view_as_control_required() {
+    let crossed = anyhow::Error::new(shellfox_service::local::LocalRequestFailure {
+        method: "desktop",
+        error: shellfox_protocol::AppError {
+            code: shellfox_protocol::ErrorCode::TerminalControlRequired,
+            message: "Terminal control belongs to another controller.".into(),
+            retryable: false,
+        },
+    });
+    assert!(crate::terminal::control_required(&super::runtime_error(
+        crossed
+    )));
+    let internal = anyhow::Error::new(shellfox_service::local::LocalRequestFailure {
+        method: "desktop",
+        error: shellfox_protocol::AppError {
+            code: shellfox_protocol::ErrorCode::Internal,
+            message: "Private host operation failed.".into(),
+            retryable: false,
+        },
+    });
+    assert!(!crate::terminal::control_required(&super::runtime_error(
+        internal
+    )));
+}

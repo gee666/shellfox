@@ -14,6 +14,7 @@ use transport_frame::{Frame, LifetimeReply, TRANSPORT_VERSION};
 mod desktop;
 mod launch;
 mod request;
+mod runtime_codes;
 pub use desktop::{DesktopProviderRequest, DesktopReply, DesktopRequest};
 pub(crate) mod ssh_read;
 use crate::{

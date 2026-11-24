@@ -135,7 +135,8 @@ impl HostClient {
             action => NativeResponse::from(
                 client
                     .request(shellfox_service::local::DesktopRequest::try_from(action)?)
-                    .await?,
+                    .await
+                    .map_err(runtime_error)?,
             ),
         };
         if detached.is_some() || detach_all || matches!(response, NativeResponse::Snapshot(_)) {
@@ -199,5 +200,17 @@ impl HostClient {
             eprintln!("Attached desktop disconnected: {error:#}");
         }
         Ok(())
+    }
+}
+
+/// The host's runtime error, when the view acts on it (control elsewhere,
+/// replay lost, stale frame); other failures pass through unchanged.
+fn runtime_error(error: anyhow::Error) -> anyhow::Error {
+    match error
+        .downcast_ref::<shellfox_service::local::LocalRequestFailure>()
+        .and_then(shellfox_service::local::LocalRequestFailure::runtime_error)
+    {
+        Some(runtime) => runtime.into(),
+        None => error,
     }
 }

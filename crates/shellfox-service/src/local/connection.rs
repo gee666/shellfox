@@ -195,7 +195,16 @@ async fn response_consumed(stream: &mut platform::LocalStream) -> Result<()> {
     Ok(())
 }
 fn failure(error: anyhow::Error) -> shellfox_protocol::Reply<serde_json::Value> {
-    let (code, message) = match error.downcast_ref::<crate::ShutdownFailure>() {
+    let (code, message) =
+        super::runtime_codes::to_wire(&error).unwrap_or_else(|| failure_code(error));
+    shellfox_protocol::Reply::Failure(shellfox_protocol::AppError {
+        code,
+        message,
+        retryable: false,
+    })
+}
+fn failure_code(error: anyhow::Error) -> (shellfox_protocol::ErrorCode, String) {
+    match error.downcast_ref::<crate::ShutdownFailure>() {
         Some(failure @ crate::ShutdownFailure::ActivityPersistence(_)) => (
             shellfox_protocol::ErrorCode::StorageFailed,
             failure.to_string(),
@@ -215,10 +224,5 @@ fn failure(error: anyhow::Error) -> shellfox_protocol::Reply<serde_json::Value> 
             "Private host operation failed; metadata and unconfirmed ownership retained.".into(),
             )
         }
-    };
-    shellfox_protocol::Reply::Failure(shellfox_protocol::AppError {
-        code,
-        message,
-        retryable: false,
-    })
+    }
 }

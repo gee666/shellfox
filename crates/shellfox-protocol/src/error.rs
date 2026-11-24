@@ -36,6 +36,10 @@ pub enum ErrorCode {
     RetryConfirmRequired,
     StorageFailed,
     FileConflict,
+    /// A terminal's retained output no longer reaches back to the view; it must recover.
+    ReplayLost,
+    /// The view acted on a frame the terminal has since replaced.
+    StalePresentation,
     Internal,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
