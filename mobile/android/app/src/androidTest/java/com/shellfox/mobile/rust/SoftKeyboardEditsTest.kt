@@ -195,6 +195,23 @@ class SoftKeyboardEditsTest {
     call { commitText(" ", 1) }
     assertEquals("hello world ", line.toString())
   }
+  @Test fun theKeyboardHearsEachCallsResultOnceAndNeverAStaleOne() {
+    val published = mutableListOf<List<Int>>()
+    instrumentation.runOnMainSync {
+      ime = TerminalInputConnection(View(instrumentation.targetContext), input, {}, { true }) { a, b, c, d -> published.add(listOf(a, b, c, d)) }
+    }
+    call { setComposingText("hel", 1) }
+    assertEquals(listOf(listOf(3, 3, 0, 3)), published)
+    published.clear()
+    // A suggestion tap: one report after the batch, with nothing composing.
+    call { beginBatchEdit(); finishComposingText(); commitText("lo ", 1); endBatchEdit() }
+    assertEquals(listOf(listOf(6, 6, -1, -1)), published)
+    published.clear()
+    // Enter clears the editor inside the call (as a sticky chord does):
+    // the keyboard hears only the empty editor.
+    call { commitText("ls\n", 1) }
+    assertEquals(listOf(listOf(0, 0, -1, -1)), published)
+  }
   @Test fun aSuggestionAfterAutocorrectReplacesTheWordOnce() {
     call { setComposingText("teh", 1) }
     call { beginBatchEdit(); commitText("the", 1); commitText(" ", 1); endBatchEdit() }

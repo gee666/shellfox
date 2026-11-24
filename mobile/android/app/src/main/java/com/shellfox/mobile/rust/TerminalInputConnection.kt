@@ -17,6 +17,11 @@ import android.view.inputmethod.InputMethodManager
 internal class TerminalInputConnection(
   private val view: View, private val input: TerminalInput, private val preedit: (String) -> Unit,
   private val writable: () -> Boolean,
+  /** Tells the keyboard the selection and composing range, as a text field does. */
+  private val selection: (Int, Int, Int, Int) -> Unit = { start, end, composingStart, composingEnd ->
+    (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+      ?.updateSelection(view, start, end, composingStart, composingEnd)
+  },
 ) : BaseInputConnection(view, true) {
   private val editor = SpannableStringBuilder()
   private var reported = ""
@@ -25,29 +30,34 @@ internal class TerminalInputConnection(
   private var lastAnchor = ""
   private var recomposed = false
   private var batch = 0
+  private var editing = 0
   private val ime get() = view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager
   override fun getEditable(): Editable = editor
 
   private inline fun edit(action: () -> Boolean): Boolean {
     if (!writable()) return false
-    val handled = action()
-    report()
-    if (batch == 0) publishSelection()
+    val handled = editing { action().also { report() } }
+    settled()
     return handled
+  }
+  private inline fun <T> editing(action: () -> T): T {
+    editing++
+    try { return action() } finally { editing-- }
   }
   // The keyboard learns the result of its edits only from updateSelection, as
   // from a text field. Without it, Gboard can keep a tapped suggestion as
-  // composing text until the next word.
+  // composing text until the next word. BaseInputConnection batches its own
+  // edits too; only the outermost keyboard call or batch reports, once.
   override fun beginBatchEdit(): Boolean { batch++; return true }
   override fun endBatchEdit(): Boolean {
-    if (batch > 0 && --batch == 0) publishSelection()
+    if (batch > 0) batch--
+    settled()
     return batch > 0
   }
-  private fun publishSelection() {
-    val composingStart = getComposingSpanStart(editor)
-    val composingEnd = getComposingSpanEnd(editor)
-    ime?.updateSelection(view, Selection.getSelectionStart(editor).coerceAtLeast(0),
-      Selection.getSelectionEnd(editor).coerceAtLeast(0), composingStart, composingEnd)
+  private fun settled() {
+    if (batch > 0 || editing > 0) return
+    selection(Selection.getSelectionStart(editor).coerceAtLeast(0), Selection.getSelectionEnd(editor).coerceAtLeast(0),
+      getComposingSpanStart(editor), getComposingSpanEnd(editor))
   }
   override fun setComposingText(text: CharSequence?, newCursorPosition: Int) = edit {
     super.setComposingText(text, newCursorPosition)
@@ -108,9 +118,12 @@ internal class TerminalInputConnection(
   /** What is typed so far stays; the next word starts in an empty editor. */
   fun finishAndClear() {
     if (editor.isEmpty() && reported.isEmpty()) return
-    super.finishComposingText()
-    report()
-    clear()
+    editing {
+      super.finishComposingText()
+      report()
+      clear()
+    }
+    settled()
   }
   /** Drops a fresh preedit, but keeps a reopened word: the terminal already lost it. */
   fun cancelComposition() = if (recomposed) finishAndClear() else clear()
@@ -151,7 +164,7 @@ internal class TerminalInputConnection(
     preedit("")
     input.editorReset()
     // The keyboard reads its context again from the now empty editor.
-    ime?.updateSelection(view, 0, 0, -1, -1)
+    settled()
     if (monitorCursor) publishCursor()
   }
 
