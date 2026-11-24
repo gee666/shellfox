@@ -1,6 +1,6 @@
 # WSL guest scripts
 
-Scripts that Shellfox runs inside a WSL distribution on Windows. The host embeds them with `include_str!` and runs them through `System32wsl.exe --exec`, so no guest shell parses a command line built from user text. The scripts WSL tabs use are passed inline and never installed in the distribution.
+Scripts that Shellfox runs inside a WSL distribution on Windows. The host embeds them with `include_str!` and runs them through `System32\wsl.exe --exec`, so no guest shell parses a command line built from user text. The scripts WSL tabs use are passed inline and never installed in the distribution.
 
 ## Used by WSL tabs
 
