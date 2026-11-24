@@ -4,7 +4,8 @@ use std::{collections::VecDeque, sync::Arc};
 use tokio::sync::oneshot;
 
 pub(super) const MAX_INTENTS: usize = 64;
-pub(super) const MAX_BYTES: usize = 128 * 1024;
+/// Input waiting in one lane; typing past it gets BUSY.
+pub(super) const MAX_BYTES: usize = 1024 * 1024;
 struct Intent {
     operation: Operation,
     command: RemoteCommand,
@@ -227,9 +228,15 @@ fn admit(
             RemoteCommand::ResizeTerminal(_) => std::mem::size_of::<ResizeTerminal>(),
             _ => return Err(INVALID),
         };
-        if b.lane.queue.len() + usize::from(b.lane.active.is_some()) >= MAX_INTENTS
-            || b.lane.bytes + bytes > MAX_BYTES
-        {
+        if b.lane.bytes + bytes > MAX_BYTES {
+            return Err(BUSY);
+        }
+        let b = s.bindings.get_mut(&tab).ok_or(STALE)?;
+        let command = match join(&mut b.lane, command) {
+            Ok(operation) => return Ok(operation),
+            Err(command) => command,
+        };
+        if b.lane.queue.len() + usize::from(b.lane.active.is_some()) >= MAX_INTENTS {
             return Err(BUSY);
         }
         let operation = reserve_locked(&mut s, origin, SMALL_RESERVE)?;
@@ -254,6 +261,37 @@ fn admit(
         executor.spawn(drain(mobile, tab, serial));
     }
     Ok(id)
+}
+/// Appends a write to the lane's last waiting write, so a burst of typing
+/// goes out in a few requests instead of filling the lane. The joined input
+/// completes with that write's operation, whose id is returned.
+fn join(
+    lane: &mut MutationLane,
+    command: RemoteCommand,
+) -> std::result::Result<u64, RemoteCommand> {
+    let RemoteCommand::WriteTerminal(write) = &command else {
+        return Err(command);
+    };
+    let Some(tail) = lane.queue.back_mut() else {
+        return Err(command);
+    };
+    match &mut tail.command {
+        RemoteCommand::WriteTerminal(waiting)
+            if !tail.operation.cancel.is_cancelled()
+                && waiting.tab_id == write.tab_id
+                && waiting.generation == write.generation
+                && waiting.control_epoch == write.control_epoch
+                && waiting.user_initiated == write.user_initiated
+                && waiting.settled_at == write.settled_at
+                && waiting.data.len() + write.data.len() <= crate::MAX_INPUT =>
+        {
+            waiting.data.push_str(&write.data);
+            tail.bytes += write.data.len();
+            lane.bytes += write.data.len();
+            Ok(tail.operation.id)
+        }
+        _ => Err(command),
+    }
 }
 async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
     loop {

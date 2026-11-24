@@ -1,4 +1,5 @@
 use super::*;
+use crate::client::mutations::{MAX_BYTES, MAX_INTENTS};
 fn write(h: &Harness, view: &NativeView, bytes: &[u8]) -> (i32, u64) {
     let mut operation = 99;
     let status = unsafe {
@@ -7,6 +8,20 @@ fn write(h: &Harness, view: &NativeView, bytes: &[u8]) -> (i32, u64) {
             view.0,
             bytes.as_ptr(),
             bytes.len(),
+            &mut operation,
+        )
+    };
+    (status, operation)
+}
+fn write_hint(h: &Harness, view: &NativeView, bytes: &[u8], hint: u8) -> (i32, u64) {
+    let mut operation = 99;
+    let status = unsafe {
+        sfm_client_terminal_write_ex(
+            h.handle,
+            view.0,
+            bytes.as_ptr(),
+            bytes.len(),
+            hint,
             &mut operation,
         )
     };
@@ -83,7 +98,9 @@ fn mutation_bytes_busy_accepts_no_id_and_release_retry_keeps_existing_order() {
     let bytes = vec![b'x'; 65536];
     assert_eq!(write(&h, &view, &bytes).0, 0);
     let first = h.request();
-    assert_eq!(write(&h, &view, &bytes).0, 0);
+    for _ in 0..MAX_BYTES / bytes.len() - 1 {
+        assert_eq!(write(&h, &view, &bytes).0, 0);
+    }
     assert_eq!(write(&h, &view, b"release"), (BUSY, 0));
     written(&h, &first);
     assert_eq!(h.event()["status"], 0);
@@ -96,9 +113,36 @@ fn mutation_bytes_busy_accepts_no_id_and_release_retry_keeps_existing_order() {
     h.dispatch();
     assert!(h.mock.requests.is_empty());
     written(&h, &second);
+    for _ in 0..MAX_BYTES / bytes.len() - 2 {
+        h.event();
+        let next = h.request();
+        written(&h, &next);
+    }
     let release = h.request();
     assert_eq!(release.body["payload"]["data"], "release");
     written(&h, &release);
+    h.event();
+    h.event();
+}
+#[test]
+fn ten_thousand_keys_typed_while_a_write_is_held_go_out_joined_in_order() {
+    let mut h = Harness::new();
+    h.connect();
+    let view = NativeView::attach(&mut h);
+    assert_eq!(write(&h, &view, b"first").0, 0);
+    let first = h.request();
+    let typed: String = "ls -la; echo fox\r".chars().cycle().take(10_000).collect();
+    let mut ids = std::collections::HashSet::new();
+    for c in typed.chars() {
+        let (status, id) = write(&h, &view, c.to_string().as_bytes());
+        assert_eq!(status, 0);
+        ids.insert(id);
+    }
+    assert_eq!(ids.len(), 1, "every key joined the one waiting write");
+    written(&h, &first);
+    let joined = h.request();
+    assert_eq!(joined.body["payload"]["data"], typed.as_str());
+    written(&h, &joined);
     h.event();
     h.event();
 }
@@ -107,8 +151,9 @@ fn mutation_count_bound_does_not_block_ack_or_poll_behind_input_lane() {
     let mut h = Harness::new();
     h.connect();
     let view = NativeView::attach(&mut h);
-    for _ in 0..64 {
-        assert_eq!(write(&h, &view, b"x").0, 0);
+    // Writes with different hints never join, so each takes a slot.
+    for n in 0..MAX_INTENTS {
+        assert_eq!(write_hint(&h, &view, b"x", ((n + 1) % 2) as u8).0, 0);
     }
     assert_eq!(write(&h, &view, b"release"), (BUSY, 0));
     let first = h.request();
