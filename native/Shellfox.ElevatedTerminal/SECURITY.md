@@ -1,4 +1,4 @@
-# Active Windows helper runtime and loader review
+# Administrator helper runtime and DLL loading
 
 ## Shipped runtime and build toolchain
 
@@ -9,8 +9,8 @@ and xunit.runner.visualstudio 4.0.1. None of those test packages ships with the
 helper. The actual publish dependency graph contains the helper project and the
 matching Microsoft.NETCore.App.Runtime RID pack, not the test graph.
 
-The .NET 8 channel is EOL as of 2026-11-10. Its latest patch 8.0.34 does not make
-that channel acceptable for shipping. The retired native test projects remain
+The .NET 8 channel is EOL as of 2026-11-10, so the helper doesn't ship on it, even
+at its latest patch 8.0.34. The retired native test projects remain
 net8.0 and use the preexisting 8.0.34 test runtime only. They are not dependencies
 of the active helper and are not published into its bundle. The exited-process
 identity fixture now starts only absolute System32 cmd.exe with `/d /c exit 0`,
@@ -26,7 +26,7 @@ node scripts/terminal-native.mjs --arch x64
 node scripts/terminal-native.mjs --arch arm64
 ```
 
-The SDK archive, SDK installation, CLI home, caches and evidence stay under
+The SDK archive, SDK installation, CLI home, caches and provisioning records stay under
 project `tmp/`. No global install, global.json, PATH or user settings change.
 `SHELLFOX_DOTNET` may name an explicit absolute dotnet.exe with the exact pinned
 SDK version. An absent/mismatched SDK fails rather than finding another one on
@@ -39,7 +39,7 @@ Sources:
 - https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json
 - https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json
 
-At review, channel 10 is active, latest runtime 10.0.15, EOL 2028-11-14. The pinned
+When the pin was set, channel 10 was active, latest runtime 10.0.15, EOL 2028-11-14. The pinned
 x64 SDK archive SHA-512 from the release JSON is
 `330ddd2665b43cd2e428216a0d8ea1ac7bb19b5434fdc530e62010dc3b52823a620bf95489d628e1ed6f5122401793ee4887cca4a019122361a1231497f632ee`.
 This is SDK download provenance, not a hardcoded runtime bundle trust anchor.
@@ -62,26 +62,25 @@ Vendor OS-edition lifecycle limits still apply. A supported-OS table is not a
 promise that an EOL Home/Pro release has vendor support.
 
 Provisioning retains both full source documents, verifies matching Windows
-sections, and records the build-17763 guard. SDK metadata/OS evidence is under
+sections, and records the build-17763 guard. SDK metadata and OS records go to
 `tmp/dotnet10/evidence/`. This is documented compatibility, not a native test on
 every old Windows x64/Arm64 machine. Arm64 publishing here is cross-compilation.
 
-## Application loader review
+## Application DLL loading
 
 All 39 application P/Invokes have a per-method
 `DefaultDllImportSearchPaths(DllImportSearchPath.System32)` attribute. Their
 library names are fixed literals: kernel32.dll and advapi32.dll. This covers
 ConPty, LocalPipe and PipeRun. No assembly-wide attribute changes unrelated code.
-A compiled reflection test checks every reviewed import and its search policy.
+A compiled reflection test checks every import and its search policy.
 
 The helper source has no Assembly.Load/LoadFrom/LoadFile, AssemblyLoadContext,
 NativeLibrary, Reflection.Emit, LoadLibrary/GetProcAddress, DLL search-path
 mutation, plugin resolver, or payload-selected managed/native library name.
 The source regression check covers all active C# files. JSON fields carry data;
 PipeRun's explicit child executable and the fixed System32 PowerShell are
-separate process launches, not library loads in the helper. These checks
-supplement human source review, not a generic proof about arbitrary future C#
-code.
+separate process launches, not library loads in the helper. These checks cover
+the current source; they don't replace reading new C# code for loader changes.
 
 The published runtimeconfig disables `System.StartupHookProvider.IsSupported`.
 The .NET 10 implementation and feature-switch definition are in:
@@ -95,8 +94,8 @@ necessary. Standard CLR loading of declared framework dependencies is not an
 arbitrary extension/plugin API.
 
 The optional [NativeAOT prototype](NATIVEAOT.md) is a separate, opt-in build of
-the same source. It is not a reason to relax the managed artifact gate. Its own
-native loader/provenance, license and ARM64 requirements remain unresolved.
+the same source and doesn't change the checks on the managed build. Its native
+loader, provenance, license and ARM64 questions are still open.
 
 ## Actual inventory and advisory audit
 
@@ -109,14 +108,13 @@ Official NuGet vulnerability metadata returned zero matching findings and zero
 unresolved ranges for those actual graphs. Official .NET release metadata
 reported active/current-in-listed-channel. Test-project transitive NuGet audit
 also reported no listed vulnerabilities. The evidence records metadata source
-URLs and digests. This is a time-bounded advisory/lifecycle result, not a claim
+URLs and digests. The result holds for the date it was fetched, and is not a claim
 that no runtime or OS vulnerability exists.
 
 Packaging regenerates the managed inventory and vulnerability report for every
 architecture and refuses to package on findings or an unsupported channel.
 Packaging notices come from the exact runtime 10.0.15 tag.
 
-Allowed checks execute only the safe probe and ordinary owned process fixtures.
-They do not run UAC, legacy self-test or an account/profile process. No
-release, signing, installation or production-data migration is part of this
-remediation.
+The tests run only the safe probe and process fixtures they start themselves.
+They don't trigger UAC, the legacy self-test or an account profile, and they don't
+sign, install or touch user data.

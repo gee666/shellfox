@@ -1,13 +1,8 @@
-# Optional Windows NativeAOT prototype
+# Optional Windows NativeAOT build
 
-Feasible, with an x64 prototype built and checked. This is not an accepted Rust
-resource kind or a shipping-profile change. Managed self-contained publishing
-remains the default. NativeAOT acceptance is blocked until ARM64 build evidence,
-complete loader review and all native license/toolchain gates are resolved.
+The administrator helper can be built with NativeAOT. An x64 build works and passes the checks below. Releases still ship the managed self-contained build. Switching would first need an ARM64 build, a complete review of what the native image loads, and cleared native toolchain licenses. The Rust packaging has no resource kind for an AOT helper.
 
-## Scope and commands
-
-The same .NET 10 project supports an opt-in profile:
+## Commands
 
 ```text
 node scripts/terminal-native.mjs --arch x64
@@ -15,108 +10,50 @@ node scripts/terminal-native.mjs --aot --arch x64
 node scripts/terminal-native.mjs --aot --arch arm64
 ```
 
-The first command remains managed and writes `tmp/terminal-native/win-x64`.
-AOT writes to `tmp/terminal-native-aot/win-x64`, with separate intermediate/bin
-caches. It never overwrites managed output. Mac/Linux helpers are unchanged.
-No new runtime CLI command or arbitrary raw command-line field was added.
-The probe and the launch schema are unchanged.
+The first command is the managed build and writes `tmp/terminal-native/win-x64`. AOT writes to `tmp/terminal-native-aot/win-x64`, with its own intermediate and bin caches, and never overwrites managed output. The probe and the launch schema are the same in both builds. There is no extra runtime CLI command or raw command-line field.
 
-The profile sets `PublishAot`, disables reflection JSON, enables invariant
-helper globalization and treats compiler, trimming and AOT warnings as errors.
-Invariant mode avoids optional ICU selection. Protocol text remains full UTF-8;
-it does not change the child shell's environment or the user's OS locale.
+The AOT profile sets `PublishAot`, turns off reflection-based JSON, uses invariant globalization and treats compiler, trimming and AOT warnings as errors. Invariant mode avoids loading ICU. Protocol text stays full UTF-8, and the child shell's environment and the user's locale are unchanged.
 
-JSON emission now uses explicit JSON DOM fields and primitive values, not
-runtime type discovery. Tests compare every response/request shape against
-the previous serializer byte-for-byte, including escaping,
-Unicode, integer widths and multiple cultures. Validated JsonElement forwarding
-still uses the original raw text, preserving large apostrophe frames.
-Lifecycle, authentication, UAC, Job and rollback code were not replaced by an
-AOT-specific implementation.
+JSON output uses explicit JSON DOM fields and primitive values instead of runtime type discovery. Tests compare every request and response shape byte for byte with the previous serializer, including escaping, Unicode, integer widths and several cultures. Validated `JsonElement` forwarding still uses the original raw text, which keeps large apostrophe frames intact. Lifecycle, authentication, UAC, Job and rollback code are shared with the managed build.
 
-## Prerequisites and OS floor
+## Prerequisites and minimum Windows
 
-The project-local official SDK is 10.0.404; the embedded runtime, NativeAOT
-runtime pack, ILCompiler and ILLink packages are 10.0.15. Actual restored package
-versions and NuGet hashes are recorded, not inferred from the EXE name.
+The project-local SDK is 10.0.404. The embedded runtime, NativeAOT runtime pack, ILCompiler and ILLink packages are 10.0.15. The build records the restored package versions and NuGet hashes rather than reading them from the EXE name.
 
-Official references:
+References:
 
 - https://learn.microsoft.com/dotnet/core/deploying/native-aot/
 - https://learn.microsoft.com/dotnet/core/deploying/native-aot/cross-compile
 - https://learn.microsoft.com/dotnet/core/deploying/native-aot/interop
 - https://learn.microsoft.com/cpp/build/reference/dependentloadflag
 
-Microsoft documents Windows x64 and ARM64 NativeAOT targets. Cross-architecture
-publishing requires the corresponding VS2022+ C++ tools and libraries, not just
-an ARM64 RID. The existing .NET 10 Windows support matrix still covers the
-helper's build-17763 floor. The dependent-load flag needs Windows 10 RS1, build
-14393, which is older than that existing floor. No OS target was dropped.
+Microsoft supports Windows x64 and ARM64 NativeAOT targets. Cross-architecture publishing needs the matching VS2022+ C++ tools and libraries, not just an ARM64 RID. .NET 10 still supports the helper's minimum, Windows build 17763. The dependent-load flag needs build 14393, which is older, so the minimum doesn't change.
 
-This host has VS2022 17.5/MSVC 14.35 x64 and Windows SDK 10.0.22000 x64/ARM64
-libraries. Its MSVC ARM64 tools/static CRT are absent. The ARM64 AOT command
-fails explicitly before replacing any artifact. No global installer, toolchain
-update or PATH change is performed. `SHELLFOX_MSVC_ROOT` and
-`SHELLFOX_WINDOWS_KITS_ROOT` may select explicit absolute trusted tool roots;
-tool search/LIB changes apply only to the build child.
+The development machine this was built on has VS2022 17.5 (MSVC 14.35) x64 and Windows SDK 10.0.22000 x64 and ARM64 libraries, but no MSVC ARM64 tools or static CRT. The ARM64 AOT command fails before replacing any artifact. The script installs nothing and doesn't change PATH. `SHELLFOX_MSVC_ROOT` and `SHELLFOX_WINDOWS_KITS_ROOT` can name absolute tool roots; the tool search and `LIB` changes apply only to the build process.
 
-The installed x64 toolset is old. Successful linking is not a claim that its
-support/security status or redistributable license inputs are cleared. Obtain
-supported toolchain evidence and the ARM64 component through an approved route
-before shipping. Managed ARM64 publishing continues to work independently.
+That x64 toolset is old. A successful link says nothing about its support status, security or redistributable licenses. Shipping would need a supported toolset and the ARM64 components. Managed ARM64 publishing works without them.
 
-## Native loader proof
+## What the native image loads
 
-The resulting image has no CLR directory, managed DLL, deps or runtimeconfig
-payload. It contains compiled application/runtime code, rather than a managed
-single-file bundle that extracts a CLR. This fact is backed by the trusted AOT
-build invocation/package inventory and the actual image, not a heuristic that
-any EXE without a CLR header is AOT.
+The image has no CLR directory, managed DLL, deps or runtimeconfig. It is compiled code, not a single-file bundle that extracts a CLR. The build invocation, package inventory and the image itself show this; the audit doesn't assume that any EXE without a CLR header is AOT.
 
-All 68 application OS imports retain fixed names and System32 attributes.
-NativeAOT can turn known imports into direct PE imports, which ignore those
-attributes. Therefore the AOT profile also links `/DEPENDENTLOADFLAG:0x800`.
-The bounded PE audit verifies the emitted field, expected x64/ARM64 machine,
-absent CLR directory, NX/ASLR and every direct/delayed import. Only the reviewed
-OS libraries and UCRT API sets are accepted. Dynamic application P/Invokes keep
-their existing System32 policy. Managed artifact loader denial stays in place.
+All 68 application OS imports keep fixed names and System32 attributes. NativeAOT can turn known imports into direct PE imports, which ignore those attributes, so the AOT profile also links `/DEPENDENTLOADFLAG:0x800`. The PE audit checks that field, the x64 or ARM64 machine type, the missing CLR directory, NX and ASLR, and every direct and delayed import. Only the listed OS libraries and UCRT API sets pass. Dynamic P/Invokes keep their System32 policy, and the managed build's loader restrictions stay in place.
 
-The native profile removes late managed assembly/startup-hook loading. That
-simplifies the long-lived guardian case, but does not authorize a resource kind
-from a matching probe, hash or mutable build JSON. A typed trusted-build record,
-static/lazy import review, native-runtime license inputs and ARM64 gate are still
-required. No Rust resource/factory code was changed here.
+The native image can't load managed assemblies or startup hooks late, which helps a long-running helper. A matching probe, hash or build JSON still isn't enough to ship it. That would need a typed record of the trusted build, a review of static and lazy imports, native-runtime license inputs and an ARM64 build.
 
-## Evidence and checks
+## Checks
 
 ```text
 node scripts/dotnet-sdk.mjs test
 node --test scripts/terminal-aot.test.mjs scripts/terminal-aot-probe.test.mjs
 ```
 
-The safe probe was compared against managed output. The actual native image passed
-the PE policy audit. Actual NativeAOT/ILCompiler/runtime package graphs reported
-no listed NuGet findings and an active/current supported .NET 10 channel.
-That audit is not an MSVC, Windows SDK or whole-native-code security clearance.
+The probe output matches the managed build. The native image passes the PE audit. The NativeAOT, ILCompiler and runtime package graphs have no listed NuGet advisories and are on a current, supported .NET 10 channel. That audit doesn't cover MSVC, the Windows SDK or native code in general.
 
-The original owned CMD PipeRun check failed with status 1 and a path-not-found
-message. Its record is `tmp/aot-evidence/cmd-pipe-initial-failure.json`. It was
-not counted as a pass. With explicit approval, CommandLine now leaves only
-nonempty conservative ASCII argument tokens unquoted. The executable is always
-quoted, Quote itself is unchanged, and empty/Unicode/whitespace/quotes/shell
-metacharacters retain the previous encoding. No raw CLI field or shell fallback
-was added. Generic argv round trips passed before rerunning CMD. The owned
-System32 CMD `/d /q /c` check then returned its exact marker and exit code 23.
+The first CMD PipeRun check failed with status 1 and "path not found" (`tmp/aot-evidence/cmd-pipe-initial-failure.json`). `CommandLine` now leaves only nonempty, conservative ASCII argument tokens unquoted. The executable is always quoted, `Quote` is unchanged, and empty, Unicode, whitespace, quote and shell-metacharacter arguments keep the previous encoding. There is no raw CLI field or shell fallback. Generic argv round trips passed, and then the System32 CMD `/d /q /c` check returned its exact marker and exit code 23.
 
-A separate generic-argv Node fixture initially failed RNG initialization with
-an entirely empty environment. It now supplies only SystemRoot/WINDIR, without
-account hooks or credentials. The CMD fixture still uses an empty environment
-and `/d`; it executes no account profile or script file.
+A generic-argv Node fixture failed RNG initialization with a fully empty environment. It now gets only `SystemRoot` and `WINDIR`, with no account hooks or credentials. The CMD fixture still uses an empty environment and `/d`, and runs no profile or script file.
 
-The output retains .NET runtime license/notices, the actual NativeAOT package's
-license/notices, compiler/package/source/image hashes, linker-response hash,
-PE audit and a separate NuGet/lifecycle report. A native CRT/SDK license review
-is explicitly pending, never implied by the retained .NET notices.
+The output keeps the .NET runtime and NativeAOT package licenses and notices, compiler, package, source and image hashes, the linker response hash, the PE audit and a separate NuGet and lifecycle report. The native CRT and SDK licenses haven't been reviewed, and the .NET notices don't cover them.
 
-No UAC or real elevated terminal was run. The AOT x64 prototype is not platform parity, ARM64 runtime
-acceptance, a release, signing or installation.
+No UAC prompt or real elevated terminal has run with the AOT build. It hasn't been built for ARM64, released, signed or installed.
