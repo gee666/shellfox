@@ -49,6 +49,11 @@ fn control_chords_signals_and_alt() {
     // A non-Latin layout: text is Cyrillic, the physical key is C.
     assert_eq!(enc(&mut t, &key(P::KeyC, CTRL, "с", Some('с'))), "\x03");
     assert_eq!(enc(&mut t, &key(P::Space, CTRL, " ", Some(' '))), "\x00");
+    // c3270 and telnet escape to their prompt on Ctrl+].
+    assert_eq!(
+        enc(&mut t, &key(P::BracketRight, CTRL, "]", Some(']'))),
+        "\x1d"
+    );
     assert_eq!(enc(&mut t, &letter('x', ALT)), "\x1bx");
     assert_eq!(enc(&mut t, &letter('c', CTRL | ALT)), "\x1b\x03");
     // Ghostty follows fixterms: Ctrl+Shift+letter is distinguishable.
