@@ -23,6 +23,7 @@ unsafe extern "C" {
         cap: usize,
         len: *mut usize,
     ) -> i32;
+    fn sf_kitty_key_flags(vt: *mut c_void, out: *mut u8) -> i32;
     fn sf_focus(vt: *mut c_void, focused: u8, out: *mut u8, cap: usize, len: *mut usize) -> i32;
 }
 
@@ -67,6 +68,16 @@ impl Engine {
                 )
             }
         })
+    }
+    /// The kitty keyboard flags the application pushed; zero is legacy encoding.
+    pub fn kitty_key_flags(&mut self) -> Result<u8> {
+        self.status()?;
+        let mut out = 0;
+        // SAFETY: initialized output and a unique live terminal owner.
+        unsafe {
+            check(sf_kitty_key_flags(self.ptr.as_ptr(), &mut out))?;
+        }
+        Ok(out)
     }
     /// User paste framed per mode 2004. Multi-line text is never refused.
     pub fn encode_paste(&mut self, text: &str) -> Result<Vec<u8>> {

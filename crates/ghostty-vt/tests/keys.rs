@@ -138,13 +138,8 @@ fn function_keys_with_modifiers() {
     let f = |n: u32| P::try_from(120 + n).unwrap();
     for (n, last) in [(1, 'P'), (2, 'Q'), (3, 'R'), (4, 'S')] {
         assert_eq!(enc(&mut t, &named(f(n), NONE)), format!("\x1bO{last}"));
-        // Modified F3 as CSI 1;mR would read as a cursor position report.
-        let modified = |m: u8| match n {
-            3 => format!("\x1b[13;{m}~"),
-            _ => format!("\x1b[1;{m}{last}"),
-        };
-        assert_eq!(enc(&mut t, &named(f(n), SHIFT)), modified(2));
-        assert_eq!(enc(&mut t, &named(f(n), CTRL)), modified(5));
+        assert_eq!(enc(&mut t, &named(f(n), SHIFT)), format!("\x1b[1;2{last}"));
+        assert_eq!(enc(&mut t, &named(f(n), CTRL)), format!("\x1b[1;5{last}"));
     }
     for (n, code) in [
         (5, 15),
@@ -161,6 +156,39 @@ fn function_keys_with_modifiers() {
         assert_eq!(enc(&mut t, &named(f(n), ALT)), format!("\x1b[{code};3~"));
         assert_eq!(enc(&mut t, &named(f(n), CTRL)), format!("\x1b[{code};5~"));
     }
+}
+
+/// Legacy modified F3 is xterm's CSI 1;mR, as xterm-256color declares, so
+/// curses apps (c3270 PF15) see it. Ghostty alone would send CSI 13;m~.
+#[test]
+fn modified_f3_matches_xterm_in_legacy_mode() {
+    let mut t = Terminal::new(80, 24).unwrap();
+    let f3 = |mods| named(P::F3, mods);
+    assert_eq!(enc(&mut t, &f3(NONE)), "\x1bOR");
+    for (mods, m) in [
+        (SHIFT, 2),
+        (ALT, 3),
+        (ALT | SHIFT, 4),
+        (CTRL, 5),
+        (CTRL | SHIFT, 6),
+        (CTRL | ALT, 7),
+        (CTRL | ALT | SHIFT, 8),
+    ] {
+        assert_eq!(enc(&mut t, &f3(mods)), format!("\x1b[1;{m}R"), "{mods:?}");
+        assert_eq!(enc(&mut t, &f3(mods).release()), "");
+    }
+    // Cursor-key and keypad modes don't change function keys.
+    t.feed(b"\x1b[?1h\x1b=").unwrap();
+    assert_eq!(enc(&mut t, &f3(SHIFT)), "\x1b[1;2R");
+    // Kitty mode keeps the protocol's CSI 13~ form, releases included.
+    t.feed(b"\x1b[>1u").unwrap();
+    assert_eq!(enc(&mut t, &f3(NONE)), "\x1b[13~");
+    assert_eq!(enc(&mut t, &f3(SHIFT)), "\x1b[13;2~");
+    assert_eq!(enc(&mut t, &f3(CTRL | ALT)), "\x1b[13;7~");
+    t.feed(b"\x1b[>3u").unwrap();
+    assert_eq!(enc(&mut t, &f3(SHIFT).release()), "\x1b[13;2:3~");
+    t.feed(b"\x1b[<u\x1b[<u").unwrap();
+    assert_eq!(enc(&mut t, &f3(SHIFT)), "\x1b[1;2R");
 }
 
 #[test]

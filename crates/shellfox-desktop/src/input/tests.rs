@@ -142,7 +142,7 @@ fn editing_navigation_and_function_keys_with_modifiers() {
             ("alt-f9", b"\x1b[20;3~"),
             ("f12", b"\x1b[24~"),
             ("ctrl-shift-f12", b"\x1b[24;6~"),
-            ("shift-f3", b"\x1b[13;2~"),
+            ("shift-f3", b"\x1b[1;2R"),
         ];
         for (spec, expected) in cases {
             assert_eq!(sent(os, spec), expected, "{spec}");

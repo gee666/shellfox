@@ -95,7 +95,27 @@ impl std::fmt::Debug for KeyEvent {
 
 impl Terminal {
     pub fn encode_key_event(&mut self, event: &KeyEvent) -> Result<Vec<u8>> {
-        self.engine.encode_key(&event.borrowed()).map_err(Error)
+        let bytes = self.engine.encode_key(&event.borrowed()).map_err(Error)?;
+        if event.physical == PhysicalKey::F3 && self.engine.kitty_key_flags().map_err(Error)? == 0 {
+            return Ok(xterm_modified_f3(bytes));
+        }
+        Ok(bytes)
+    }
+}
+
+/// Legacy modified F3 as xterm sends it, `CSI 1;<m>R`, which is what the
+/// xterm-256color terminfo declares (kf15, kf27, ...). Ghostty sends
+/// `CSI 13;<m>~` to keep it apart from a cursor position report, but
+/// curses applications like c3270 then never see Shift+F3 (PF15).
+fn xterm_modified_f3(bytes: Vec<u8>) -> Vec<u8> {
+    match bytes
+        .strip_prefix(b"\x1b[13;")
+        .and_then(|rest| rest.strip_suffix(b"~"))
+    {
+        Some(m) if !m.is_empty() && m.iter().all(u8::is_ascii_digit) => {
+            [b"\x1b[1;".as_slice(), m, b"R"].concat()
+        }
+        _ => bytes,
     }
 }
 

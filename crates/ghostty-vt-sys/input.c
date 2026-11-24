@@ -38,6 +38,15 @@ done:
     return result;
 }
 
+int sf_kitty_key_flags(SfVt *vt, uint8_t *out) {
+    if (!vt || !out) return GHOSTTY_INVALID_VALUE;
+    if (vt->callback_error) return vt->callback_error;
+    GhosttyKittyKeyFlags flags = GHOSTTY_KITTY_KEY_DISABLED;
+    int r = ghostty_terminal_get(vt->terminal, GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS, &flags);
+    if (!r) *out = flags;
+    return r;
+}
+
 static int mode_enabled(SfVt *vt, GhosttyMode id, uint8_t *out) {
     GhosttyTerminalModeConfig mode = {0};
     mode.mode = id;

@@ -72,6 +72,7 @@ int sf_key(SfVt *vt, uint32_t key, uint32_t action, uint32_t mods,
            uint32_t consumed_mods, uint32_t unshifted, uint8_t composing,
            const uint8_t *text, size_t text_len,
            uint8_t *out, size_t cap, size_t *len);
+int sf_kitty_key_flags(SfVt *vt, uint8_t *out);
 int sf_paste(SfVt *vt, uint8_t *text, size_t text_len,
              uint8_t *out, size_t cap, size_t *len);
 int sf_scroll(SfVt *vt, intptr_t delta);
