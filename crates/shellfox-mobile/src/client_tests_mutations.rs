@@ -200,23 +200,93 @@ fn lost_control_asks_js_to_reattach_and_input_resumes_after_it() {
     let event = h.event();
     assert_eq!(event["reattach"][0]["tabId"], TAB);
     assert_eq!(write(&h, &view, b"before-reattach"), (STALE, 0));
+    // The reattach failed: the next keystroke asks again.
+    assert_eq!(
+        h.operation(json!({"method":"attachTerminal","payload":{"tabId":TAB}}))
+            .0,
+        0
+    );
+    let failed = h.request();
+    assert_eq!(h.complete(&failed, br#"{"ok":false,"error":{"code":"NATIVE_UNAVAILABLE","message":"busy","retryable":true}}"#), 0);
+    assert_eq!(h.event()["result"]["ok"], false);
+    assert_eq!(write(&h, &view, b"after-failed-attach"), (STALE, 0));
+    assert_eq!(h.event()["reattach"][0]["tabId"], TAB);
     reattach(&mut h, &view);
     assert_eq!(write(&h, &view, b"after").0, 0);
     assert_eq!(h.request().body["payload"]["data"], "after");
 }
+fn refuse_resize(h: &mut Harness, request: &NativeRequest, code: &str) {
+    let reply = json!({"ok":false,"error":{"code":code,"message":"refused","retryable":false}});
+    assert_eq!(h.complete(request, reply.to_string().as_bytes()), 0);
+}
 #[test]
-fn a_refused_resize_reattaches_so_the_fit_sends_the_size_again() {
+fn a_refused_resize_keeps_typing_and_is_asked_again_a_few_times() {
     let mut h = Harness::new();
     h.connect();
     let view = NativeView::attach(&mut h);
     assert_eq!(resize(&h, &view).0, 0);
     let first = h.request();
-    assert_eq!(first.body["method"], "resizeTerminal");
-    assert_eq!(h.complete(&first, br#"{"ok":false,"error":{"code":"NATIVE_UNAVAILABLE","message":"The terminal channel is still being prepared.","retryable":true}}"#), 0);
+    refuse_resize(&mut h, &first, "NATIVE_UNAVAILABLE");
+    assert!(h.event().get("reattach").is_none());
+    assert_eq!(write(&h, &view, b"typed").0, 0);
+    let typed = h.request();
+    assert_eq!(typed.body["payload"]["data"], "typed");
+    written(&h, &typed);
+    // Asked again after a second, then at most three times in all.
+    for _ in 0..3 {
+        let retry = h.request();
+        assert_eq!(retry.body["method"], "resizeTerminal");
+        assert_eq!(retry.body["payload"]["rows"], 30);
+        refuse_resize(&mut h, &retry, "NATIVE_UNAVAILABLE");
+    }
+    thread::sleep(Duration::from_millis(1500));
+    h.dispatch();
+    assert!(h.mock.requests.is_empty());
+}
+#[test]
+fn a_newer_size_cancels_the_retry_of_a_refused_one() {
+    let mut h = Harness::new();
+    h.connect();
+    let view = NativeView::attach(&mut h);
+    assert_eq!(resize(&h, &view).0, 0);
+    let first = h.request();
+    refuse_resize(&mut h, &first, "NATIVE_UNAVAILABLE");
+    let mut operation = 0;
+    assert_eq!(
+        unsafe { sfm_client_terminal_resize(h.handle, view.0, 100, 40, &mut operation) },
+        0
+    );
+    let newer = h.request();
+    assert_eq!(newer.body["payload"]["rows"], 40);
+    assert_eq!(
+        h.complete(&newer, br#"{"ok":true,"value":{"resized":true}}"#),
+        0
+    );
+    thread::sleep(Duration::from_millis(1500));
+    h.dispatch();
+    assert!(
+        h.mock.requests.is_empty(),
+        "the old size came back: {:?}",
+        h.mock.requests
+    );
+}
+#[test]
+fn a_host_that_always_loses_resizes_reattaches_only_once() {
+    let mut h = Harness::new();
+    h.connect();
+    let view = NativeView::attach(&mut h);
+    assert_eq!(resize(&h, &view).0, 0);
+    let first = h.request();
+    refuse_resize(&mut h, &first, "TARGET_LOST");
     assert_eq!(h.event()["reattach"][0]["tabId"], TAB);
     reattach(&mut h, &view);
     assert_eq!(resize(&h, &view).0, 0);
-    assert_eq!(h.request().body["payload"]["rows"], 30);
+    let again = h.request();
+    refuse_resize(&mut h, &again, "TARGET_LOST");
+    let event = h.event();
+    assert!(event.get("reattach").is_none(), "no reattach loop: {event}");
+    assert_eq!(write(&h, &view, b"still typing").0, 0);
+    assert_eq!(h.request().body["payload"]["data"], "still typing");
 }
 #[test]
 fn uncertain_mutation_is_never_retried_and_cancels_successors() {

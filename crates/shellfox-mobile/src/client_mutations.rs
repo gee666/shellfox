@@ -9,6 +9,8 @@ struct Intent {
     operation: Operation,
     command: RemoteCommand,
     bytes: usize,
+    /// The lane's resize count when this was admitted.
+    resizes: u64,
     reply: oneshot::Sender<Result<serde_json::Value>>,
 }
 pub(super) struct MutationLane {
@@ -19,7 +21,15 @@ pub(super) struct MutationLane {
     queue: VecDeque<Intent>,
     bytes: usize,
     /// Input or a resize failed in a way only a fresh attachment repairs.
-    pub reattach: bool,
+    reattach: bool,
+    /// JS was asked to reattach and no attach has finished since.
+    asked: bool,
+    /// Counts resizes; a delayed retry of a refused one yields to any newer.
+    resizes: u64,
+    resize_retries: u8,
+    /// A lost resize reattached once. Until a resize succeeds, another loss
+    /// only drops it: a host that always refuses must not loop reattaches.
+    resize_reattached: bool,
 }
 impl Default for MutationLane {
     fn default() -> Self {
@@ -31,12 +41,26 @@ impl Default for MutationLane {
             queue: VecDeque::new(),
             bytes: 0,
             reattach: false,
+            asked: false,
+            resizes: 0,
+            resize_retries: 0,
+            resize_reattached: false,
         }
     }
 }
 impl MutationLane {
     pub fn available(&self) -> bool {
         !self.failed
+    }
+    /// Whether JS should reattach this terminal; asks once.
+    pub fn take_reattach(&mut self) -> bool {
+        let wanted = std::mem::take(&mut self.reattach);
+        self.asked |= wanted;
+        wanted
+    }
+    /// An attach finished. If it failed, the next refused input asks again.
+    pub fn attach_finished(&mut self) {
+        self.asked = false;
     }
     pub fn fence(&mut self) {
         self.serial = self.serial.saturating_add(1);
@@ -59,6 +83,7 @@ impl MutationLane {
         }
         self.failed = false;
         self.reattach = false;
+        self.asked = false;
         Ok(())
     }
 }
@@ -105,6 +130,35 @@ pub(super) fn enqueue(
     command: RemoteCommand,
     origin: CompletionOrigin,
 ) -> Result<u64> {
+    admit(mobile, command, origin, None)
+}
+/// A lane fenced by a lost write whose reattach request never led anywhere
+/// (the attach failed, or another one was in flight): ask again.
+fn needs_reattach(b: &Binding, command: &RemoteCommand, connection: u64) -> bool {
+    let Some(cursor) = b.cursor.as_ref() else {
+        return false;
+    };
+    let owned = match command {
+        RemoteCommand::WriteTerminal(v) => cursor
+            .write(v.data.clone(), v.user_initiated, connection)
+            .is_ok(),
+        RemoteCommand::ResizeTerminal(v) => cursor.resize(v.cols, v.rows, connection).is_ok(),
+        _ => false,
+    };
+    owned
+        && b.lane.failed
+        && !b.lane.reattach
+        && !b.lane.asked
+        && b.attaching.is_none()
+        && !b.reset_required
+}
+/// `retry_of`: a delayed resize retry, which runs only if no resize came since.
+fn admit(
+    mobile: Arc<Mobile>,
+    command: RemoteCommand,
+    origin: CompletionOrigin,
+    retry_of: Option<u64>,
+) -> Result<u64> {
     let executor = runtime()?;
     if matches!(command, RemoteCommand::WriteTerminal(_))
         && origin != CompletionOrigin::NativeInternal
@@ -123,8 +177,29 @@ pub(super) fn enqueue(
     }
     let (operation, receive, start, serial) = {
         let mut s = mobile.state.lock().map_err(|_| PANIC)?;
-        let b = s.bindings.get(&tab).ok_or(STALE)?;
-        validate(b, &command, connection.connection_id)?;
+        let b = s.bindings.get_mut(&tab).ok_or(STALE)?;
+        if let Err(error) = validate(b, &command, connection.connection_id) {
+            let ask = error == STALE && needs_reattach(b, &command, connection.connection_id);
+            if ask {
+                b.lane.reattach = true;
+                drop(s);
+                // The completion carries the reattach request to JS.
+                let _ = launch_small(mobile, CompletionOrigin::NativeInternal, |_| async {
+                    Err(STALE)
+                });
+            }
+            return Err(error);
+        }
+        if let RemoteCommand::ResizeTerminal(_) = &command {
+            if retry_of.is_some_and(|seen| seen != b.lane.resizes) {
+                return Err(STALE);
+            }
+            if retry_of.is_none() {
+                b.lane.resize_retries = 0;
+            }
+            b.lane.resizes = b.lane.resizes.wrapping_add(1);
+        }
+        let b = &*b;
         // Freeze native settlement confirmation at acceptance, not when a
         // Tokio worker eventually dequeues the input after later host events.
         let command = if origin == CompletionOrigin::NativeInternal {
@@ -161,10 +236,12 @@ pub(super) fn enqueue(
         let b = s.bindings.get_mut(&tab).ok_or(STALE)?;
         let (reply, receive) = oneshot::channel();
         b.lane.bytes += bytes;
+        let resizes = b.lane.resizes;
         b.lane.queue.push_back(Intent {
             operation: operation.clone(),
             command,
             bytes,
+            resizes,
             reply,
         });
         let start = !b.lane.running;
@@ -206,7 +283,10 @@ async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
         };
         let owner = mobile.clone();
         let operation = intent.operation.clone();
-        let resize = matches!(intent.command, RemoteCommand::ResizeTerminal(_));
+        let resize = match &intent.command {
+            RemoteCommand::ResizeTerminal(v) => Some(v.clone()),
+            _ => None,
+        };
         let result = if operation.cancel.is_cancelled() {
             Err(CANCELLED)
         } else {
@@ -221,16 +301,12 @@ async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
                 Err(error) => Err(error),
             }
         };
-        let outcome = if operation.cancel.is_cancelled() {
+        let mut outcome = if operation.cancel.is_cancelled() {
             Outcome::Lost
         } else {
-            match outcome(&result) {
-                // A refused size is never retried in place: the fresh
-                // attachment's fit sends the current one again.
-                Outcome::Rejected if resize => Outcome::Lost,
-                outcome => outcome,
-            }
+            outcome(&result)
         };
+        let mut retry = None;
         let current = {
             let Ok(mut s) = mobile.state.lock() else {
                 return;
@@ -239,6 +315,24 @@ async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
                 if b.lane.serial == serial {
                     b.lane.active = None;
                     b.lane.bytes -= intent.bytes;
+                    if let Some(size) = &resize {
+                        match outcome {
+                            Outcome::Done => {
+                                b.lane.resize_reattached = false;
+                                b.lane.resize_retries = 0;
+                            }
+                            Outcome::Lost if !b.lane.resize_reattached => {
+                                b.lane.resize_reattached = true;
+                            }
+                            _ => outcome = Outcome::Rejected,
+                        }
+                        // A size the host refused never applied. Ask again
+                        // shortly, as a terminal still starting refuses it.
+                        if outcome == Outcome::Rejected && b.lane.resize_retries < RESIZE_RETRIES {
+                            b.lane.resize_retries += 1;
+                            retry = Some((size.clone(), intent.resizes));
+                        }
+                    }
                     if outcome == Outcome::Lost {
                         // The host no longer takes input from this attachment, or
                         // the write may or may not have run. Later input must wait
@@ -255,12 +349,22 @@ async fn drain(mobile: Arc<Mobile>, tab: TabId, serial: u64) {
             }
         };
         let _ = intent.reply.send(if current { result } else { Err(STALE) });
+        if let (true, Some((size, seen)), Ok(executor)) = (current, retry, runtime()) {
+            let owner = mobile.clone();
+            executor.spawn(async move {
+                tokio::time::sleep(RESIZE_RETRY_DELAY).await;
+                let command = RemoteCommand::ResizeTerminal(size);
+                let _ = admit(owner, command, CompletionOrigin::NativeInternal, Some(seen));
+            });
+        }
         if !current || outcome == Outcome::Lost {
             return;
         }
     }
 }
 
+const RESIZE_RETRIES: u8 = 3;
+const RESIZE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Outcome {
     Done,

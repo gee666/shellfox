@@ -23,6 +23,7 @@ pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json:
                 .is_some_and(|(id, _)| *id == op.id)
             {
                 binding.attaching = None;
+                binding.lane.attach_finished();
                 if binding.held.is_none() {
                     binding.pending_settlement.clear();
                     binding.clear_early();
@@ -92,7 +93,7 @@ pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json:
             .bindings
             .values_mut()
             .filter_map(|b| {
-                let wanted = std::mem::take(&mut b.lane.reattach) && b.attaching.is_none();
+                let wanted = b.lane.take_reattach() && b.attaching.is_none();
                 wanted.then(|| b.cursor.as_ref()?.recovery_request(connection).ok())?
             })
             .collect();
