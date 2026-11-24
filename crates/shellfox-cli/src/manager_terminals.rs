@@ -131,24 +131,23 @@ fn uncertain() -> anyhow::Error {
 
 /// One write, never retried. Joining is free; taking control needs --take.
 async fn write_local(local: &Local<'_>, tab: TabId, data: String, take: bool) -> Result<Value> {
-    generation(&Host::Local(Local(local.0)), tab).await?;
+    let missing = || CliError::coded("NOT_FOUND", "Open embedded terminal not found.", false);
+    let generation = local.live(tab).await?.ok_or_else(missing)?;
     let attach = |takeover| local.0.execute(LocalApiRequest::Attach { tab, takeover });
     let attachment = match attach(false).await {
         Ok(LocalApiResponse::Attachment(attachment)) => attachment,
-        // Another client holds it. Take over only while the same shell still runs.
-        Err(_) if take && local.live(tab).await?.is_some() => match attach(true).await? {
+        // Another client holds it.
+        Err(_) if take => match attach(true).await? {
             LocalApiResponse::Attachment(attachment) => attachment,
             _ => return Err(control_required()),
         },
-        Err(_) if local.live(tab).await?.is_none() => {
-            return Err(CliError::coded(
-                "NOT_FOUND",
-                "Open embedded terminal not found.",
-                false,
-            ))
-        }
         _ => return Err(control_required()),
     };
+    // Write only to the shell that was found open, never to a newer one.
+    if attachment.generation != generation {
+        let _ = local.0.execute(LocalApiRequest::Detach {}).await;
+        return Err(missing());
+    }
     let input = LocalApiRequest::Input {
         tab,
         attachment,

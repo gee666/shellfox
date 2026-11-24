@@ -107,6 +107,7 @@ impl Fixture {
         Ok((output.status.code().unwrap_or(-1), reply))
     }
     /// Plain-mode stdout of a successful command.
+    #[allow(dead_code, reason = "not every test reads plain output")]
     pub fn plain(&self, words: &[&str]) -> Result<String> {
         let output = self.output(words)?;
         ensure!(

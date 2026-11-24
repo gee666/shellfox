@@ -11,8 +11,12 @@ use shellfox_service::{
     local_api::{LocalApiRequest, LocalApiResponse, SettingsRequest},
     NativeTabActivity,
 };
+use std::sync::Mutex;
 
-pub struct Local<'a>(pub &'a LocalClient);
+/// One command's view of the local host. The host holds a client's repeated
+/// activity read until the activity changes (the desktop's feed), so a command
+/// reads it once and reuses that answer.
+pub struct Local<'a>(pub &'a LocalClient, Mutex<Option<Vec<NativeTabActivity>>>);
 
 fn not_found(message: &str) -> anyhow::Error {
     CliError::coded("NOT_FOUND", message, false)
@@ -21,7 +25,10 @@ fn unexpected() -> anyhow::Error {
     anyhow::anyhow!("Unexpected host response.")
 }
 
-impl Local<'_> {
+impl<'a> Local<'a> {
+    pub fn new(client: &'a LocalClient) -> Self {
+        Self(client, Mutex::default())
+    }
     pub async fn snapshot(&self) -> Result<Snapshot> {
         self.local_api(LocalApiRequest::Snapshot {}).await
     }
@@ -44,10 +51,17 @@ impl Local<'_> {
         self.view(DesktopRequest::Metadata(request)).await
     }
     pub async fn activity(&self) -> Result<Vec<NativeTabActivity>> {
-        match self.desktop(DesktopRequest::ReadTabActivity).await? {
-            DesktopReply::TabActivity(activity) => Ok(activity),
-            _ => Err(unexpected()),
+        let cached = || self.1.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(activity) = cached().as_ref() {
+            return Ok(activity.clone());
         }
+        let DesktopReply::TabActivity(activity) =
+            self.desktop(DesktopRequest::ReadTabActivity).await?
+        else {
+            return Err(unexpected());
+        };
+        *cached() = Some(activity.clone());
+        Ok(activity)
     }
     async fn settings(&self, request: SettingsRequest) -> Result<Value> {
         match self
