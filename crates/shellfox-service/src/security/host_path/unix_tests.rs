@@ -45,7 +45,12 @@ fn an_ancestor_acl_is_refused_only_when_it_lets_another_user_write() {
     let parent = data.path().join("shared");
     std::fs::create_dir(&parent).unwrap();
     std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).unwrap();
-    // Linux CI installs the acl package; root is a user other than the test's.
+    // Linux CI installs the acl package. Any account other than the test's.
+    let other = if rustix::process::getuid().is_root() {
+        65534
+    } else {
+        0
+    };
     let setfacl = |spec: &str| {
         let status = std::process::Command::new("setfacl")
             .args(["-m", spec])
@@ -54,10 +59,10 @@ fn an_ancestor_acl_is_refused_only_when_it_lets_another_user_write() {
             .expect("setfacl from the acl package");
         assert!(status.success());
     };
-    setfacl("u:root:rx");
+    setfacl(&format!("u:{other}:rx"));
     let plan = HostRoot::inspect(&parent.join("new-host")).unwrap();
     plan.validate_creation_ancestors().unwrap();
-    setfacl("u:root:rwx");
+    setfacl(&format!("u:{other}:rwx"));
     assert!(plan.validate_creation_ancestors().is_err());
     assert!(!parent.join("new-host").exists());
 }

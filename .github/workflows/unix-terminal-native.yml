@@ -6,6 +6,9 @@ on:
     branches: [experiment/ghostty-rust]
     paths:
       - 'crates/shellfox-terminal/**'
+      - 'crates/shellfox-service/src/remote/v1_privilege.rs'
+      - 'crates/shellfox-service/src/automation/replay.rs'
+      - 'scripts/rust-root-smoke.mjs'
       - 'src/main/terminal/native/darwin-terminal-supervisor.c'
       - 'Cargo.lock'
       - 'Cargo.toml'
@@ -16,6 +19,9 @@ on:
   pull_request:
     paths:
       - 'crates/shellfox-terminal/**'
+      - 'crates/shellfox-service/src/remote/v1_privilege.rs'
+      - 'crates/shellfox-service/src/automation/replay.rs'
+      - 'scripts/rust-root-smoke.mjs'
       - 'src/main/terminal/native/darwin-terminal-supervisor.c'
       - 'Cargo.lock'
       - 'Cargo.toml'
@@ -57,6 +63,11 @@ jobs:
         run: |
           node crates/shellfox-terminal/tests/native/build-darwin.mjs
           node -e 'const p=require("node:path"); require("node:fs").appendFileSync(process.env.GITHUB_ENV, "SHELLFOX_DARWIN_SUPERVISOR="+p.resolve("tmp/terminal-native/darwin-"+process.arch+"/shellfox-terminal-supervisor")+"\n")'
+      - name: Linux session containment, pretending there is no user delegation
+        if: runner.os == 'Linux'
+        env:
+          SHELLFOX_TEST_LINUX_CONTAINMENT: session
+        run: cargo test --locked -p shellfox-terminal --features test-support --test unix_production --test raw_process_unix --test unix_session_fallback --no-fail-fast
       - name: Contract tests and native fixture build
         run: cargo test --locked -p shellfox-terminal --features test-support --lib --test unix_native --no-fail-fast
       - name: Retained C control-flow model
@@ -76,3 +87,62 @@ jobs:
           name: darwin-supervisor-${{ matrix.os }}
           path: tmp/terminal-native/darwin-*/supervisor-manifest.json
           if-no-files-found: error
+
+  # Root in a container without systemd: what servers, Docker and WSL distros
+  # without systemd run. Terminals use session containment there.
+  linux-root-container:
+    name: Linux as root without systemd (Ubuntu 20.04)
+    runs-on: ubuntu-24.04
+    container: ubuntu:20.04
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      GOTOOLCHAIN: local
+      SHELLFOX_UBUNTU_MIRROR: ${{ vars.SHELLFOX_UBUNTU_MIRROR }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Container prerequisites
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo git ca-certificates curl xz-utils zstd
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Root, no systemd, pinned Rust
+        run: |
+          test "$(id -u)" = 0
+          test ! -d /run/systemd/system
+          rustup toolchain install 1.97.1 --profile minimal
+      - name: Build dependencies
+        run: |
+          bash .github/scripts/setup-ubuntu-apt.sh
+          apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev acl
+      - name: Terminal tests as root
+        run: cargo test --locked -p shellfox-terminal --features test-support --no-fail-fast
+      - name: Prepare pinned Ghostty
+        run: node scripts/rust-package-prereqs.mjs
+        timeout-minutes: 35
+      - name: Build desktop, CLI and fixtures
+        run: |
+          echo "GHOSTTY_VT_DIR=$PWD/tmp/rust-package-ghostty/x86_64-unknown-linux-gnu" >> "$GITHUB_ENV"
+          export GHOSTTY_VT_DIR="$PWD/tmp/rust-package-ghostty/x86_64-unknown-linux-gnu"
+          cargo build --locked -p shellfox-desktop -p shellfox-cli
+          cargo build --locked -p shellfox-terminal --features test-support --bin shellfox-raw-test-helper
+      - name: Service tests as root
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test --locked -p shellfox-service --lib --no-fail-fast
+          SHELLFOX_RAW_TEST_HELPER="$PWD/target/debug/shellfox-raw-test-helper" cargo test --locked -p shellfox-service --lib automation -- --ignored
+      - name: Desktop smoke and CLI round trip as root
+        if: ${{ !cancelled() }}
+        run: node scripts/rust-root-smoke.mjs target/debug
