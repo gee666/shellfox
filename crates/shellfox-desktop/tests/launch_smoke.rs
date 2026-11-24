@@ -26,6 +26,14 @@ fn desktop_window_attaches_to_its_own_host_and_quits_with_it() {
     );
     let log = std::fs::read_to_string(desktop.logs().join("ui.log")).unwrap();
     assert!(log.contains("--- Shellfox ui "), "{log}");
+    // A clean exit removes its run directory.
+    let runs: Vec<_> = std::fs::read_dir(desktop.data.with_file_name("host.desktop"))
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name())
+        .filter(|name| name.to_string_lossy().starts_with("run-"))
+        .collect();
+    assert!(runs.is_empty(), "{runs:?}");
 }
 
 #[test]

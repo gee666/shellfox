@@ -119,6 +119,7 @@ fn main() -> Result<()> {
             frontend.prepare()?;
             smoke::run(&options.run_dir)
         }));
+        frontend.finish();
         return finish_frontend(result);
     }
     let show_startup_error = options.mode == Mode::Shell && !options.ui_acceptance;
@@ -199,6 +200,7 @@ fn main() -> Result<()> {
         Ok(Err(_)) => app_exit::Outcome::StartupFailed,
         Err(_) => app_exit::Outcome::Panicked,
     });
+    frontend.finish();
     // A panic already wrote its report in the hook.
     match &graphics {
         Ok(Err(error)) => {

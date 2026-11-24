@@ -1,6 +1,7 @@
 //! The frontend's private state directories: UI scratch, per-window run and device config.
 //! `Options::parse` keeps them apart from the host root; `FileService::private_root`
 //! creates them and refuses links, junctions and name aliases.
+mod run_dirs;
 #[cfg(test)]
 mod tests;
 use crate::options::Options;
@@ -14,6 +15,7 @@ pub(crate) struct FrontendDirectories {
     device: PathBuf,
     device_root: Option<Arc<FileService>>,
     editor: Option<Arc<EditorBackend>>,
+    run_lock: Option<run_dirs::RunLock>,
 }
 
 impl FrontendDirectories {
@@ -26,13 +28,23 @@ impl FrontendDirectories {
             device: options.device_config_root.clone(),
             device_root: None,
             editor: None,
+            run_lock: None,
         })
     }
 
     pub fn prepare(&mut self) -> Result<()> {
         private(&self.ui).context("Create private frontend UI root")?;
+        run_dirs::sweep(&self.ui);
         private(&self.run).context("Create private frontend run root")?;
+        self.run_lock = Some(run_dirs::claim(&self.run).context("Lock the frontend run root")?);
         Ok(())
+    }
+
+    /// Removes this process's run directory at exit.
+    pub fn finish(&mut self) {
+        if let Some(lock) = self.run_lock.take() {
+            lock.remove();
+        }
     }
 
     pub fn device_root(&mut self) -> Result<Arc<FileService>> {
