@@ -1,87 +1,33 @@
-# macOS native helper builds
+# Shellfox on macOS
 
-macOS uses a read-only process snapshot helper and a per-tab lifecycle supervisor. The native supervisor, TypeScript private-control client, backend lifecycle wiring and discovered-profile preflight are implemented. Profiles become available after the shipped supervisor passes compatible native self-preflight. A missing development binary is a build dependency failure, not a deliberately unsupported profile. Source/build configuration is not native acceptance. This Windows x64 host has no macOS SDK, so compilation, signing and actual Darwin launches cannot be verified here.
+## Install
 
-## Build and package paths
+Releases have `Shellfox.app` for x64 and ARM64 in a DMG and in a ZIP (`Shellfox-darwin-<arch>-<version>.zip`, which the updater reads). The app needs macOS 13 or later. Drag it to `/Applications` or `~/Applications`.
 
-Build on native macOS x64 or arm64 with matching Node 24.22.1, pnpm matching package.json, Xcode Command Line Tools and the macOS SDK.
+Release builds are signed ad hoc, not with a Developer ID, and not notarized, so Gatekeeper treats them as coming from an unidentified developer.
 
-- `src/main/terminal/native/darwin-process-snapshot.c` produces `shellfox-process-snapshot`.
-- `src/main/terminal/native/darwin-terminal-supervisor.c` produces `shellfox-terminal-supervisor`.
-- Development artifacts are `tmp/terminal-native/darwin-<arch>/<basename>`.
-- Packaged artifacts are `Shellfox.app/Contents/Resources/terminal-native/<basename>`, outside ASAR.
+When the app starts from one of those two folders, it writes a `shellfox` CLI launcher to `~/.local/bin/shellfox`. It replaces a launcher written by 0.9 but leaves any other file at that path alone. A copy started from the mounted DMG or from App Translocation installs nothing. Add `~/.local/bin` to `PATH` if your shell doesn't have it.
 
-`pnpm build` compiles at build time using `xcrun --sdk macosx clang`, C11, strict warnings, `-lproc` and explicit `-arch x86_64` or `-arch arm64`. The helper deployment target is macOS 13. Every build replaces previous helper outputs. Missing source/toolchain or failed preflight fails the build. There is no runtime compiler invocation or development-path fallback in a packaged app. End users do not need clang, Python or a .NET runtime for Darwin helpers.
+The in-app updater needs the app in a folder you can write to. See [updates](self-update.md).
 
-```sh
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test:unit
-pnpm test:packaging
-pnpm build
-pnpm test:terminal-native
-pnpm test:storage
-pnpm test:pty
-pnpm package
-pnpm test:packaged
-pnpm test:packaged:startup
-pnpm make
-```
+## Terminals
 
-Source compilation for node-pty/SQLite, if needed, also needs Python 3. Helper compilation still runs even if Node-API addon prebuilds are used. Build helpers separately with `pnpm build:terminal-native`.
+Each tab is a PTY whose shell leads its own session. Closing the tab sends HUP, TERM and then KILL to that session's processes. A program that starts a new session can escape, because macOS has no cgroup equivalent. See [Unix PTY support](../crates/shellfox-terminal/UNIX.md#macos).
 
-## Preflight and ownership
+## Building
 
-The snapshot helper uses SDK libproc and numeric sysctl MIBs, not dotted sysctl CLI PID OIDs or parsed ps text. Its capability response requires exact self birth/credentials, argv/environment marker and enumeration evidence. Metadata failures stay unknown. It is read-only and cannot itself authorize safe shutdown.
-
-The separate supervisor remains the PTY session leader, with the interactive shell in a foreground job-control group. Its private same-user control token stays in environment only and is stripped before the user's shell starts. The backend requires compatible supervisor readiness before a macOS profile can launch. It tracks the authenticated real shell child, not the supervisor transport. Close uses the private socket and waits for actual wrapper exit; a timeout closes only the client connection, never kills the wrapper. Missing/failed helpers produce unavailable reasons, not fake healthy terminals or numeric-PID termination fallback.
-
-Packaging tests check native architecture, executable mode, code signatures and real helper capability preflight at the packaged resource path. They invoke both typed backend packaged-path/capability checkers and verify that neither missing packaged helper can use a development binary. A separate stamped-source backend fixture loads the actual packaged node-pty and exercises real launch/output/resize/replay/exit/close, including the packaged supervisor on Darwin. These gates must run on both macOS runner architectures; none has run on this Windows host. CI also enables the backend's actual Darwin supervisor fixture with `SHELLFOX_DARWIN_SUPERVISOR_NATIVE=1`, testing real job-control groups, descendant cleanup, unrelated-session isolation, secret stripping and exit 7. The normal unit run skips this opt-in native case.
-
-## Cleanup snapshot regression
-
-The supplied 0.7.0 arm64 release log, `tmp/release-070-mac-arm64.log`, shows successful helper compilation/preflight, package signature verification and raw native PTY smoke. The backend fixture then fails confirmed close with `Owned session membership or credentials are inaccessible or changed.` This is a supervisor cleanup refusal, not evidence of a missing addon or bad signature. The old message does not identify the failing PID, syscall or check, so it cannot establish the exact native trigger.
-
-Cleanup previously retried unreadable snapshots while leaving previously frozen groups stopped. A fork/exec/exit transition overlapping the freeze may need those groups to run before a new snapshot can succeed. Repeating the read cannot fix that state. The additional 100-pass limit also cut fast failures short of the existing five-second freeze budget. Commit `faf93e7` added read retries but did not restore the groups between them; `d4a5d9c` handled the separate control-reply/normal-exit race.
-
-Cleanup now rolls back every reversible freeze after an unreadable or incomplete frozen snapshot, resets stability and takes fresh evidence within the original deadline. It still requires two authenticated fully frozen snapshots before K. Permission failures, unknown membership, UID changes, saved UID changes and PSUGID processes never authorize termination. A failed rollback or expired deadline retains ownership. No numeric-PID/group fallback was added. Birth reads also bracket the final SID lookup, and both credential reads must pass, including an unchanged PSUGID flag. Refusal replies include bounded stage/PID/errno diagnostics without argv, environment or secrets. The packaged smoke labels which close failed and still requires its first close call to succeed.
-
-`node scripts/darwin-supervisor-model-test.mjs` compiles the actual production snapshot and cleanup functions against deterministic C OS stubs, using a C11 compiler on Linux/macOS. It covers freeze/read/rollback ordering, incomplete fork state, recovery beyond the old pass limit, persistent denial, failed rollback, birth recycling across SID lookup, credential/group changes, foreign sessions and verified absence. All generated files stay under `tmp/darwin-supervisor-model/`. This is a control-flow regression test, not a macOS syscall or signal test.
-
-The opt-in Darwin PTY fixture also closes 40 newly authenticated `/bin/zsh -l -i` sessions immediately, with no close retries or startup delay. Each CLOSE reply must contain a real exit code matching the subsequent PTY exit. The release workflow now runs this fixture on both Darwin architectures in addition to the unchanged packaged backend smoke. Native validation of this patch remains required. Passing the C model establishes the liveness defect and its repair, but does not prove that defect caused this particular CI run.
-
-## Direct-child close confirmation
-
-Combined release run `40378129317`, Darwin ARM job `121766707496`, reached the immediate login-shell close at `supervisor-native.test.ts:182` after packaged/native/backend/CLI smokes passed. Its reply was `state: closed` with `shellAlive: true`. The existing TypeScript protocol correctly rejects that combination.
-
-Both native cleanup paths previously published closed from an empty session snapshot. Snapshots exclude `SZOMB`, which does not establish that `waitid` can already return the shell's exit event. A single observation while building the reply cannot bridge that kernel transition. Cleanup now polls the unreaped direct shell child's `waitid(P_PID, ..., WEXITED | WNOHANG | WNOWAIT)` evidence before either path can publish closed. It uses the remaining freeze or confirmation deadline, not a renewed budget, and preserves the actual exit status. A missing event or wait error refuses close and retains ownership for retry. No direct-PID termination, reaping before verified close, or relaxed identity checks were added.
-
-The supervisor completes `start_shell` before accepting control requests. The child establishes its group and verifies the owned SID before its ready byte; authenticated STATUS additionally requires the exec image and exact birth identity. The immediate-close fixture waits for that STATUS, so it cannot request CLOSE before this handshake. The C model also covers an empty enumeration with a still-live child, which must refuse closure rather than invent exit evidence.
-
-The portable model compiles the production wait-status, observation and confirmation functions along with cleanup. It covers delayed waitability for both empty-session paths, natural exit 7, signal-derived exit status, deadline exhaustion, wait errors and retry after a refused close. Removing the confirmation calls makes the model fail. Windows typecheck/unit tests and the WSL C model do not verify Darwin SDK compatibility or actual kernel timing; both native Mac architectures still need the 40-iteration lifecycle rerun.
-
-## Native fixture prerequisites
-
-Validation dispatch `38519044672` compiled and preflighted the supervisor and passed the C model on both Macs, but failed at the fixture's first PTY spawn with `posix_spawnp failed.` It did not reach session cleanup. The pinned `node-pty@1.1.0` npm archive stores both Darwin prebuilt `spawn-helper` files as `0644`. Rebuild copied that mode into `node_modules/node-pty/build/Release`; upstream post-install retained the helper without changing its mode. Forge separately normalized the staged package to `0755`, explaining why earlier packaged PTY tests could pass while this source-tree fixture failed.
-
-Rebuild now sets the built Darwin helper to `0755` after post-install and before verification. The pinned Electron prerequisite smoke checks the actual loader's selected addon directory and runs a real PTY shell through its adjacent helper, requiring exit 7. The lifecycle fixture verifies the same `build/Release` selection and executable helper before spawning; Debug/prebuild fallback or a missing/non-executable helper is a prerequisite failure, not a skipped lifecycle test. It reports the selected paths and Node/N-API versions. The supervisor protocol and identity checks are unchanged by this prerequisite fix.
-
-Release runs packaged smoke before lifecycle. Lifecycle still runs after a packaged-smoke failure if make succeeded and the job was not cancelled, so both diagnostics are retained and either failure still fails the job. Native arm64/x64 reruns remain required.
-
-## Signing
-
-Build artifacts receive ad-hoc signatures for local development. Forge stages executable helpers before Packager's inside-out signing pass, including resources, unpacked native addons and node-pty's spawn-helper. No signed resources are added or modified afterward.
-
-The default app signature is ad-hoc, suitable for local preview testing, not trusted distribution. Optional certificate signing requires an already-installed identity:
+Build on a Mac of the target architecture with Xcode command-line tools and the macOS SDK, Rust 1.97.1, Node 24.22.1, pnpm and Go 1.27.3. Then:
 
 ```sh
-SHELLFOX_MAC_SIGN_IDENTITY='Developer ID Application: <name> (<team>)' pnpm make
+node scripts/rust-package-prereqs.mjs
+node scripts/package-rust.mjs
+node scripts/package-rust-smoke.mjs
 ```
 
-`SHELLFOX_MAC_SIGN_KEYCHAIN` can name a keychain. The identity is validated; failure is fatal. Certificate mode enables hardened runtime and timestamping. Native C helpers receive no Electron JIT entitlements; Electron code uses Packager's standard signing entitlements.
+`package-rust.mjs` builds the app with deployment target 13.0, signs `shellfox-cli`, the Tailscale helper and the bundle, checks the result with `codesign --verify --deep --strict`, and writes the ZIP and DMG to `tmp/rust-installers/`. The smoke test mounts the DMG, checks that it holds the same app binary, and runs a real PTY.
 
-This does not import certificates, change keychains, notarize/staple, or promise Gatekeeper acceptance. Do not distribute these previews as a notarized release. App Sandbox/Mac App Store and universal binaries are not configured.
+Signing is ad hoc by default. To sign with a certificate already in a keychain, set `SHELLFOX_MAC_SIGN_IDENTITY` (and optionally `SHELLFOX_MAC_SIGN_KEYCHAIN`). That also turns on the hardened runtime and a secure timestamp. Nothing here imports certificates or notarizes.
 
-## Native acceptance still required
+The packages still contain two C helpers from `src/main/terminal/native/` in `resources/terminal-native/`. The Rust host doesn't run them. The headless package keeps them because a 0.9 installation checks for them when it updates (see [headless deployment](headless.md#building-the-package)).
 
-Verify real shell/job-control behavior, descendant cleanup, session/Settings retention, failed-close ownership retention and in-app quit cancellation/confirmation on both macOS architectures. Test missing/corrupt/mismatched helper binaries, inaccessible identities, terminal-group changes, shell exit with pending descendants and actual packaged signatures. A passing source scan, mocked test or Windows package cannot substitute for these results.
+CI builds and tests macOS in `.github/workflows/apple-platforms.yml` and packages releases in `release.yml`. The same workflow builds the iOS app; see [Mobile](mobile.md).
