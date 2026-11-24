@@ -29,12 +29,16 @@ impl Deb {
         fs::write(root.join("usr/bin/shellfox"), LAUNCHER).unwrap();
         for program in ["nemo", "thunar"] {
             fs::write(root.join("programs").join(program), b"").unwrap();
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let path = root.join("programs").join(program);
-                fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-            }
+        }
+        // The package installs these 0755; the CLI check requires it on Unix.
+        #[cfg(unix)]
+        for path in [
+            root.join("usr/bin/shellfox"),
+            root.join("programs/nemo"),
+            root.join("programs/thunar"),
+        ] {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
         }
         Self { _temp: temp, root }
     }
