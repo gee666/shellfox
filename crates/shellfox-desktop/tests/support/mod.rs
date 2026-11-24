@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 #[path = "../../../test_dev_helper.rs"]
 mod dev_helper;
+pub mod x11;
 
 use shellfox_service::{
     desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest},

@@ -1,20 +1,15 @@
-//! About a minute of real work in one X11 window: typing in a terminal, the
-//! Files panel, new tabs from desktop launches, and resizes. Any UI exit fails.
+//! About a minute of real work in one X11 window: commands typed in a
+//! terminal, the Files panel, new tabs from desktop launches, and resizes.
+//! Every typed command must run, and any UI exit fails.
 //! Runs only with SHELLFOX_X11_SOAK=1 under an X server with xdotool, as in
 //! linux-check.yml; see support/mod.rs for the other prerequisites.
 mod support;
 
-use std::{
-    process::Command,
-    time::{Duration, Instant},
+use std::time::{Duration, Instant};
+use support::{
+    Desktop, Host, Ui, wait_exit,
+    x11::{type_line, wait_for_shell, wait_until, window, xdotool},
 };
-use support::{Desktop, Host, Ui, wait_exit};
-
-fn xdotool(args: &[&str]) -> String {
-    let output = Command::new("xdotool").args(args).output().unwrap();
-    assert!(output.status.success(), "xdotool {args:?}: {output:?}");
-    String::from_utf8(output.stdout).unwrap()
-}
 
 fn alive(ui: &mut Ui, step: &str) {
     if let Some(status) = ui.0.try_wait().unwrap() {
@@ -32,16 +27,23 @@ fn an_x11_window_survives_a_minute_of_work() {
     let mut ui = Ui(desktop.command(&[]).spawn().unwrap());
     let host = Host(&desktop);
     desktop.wait_registered(Some(&mut ui));
-    let window = xdotool(&["search", "--sync", "--name", "^Shellfox v"]);
-    let window = window.lines().next().unwrap().to_owned();
+    let window = window();
+    let scratch = desktop.data.parent().unwrap().to_path_buf();
     let temp = std::env::temp_dir();
-    let folders = [desktop.data.parent().unwrap(), temp.as_path()];
+    let folders = [scratch.as_path(), temp.as_path()];
+    wait_for_shell(&window, &scratch, &mut ui);
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut round = 0;
     while Instant::now() < deadline {
-        xdotool(&["windowfocus", "--sync", &window]);
-        xdotool(&["type", "--delay", "20", &format!("echo soak {round}\n")]);
-        alive(&mut ui, "typing");
+        // The full line must reach the shell: a lost key changes the output.
+        let output = scratch.join(format!("soak-{round}"));
+        let line = format!("soak {round} the quick brown fox");
+        type_line(&window, &format!("echo {line} > '{}'", output.display()));
+        let ran = wait_until(&mut ui, Duration::from_secs(10), || {
+            std::fs::read_to_string(&output).is_ok_and(|text| text == format!("{line}\n"))
+        });
+        let text = std::fs::read_to_string(&output);
+        assert!(ran, "round {round}: the typed command wrote {text:?}");
         // Files panel open, then closed.
         for _ in 0..2 {
             xdotool(&["key", "ctrl+shift+b"]);
@@ -54,6 +56,8 @@ fn an_x11_window_survives_a_minute_of_work() {
             let status = desktop.command(&["add", folder]).status().unwrap();
             assert!(status.success(), "launch forwarding failed: {status}");
             alive(&mut ui, "a new tab");
+            // The next keys must reach the new tab's shell, not race its start.
+            wait_for_shell(&window, &scratch, &mut ui);
         }
         let (width, height) = if round % 2 == 0 {
             ("1000", "700")

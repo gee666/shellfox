@@ -88,6 +88,11 @@ jobs:
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         timeout-minutes: 5
         run: env -u WAYLAND_DISPLAY SHELLFOX_X11_KEYS=1 xvfb-run -a cargo test --locked -p shellfox-desktop --test x11_keys -- --nocapture
+      # 2,000 keys typed at xdotool's full speed all reach `cat`, in order.
+      - name: Desktop fast typing under X11
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        timeout-minutes: 5
+        run: env -u WAYLAND_DISPLAY SHELLFOX_X11_TYPING=1 xvfb-run -a cargo test --locked -p shellfox-desktop --test x11_typing -- --nocapture
       # Eight tabs redrawing at 30 fps for three minutes: the host keeps answering
       # request bursts and holds a stable fd count.
       - name: Host soak

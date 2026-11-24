@@ -7,10 +7,12 @@ mod support;
 
 use std::{
     path::Path,
-    process::Command,
     time::{Duration, Instant},
 };
-use support::{Desktop, Host, Ui, wait_exit};
+use support::{
+    Desktop, Host, Ui, wait_exit,
+    x11::{type_line, wait_for_shell, window, xdotool},
+};
 
 /// Raw-mode reader: optionally pushes kitty flags, writes "ready", then
 /// appends every read as hex until it reads "q".
@@ -29,42 +31,6 @@ finally:
     if flags != "0": os.write(1, b"\x1b[<u")
     termios.tcsetattr(fd, termios.TCSADRAIN, old)
 "#;
-
-fn xdotool(args: &[&str]) -> String {
-    let output = Command::new("xdotool").args(args).output().unwrap();
-    assert!(output.status.success(), "xdotool {args:?}: {output:?}");
-    String::from_utf8(output.stdout).unwrap()
-}
-
-/// Replaces the shell's line with `line` and presses Return. xdotool types
-/// "\n" as the Linefeed keysym, which is not Enter. Keep lines short: the
-/// terminal rejects keys while about 64 are unacknowledged.
-fn type_line(window: &str, line: &str) {
-    xdotool(&["windowfocus", "--sync", window]);
-    xdotool(&["key", "ctrl+u"]);
-    xdotool(&["type", "--delay", "20", line]);
-    xdotool(&["key", "Return"]);
-}
-
-/// Retypes a probe until the shell in `folder` runs it: the first keys can
-/// arrive before the new tab's terminal has focus.
-fn wait_for_shell(window: &str, folder: &Path, ui: &mut Ui) {
-    let marker = folder.join("shell-ready");
-    for _ in 0..6 {
-        type_line(window, "touch shell-ready");
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            if marker.exists() {
-                return;
-            }
-            if let Some(status) = ui.0.try_wait().unwrap() {
-                panic!("The desktop exited while waiting for the shell: {status}");
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-    }
-    panic!("The shell in the new tab never ran a typed command");
-}
 
 fn wait_for(log: &Path, ui: &mut Ui, done: impl Fn(&str) -> bool, what: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -99,8 +65,7 @@ fn tab_and_shift_tab_reach_the_focused_x11_terminal() {
         .status()
         .unwrap();
     assert!(status.success(), "launch forwarding failed: {status}");
-    let window = xdotool(&["search", "--sync", "--name", "^Shellfox v"]);
-    let window = window.lines().next().unwrap().to_owned();
+    let window = window();
     wait_for_shell(&window, &folder, &mut ui);
     // (kitty flags, Tab bytes, Shift+Tab bytes) as hex.
     for (flags, tab, shift_tab) in [("0", "09", "1b5b5a"), ("7", "09", "1b5b393b3275")] {
