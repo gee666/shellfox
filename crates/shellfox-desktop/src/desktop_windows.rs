@@ -88,6 +88,9 @@ pub(crate) fn open(
             }),
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(850.), px(600.))),
+            // Electron's WM_CLASS and Wayland app_id: keeps pinned launchers grouping.
+            #[cfg(target_os = "linux")]
+            app_id: Some("shellfox".into()),
             #[cfg(target_os = "linux")]
             window_decorations: std::env::var_os("WAYLAND_DISPLAY")
                 .or_else(|| std::env::var_os("WAYLAND_SOCKET"))

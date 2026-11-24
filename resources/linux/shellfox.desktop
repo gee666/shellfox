@@ -7,4 +7,4 @@ Terminal=false
 Type=Application
 Icon=shellfox
 Categories=Development;
-StartupWMClass=Shellfox
+StartupWMClass=shellfox
