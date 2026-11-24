@@ -132,7 +132,8 @@ internal object TerminalCoordinator {
     owner.post { terminals[id]?.let { if (it.view === sink) it.view = null } }
   }
 
-  fun resize(id: String, sink: TerminalSink, cols: Int, rows: Int, writable: Boolean) = command(id, sink) { entry ->
+  // Critical: a size dropped on a full queue would stay wrong until the next layout change.
+  fun resize(id: String, sink: TerminalSink, cols: Int, rows: Int, writable: Boolean) = command(id, sink, critical = true) { entry ->
     entry.cols = cols
     entry.rows = rows
     entry.writable = writable

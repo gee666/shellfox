@@ -55,8 +55,6 @@ vi.mock('../rust-client/specs/ShellfoxRustTerminalNativeComponent', () => ({ def
     <button aria-label="Native codegen default ready" onClick={() => props.onState?.({nativeEvent:{terminalHandle:props.terminalHandle,state:'ready',focusResult:{platform:'',source:'',attached:false,windowFocused:false,uiThread:false,inputAllowed:false,frameAvailable:false,focusRequest:'',focused:false,keyboardRequest:''}}})} />
     <button aria-label="Other terminal ready" onClick={() => props.onState?.({ nativeEvent: { terminalHandle: '999', state: 'ready' } })} />
     <button aria-label="Native failure" onClick={() => props.onError?.({ nativeEvent: { terminalHandle: props.terminalHandle, code: 5 } })} />
-    {[1, 3, 7].map(code => <button key={code} aria-label={`Native input dropped ${code}`}
-      onClick={() => props.onError?.({ nativeEvent: { terminalHandle: props.terminalHandle, code } })} />)}
     <button aria-label="Native selection" onClick={() => props.onSelection?.({
       nativeEvent: { terminalHandle: props.terminalHandle, text: 'selected 日本' },
     })} />
@@ -205,14 +203,6 @@ describe('native terminal in the existing mobile controls', () => {
     expect(native.operation.mock.calls.every(([, json]) => !json.includes('writeTerminal'))).toBe(true);
   });
 
-  it('keeps the view alive when input is dropped while the terminal reattaches', async () => {
-    const { native, onError } = await setup();
-    for (const code of [1, 3, 7]) fireEvent.click(screen.getByRole('button', { name: `Native input dropped ${code}` }));
-    expect(onError).not.toHaveBeenCalled();
-    expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-readonly', 'false');
-    fireEvent.click(screen.getByRole('button', { name: 'Esc', exact: true }));
-    expect(native.terminalInput).toHaveBeenCalledTimes(1);
-  });
   it('reattaches when native reports a lost write, and drops input refused meanwhile', async () => {
     const { native, onError } = await setup();
     const attaches = () => native.operation.mock.calls.filter(([, json]) => json.includes('attachTerminal')).length;

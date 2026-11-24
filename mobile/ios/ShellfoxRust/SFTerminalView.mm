@@ -269,11 +269,11 @@
   NSString *handle = _terminalHandle;
   auto mailbox = _mailbox;
   if (!mailbox || !mailbox->active.load()) return;
-  BOOL accepted = [[SFOwner shared] enqueue:^{
+  // A full owner queue drops this work, as Android does; the view stays usable.
+  [[SFOwner shared] enqueue:^{
     SFTerminal *terminal = [[SFOwner shared] terminal:handle];
     if (terminal && terminal.mailbox == mailbox && mailbox->active.load()) work(terminal);
   }];
-  if (!accepted && self.failed) self.failed(SFM_BUSY);
 }
 - (void)send:(NSDictionary *)event {
   BOOL release = [event[@"type"] isEqual:@"key"] && [event[@"event"][@"action"] isEqual:@"release"];
@@ -292,18 +292,19 @@
     dispatch_async(dispatch_get_main_queue(), ^{
       SFTerminalView *view = weakSelf;
       if (!view || view->_binding != binding || !view.window) return;
-      if (status != SFM_OK) { if (view.failed) view.failed(status); }
+      // As 0.9.15, input the terminal can't take while it reattaches is dropped.
+      BOOL dropped = status == SFM_BUSY || status == SFM_STALE || status == SFM_INVALID;
+      if (status != SFM_OK) { if (!dropped && view.failed) view.failed(status); }
       else if (userInput && view.inputReceived) view.inputReceived();
     });
   };
   if (release && _mailbox) {
     // Focus-loss releases target the old binding even after its viewport detaches.
     NSString *handle = _terminalHandle; auto mailbox = _mailbox;
-    BOOL accepted = [[SFOwner shared] enqueue:^{
+    [[SFOwner shared] enqueue:^{
       SFTerminal *terminal = [[SFOwner shared] terminal:handle];
       if (terminal && terminal.mailbox == mailbox) work(terminal);
     }];
-    if (!accepted && self.failed) self.failed(SFM_BUSY);
   } else [self withTerminal:work];
 }
 @end
