@@ -2,80 +2,40 @@
 
 ## Install
 
-Download the `.deb` for your architecture and install it as your normal desktop user:
+The `.deb` needs glibc 2.31 or newer: Ubuntu 20.04, Debian 11 and later, x64 (`amd64`) or ARM64. Install it as your normal user:
 
 ```sh
-sudo apt install ./shellfox_*.deb
-shellfox
+sudo apt install ./shellfox_<version>_<arch>.deb
 ```
 
-Do not launch Shellfox with sudo. Ubuntu 22.04, 24.04+ and desktop flavours use the same package; GNOME is not required. The package installs the Electron runtime libraries, Python 3 and the `/usr/bin/shellfox` launcher. It recommends `python3-nautilus` for GNOME Files.
+Don't run Shellfox itself with sudo. Its shells, settings and Tailscale node belong to the user who starts it, and a root-run host gives approved remote devices root shells.
+
+The package puts the app in `/usr/lib/shellfox/` (`shellfox` is the desktop, `shellfox-cli` the CLI and host) and adds a menu entry. `/usr/bin/shellfox` is the CLI. It hands `start`, `add`, `new`, `create`, `--new-session` and `--new-window` to the desktop in the background, as the 0.9 launcher did. `/usr/bin/shellfox-cli` links to the CLI directly.
 
 ```sh
 shellfox session create .
-shellfox session create ..
-shellfox session create "/home/me/a folder with spaces"
-shellfox --help
+shellfox session list
+shellfox help
 ```
 
-Paths resolve against the caller's directory. Each call creates/selects one session with a default terminal and returns without waiting for the app to close. Symlinks are resolved by the launcher. A missing folder prints an error and returns exit 1. With no arguments, `shellfox` prints grouped help. Open the desktop application from your application menu, or use an interactive `session create` command.
+The window draws through X11 or Wayland with Vulkan. The package depends on fontconfig, FreeType, X11/XCB, xkbcommon, Wayland and `libvulkan1`, but you still need a working Vulkan driver. Python is no longer needed.
 
-The launcher installed by the package is always available. A loose package or from-source desktop build automatically installs and repairs its owned launcher in `~/.local/bin`. If that directory is absent from PATH, add it or log out and in:
+The portable `.tar.gz` has the same binaries without the package. It doesn't update itself.
 
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-```
+## Updating
 
-Add that line to your shell's startup file if needed. New Shellfox tabs receive the launcher directory immediately; already running shells are not modified.
+The installed app updates itself from GitHub releases. Installing needs `pkexec` and a graphical PolicyKit agent, and `shellfox update` uses `sudo` when run in a terminal. See [updates](self-update.md).
 
-## Right-click menus
+Upgrading from the Electron 0.9 package keeps the same package name and paths. The new `postinst` removes the AppArmor profile `/etc/apparmor.d/shellfox` that 0.9 added for Chromium's sandbox, but only if the file still carries Shellfox's marker line. The Rust app has no Chromium sandbox and needs no profile.
 
-Desktop Shellfox automatically detects installed file managers and installs per-user “Open in Shellfox” entries for every supported one:
+## Terminals
 
-- **GNOME Files / Nautilus:** single folder and background menu provider for Nautilus 3.0 and 4.0. For the top-level menu, install the optional binding:
-  `sudo apt install python3-nautilus`.
-  Without it, an executable fallback appears under Scripts → Open in Shellfox. Restart Files yourself or log out and in to load the extension. Shellfox never kills Files.
-- **Nemo:** directory and background actions.
-- **Dolphin:** KDE Frameworks 5/6 service-menu locations, with executable desktop files.
-- **Thunar:** a custom action merged into uca.xml without removing other actions.
-- **Caja:** Scripts → Open in Shellfox, using the selected folder or current local folder.
+Each tab is a real PTY running your shell. Closing a tab, quitting or a host crash ends the tab's whole process tree, through a systemd user cgroup when one is available and otherwise through the tab's own session. See [platform support](platform-support.md#linux) for the modes and their limits.
 
-Only local file locations are passed as argv; no folder text is executable shell source. Uninstall cleanup removes only Shellfox-owned entries. Existing foreign files/actions are not overwritten. Installed state is checked from the actual files and launcher, not just a saved switch.
+## Headless servers
 
-## Python
+Servers without a display can use the headless `.tar.gz` instead. See [headless deployment](headless.md).
 
-Linux terminal cleanup uses Python's pidfd APIs to identify and safely close owned processes. Settings → Python lets you choose an **absolute executable Python 3 path**. Leave it empty for auto-detection: configured path, then `/usr/bin/python3`, then `python3` on PATH. Saving a path verifies executable access and actual pidfd signaling; a successful change refreshes shell availability without restarting the app.
+## Building from source
 
-If Python is missing, Settings says “Python 3 not found. Set its path in Settings → Python.” Install Python 3 or choose its path. Python 3.9+, readable /proc, a compatible Linux kernel and permitted pidfd operations are required. A kernel version alone is not proof. WSL profiles on Windows still resolve Python inside the guest; this setting affects local Linux only.
-
-Closing a terminal stops and enumerates its verified owned session, holds pidfds, signals those handles and confirms exit. Inaccessible/elevated descendants, lost prerequisites or the member bound can block cleanup honestly. There is no numeric-PID fallback. Failed pre-commit cleanup resumes surviving processes it stopped. Existing running shells are not rewritten by a settings change.
-
-## Sandbox
-
-Only the UI process is sandboxed; terminals and agents run with your full user permissions. The package makes Chromium's chrome-sandbox helper root-owned mode 4755. On Ubuntu 24.04+ systems that restrict unprivileged user namespaces, its guarded AppArmor profile is **unconfined** and grants userns; it does not confine your shells or agents. Older systems skip that profile. Do not use a Chromium sandbox-bypass flag to hide configuration errors.
-
-## Build from source
-
-Use target-native Node 24.22.1, pnpm matching package.json and fresh Linux dependencies. Never copy Windows node_modules.
-
-```sh
-sudo apt install build-essential python3 curl fakeroot dpkg libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test:unit
-pnpm build
-pnpm make
-sudo apt install ./tmp/packages/make/deb/*/shellfox_*.deb
-```
-
-On Ubuntu 22.04, use libgtk-3-0 and libasound2 instead of their t64 names. node-pty compiles against the pinned Electron on Linux. `scripts/ubuntu-stage.mjs` prepares an isolated source tree; native Linux filesystem builds are preferable to Windows-mounted node_modules.
-
-A loose app is `tmp/packages/Shellfox-linux-<arch>/shellfox`. If testing a loose/dev app requires the setuid helper, configure only that build's chrome-sandbox with administrator approval; the installed deb already handles it. No sandbox bypass is added by Shellfox. Headless testing uses a graphical wrapper:
-
-```sh
-dbus-run-session -- xvfb-run -a pnpm test:storage
-```
-
-## Verification scope
-
-Round 4 actually built and installed the Linux x64 deb in the existing WSL Debian 13 distro, opened its installed UI without a sandbox bypass under Xvfb, created real Bash terminals through cold/warm installed CLI calls, exercised Python settings, and imported/called Nautilus 4.0 with real GI. Ubuntu 22.04/24.04 physical desktops, AppArmor kernel-policy loading, and live Nemo/Dolphin/Thunar/Caja desktop menus were not run. See `tmp/round4-linux-report.md` for executed checks versus unit coverage. Squirrel and macOS/Linux ARM64 acceptance are separate work.
+Build on the target machine, not from a Windows checkout. You need Rust 1.97.1, Node 24.22.1, pnpm and Go 1.27.3, plus the native build packages listed in [Rust packaging](rust-packaging.md#commands-and-prerequisites). `node scripts/package-rust.mjs` writes the `.deb` and `.tar.gz` to `tmp/rust-installers/`. See also [Development](../README.md#development).
