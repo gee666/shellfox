@@ -1,21 +1,19 @@
 # Unix PTY support
 
-Linux production `PtySession` uses the patched portable-pty allocation and an original waitable controller. It requires:
+Linux production `PtySession` uses the patched portable-pty allocation and an original waitable controller, launched by an absolute trusted executable that calls `shellfox_terminal::supervisor_entry()` before any application initialization. Each process picks its containment once, on first use, and logs it (`Terminal containment: cgroup|session (reason)`):
 
-- cgroup v2 with `cgroup.kill` and pidfd support.
-- An existing, writable systemd user delegation at `/sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service`.
-- A running user manager at `/run/user/<uid>/bus` and trusted `/usr/bin/systemd-run` supporting `--expand-environment=no`.
-- An absolute trusted executable that calls `shellfox_terminal::supervisor_entry()` before any application initialization.
+- **cgroup**, preferred: a writable cgroup-v2 systemd user delegation at `/sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service` with `cgroup.kill`, and a trusted `/usr/bin/systemd-run` that passes a `--user --scope` probe. It kills the whole tree at once and keeps an OOM kill inside one terminal.
+- **session**, otherwise: root without a user manager, containers, WSL or distros without systemd, cgroup v1, SSH logins without a user manager. The controller runs directly, leads its own session and is the subreaper for its descendants.
 
-No elevation, controller configuration, global installation or untracked fallback is attempted. Missing prerequisites fail closed.
+Both need pidfd support. The real and effective user IDs must match; root is allowed. Shells get `oom_score_adj` 300 in both modes.
 
 ## Startup and cleanup
 
-The fixed systemd scope wrapper execs into the same original child PID. This first places an SSH/headless launch inside the existing user delegation. The wrapper does not run the user's command. A private abstract socket and SO_PEERCRED authenticate the waiting controller. The host holds its original Child and pidfd, moves it into a uniquely named pinned cgroup, validates launch facts, then sends GO. Arguments are never expanded by systemd-run.
+In cgroup mode the fixed systemd scope wrapper execs into the same original child PID. This first places an SSH/headless launch inside the existing user delegation. The wrapper does not run the user's command. A private abstract socket and SO_PEERCRED authenticate the waiting controller. The host holds its original Child and pidfd, moves it into a uniquely named pinned cgroup (or, in session mode, checks that it leads its session), validates launch facts, then sends GO. Arguments are never expanded by systemd-run.
 
-The controller spawns and waits for the logical command. It assigns foreground terminal control before exec and reports the actual command exit status. Forked, double-forked and setsid descendants remain in the kernel cgroup. Root exit, shutdown or controller loss triggers cgroup-wide termination. Successful host cleanup requires both the original controller's wait result and the kernel's empty populated state. EOF is output ordering, not cleanup proof.
+The controller spawns and waits for the logical command. It assigns foreground terminal control before exec and reports the actual command exit status. In cgroup mode forked, double-forked and setsid descendants remain in the kernel cgroup, and root exit, shutdown or controller loss triggers cgroup-wide termination. In session mode the controller SIGKILLs every process in its session and every orphan reparented to it, each pinned by pidfd and re-checked through its /proc directory, until none is left, then kills itself. The host does the same sweep as a backstop and SIGKILLs a controller that hasn't finished within 2 s. A process that starts its own session while its parent is alive, and is still running after the controller dies, escapes; there is no kernel boundary. Successful host cleanup requires the controller's exit and an empty cgroup or session; the controller is reaped only then, so its PID keeps naming the session. EOF is output ordering, not cleanup proof.
 
-Before READY, the controller installs HUP/TERM/INT handlers that only set an atomic close flag. The event loop routes that flag and host-channel loss through the same held-cgroup termination path. The guest resets its own signals before exec, preserving ordinary Ctrl+C behavior. If cgroup termination fails, the controller stays alive holding the exact descriptor and retries. Host shutdown errors retain the session; Drop transfers remaining resources to a prestarted cleanup thread.
+Before READY, the controller installs HUP/TERM/INT handlers that only set an atomic close flag. The event loop routes that flag and host-channel loss through the same teardown: the held cgroup kill, or the session sweep. The guest resets its own signals before exec, preserving ordinary Ctrl+C behavior. If termination fails, the controller stays alive and retries. Host shutdown errors retain the session; Drop transfers remaining resources to a prestarted cleanup thread.
 
 ## Privilege policy
 
@@ -30,7 +28,7 @@ Sealed `NativeLaunchEvidence` uses `OriginalPinnedPosixCredentials` with `PosixL
 
 Linux builds a fresh isolated environment, preserving no inherited hooks, account credentials or askpass carriers. The trusted program overload retains both program leases and sends its bounded six-key askpass payload over the authenticated startup socket. File identities are checked again in the controller before applying the payload only to the target command.
 
-The agreed boundary excludes hostile same-account or administrator interference, including intentional cgroup migration. Ordinary detached descendants do not escape by changing process groups or sessions.
+The agreed boundary excludes hostile same-account or administrator interference, including intentional cgroup migration. In cgroup mode ordinary detached descendants do not escape by changing process groups or sessions; in session mode see the limit above.
 
 ## macOS
 

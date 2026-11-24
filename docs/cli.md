@@ -97,7 +97,7 @@ shellfox ss processes
 shellfox ss rm --yes
 ```
 
-`stats` and `processes` require a session ID, current context, or explicit `--all`. They use the same validated `getSessionStats` method locally and remotely. Each request measures the running terminals once: the processes inside each tab's own Job (Windows), cgroup (Linux) or session (macOS), run by this user, with their parent PID, resident memory and start time. Nothing is sampled in the background.
+`stats` and `processes` require a session ID, current context, or explicit `--all`. They use the same validated `getSessionStats` method locally and remotely. Each request measures the running terminals once: the processes inside each tab's own Job (Windows), cgroup or session (Linux) or session (macOS), run by this user, with their parent PID, resident memory and start time. Nothing is sampled in the background.
 
 `env --input` replaces the entire saved environment. Without `--input`, it reads it. `settle` and `unsettle` change status without closing terminals or stopping agents. If settling active work requires confirmation, use `--confirm-active --yes`. `delete`, `rm`, and `-rm` are the same operation within the session namespace. Noninteractive deletion requires `--yes`; piping `yes` is not a substitute. Interactive deletion inspects the resolved target before prompting and keeps that UUID pinned for the mutation.
 

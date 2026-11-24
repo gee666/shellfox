@@ -87,7 +87,7 @@ shellfox runs stop RUN_UUID --yes
 
 `run` starts an ordinary piped process in the local host. It forwards stdin and EOF, keeps stdout and stderr separate and returns the exit code. Foreground `run` rejects `--json`. Arguments after `--` are literal. Invoke a shell explicitly if you need shell parsing. `runs show` adds a read-only terminal view of recent output. Jobs end when their host stops.
 
-A run's descendants stop with it: Windows holds them in a Job Object, Linux in a cgroup, and macOS in the run's own session. On macOS a program that starts a new session (`setsid`) leaves that boundary and keeps running.
+A run's descendants stop with it: Windows holds them in a Job Object, Linux in a cgroup (or, without a systemd user manager, the run's own session), and macOS in the run's own session. In a session a program that starts a new session (`setsid`) can leave that boundary and keep running.
 
 ## Startup management
 

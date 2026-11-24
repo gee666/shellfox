@@ -40,7 +40,7 @@ The Darwin lifecycle supervisor is separate from read-only snapshots. It retains
 
 ## Memory exhaustion and OS shutdown
 
-On Linux every local shell, in desktop and headless hosts, starts in its own transient systemd user scope (`shellfox-terminal-<id>.scope`, `OOMPolicy=continue`) and gets `oom_score_adj` 300. A runaway command is the kernel's preferred OOM victim, and killing it no longer makes systemd stop the manager's scope with every other terminal. Without a reachable systemd user manager, or on systemd releases that cannot set `OOMPolicy` on scopes, shells launch directly and keep only the higher OOM score. macOS and Windows have no equivalent per-process OOM killer; WSL shells follow the guest distribution.
+On Linux every local shell, in desktop and headless hosts, starts in its own transient systemd user scope (`shellfox-terminal-<id>.scope`, `OOMPolicy=continue`) and gets `oom_score_adj` 300. A runaway command is the kernel's preferred OOM victim, and killing it no longer makes systemd stop the manager's scope with every other terminal. Without a systemd user delegation (root without a user manager, containers, WSL or distros without systemd, cgroup v1), shells run in their controller's own session instead, which is swept on close, and keep only the higher OOM score. The host logs which mode it uses. macOS and Windows have no equivalent per-process OOM killer; WSL shells follow the guest distribution.
 
 SIGTERM, SIGHUP, logind/macOS shutdown and Windows session end close owned shells and quit without a confirmation prompt or update installation, because the OS will not honour Cancel. SIGINT and normal quit still ask. Headless hosts already stop on these signals.
 
