@@ -199,12 +199,20 @@ fn assert_audit_unchanged(zsh: &Path, tab: &Tab, log: &str) {
         .status()
         .unwrap();
     assert!(plain.success());
+    // Both logs also hold what the fixture's .zshenv writes; compare the
+    // audit lines only.
+    let audit = |text: &str| {
+        let found = text
+            .lines()
+            .find(|line| line.split(' ').next() == Some("audit"));
+        found.map(str::to_owned)
+    };
     let plain = std::fs::read_to_string(out).unwrap();
-    let plain = plain.trim_end();
     assert!(
-        log.lines().any(|line| line == plain),
-        "{plain:?} not in {log}"
+        audit(&plain).is_some(),
+        "no audit from the plain zsh: {plain}"
     );
+    assert_eq!(audit(log), audit(&plain), "tab log: {log}");
 }
 
 /// The usual steps, then the audit.
