@@ -58,15 +58,16 @@ func ownedWindows(_ owner: pid_t) -> [AXUIElement] {
 }
 
 func ownedWindow(_ owner: pid_t) throws -> AXUIElement {
-    let windows = ownedWindows(owner)
-    // An empty list is also what a 2 s messaging timeout returns while the app
-    // is busy (a first WKWebView load), so callers may retry this one.
-    guard !windows.isEmpty else { throw ProbeError("No accessible window from the owned fixture") }
-    let largest = windows.max { (rectangle($0)?.width ?? 0) < (rectangle($1)?.width ?? 0) }
-    guard let window = largest, (rectangle(window)?.width ?? 0) >= 600 else {
+    // A 2 s messaging timeout while the app is busy (a WKWebView load) returns
+    // no windows or no geometry. Both are retryable; a measured small window is not.
+    let measured = ownedWindows(owner).compactMap { window in rectangle(window).map { (window, $0.width) } }
+    guard let largest = measured.max(by: { $0.1 < $1.1 }) else {
+        throw ProbeError("No accessible window from the owned fixture")
+    }
+    guard largest.1 >= 600 else {
         throw ProbeError("No desktop window for owned PID \(owner)")
     }
-    return window
+    return largest.0
 }
 
 func nativeDialogs(_ owner: pid_t, windows: [AXUIElement]? = nil) -> [AXUIElement] {
