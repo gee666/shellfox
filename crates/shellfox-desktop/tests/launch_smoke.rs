@@ -38,17 +38,42 @@ fn desktop_window_attaches_to_its_own_host_and_quits_with_it() {
 
 #[test]
 fn a_crashed_ui_leaves_a_report_and_its_host_relaunches_it() {
-    let desktop = Desktop::new("desktop-crash-relaunch-");
+    crash_and_relaunch(
+        "1",
+        &[
+            "Shellfox ui panic",
+            "Forced test panic",
+            "Backtrace:",
+            "Last log lines",
+        ],
+    );
+}
+
+/// A native crash or signal leaves no report from the UI; its host writes one.
+#[test]
+fn an_aborted_ui_gets_a_report_from_its_host_and_is_relaunched() {
+    crash_and_relaunch(
+        "abort",
+        &[
+            "Shellfox ui unexpected exit",
+            "Reported by: host",
+            "Last log lines",
+        ],
+    );
+}
+
+fn crash_and_relaunch(mode: &str, expected: &[&str]) {
+    let desktop = Desktop::new(&format!("desktop-crash-{mode}-"));
     let mut ui = Ui(desktop
         .command(&[])
-        .env(shellfox_service::crash_report::TEST_PANIC_ENV, "1")
+        .env(shellfox_service::crash_report::TEST_PANIC_ENV, mode)
         .spawn()
         .unwrap());
     let host = Host(&desktop);
     wait_exit(
         &mut ui,
         Duration::from_secs(90),
-        "The forced panic did not end the UI",
+        "The forced crash did not end the UI",
     );
     assert!(!ui.0.wait().unwrap().success());
     // The relaunched UI attaches to the same host.
@@ -62,12 +87,7 @@ fn a_crashed_ui_leaves_a_report_and_its_host_relaunches_it() {
     assert_eq!(reports.len(), 1, "{reports:?}");
     assert!(reports[0].ends_with("-ui.txt"));
     let report = std::fs::read_to_string(desktop.logs().join(&reports[0])).unwrap();
-    for expected in [
-        "Shellfox ui panic",
-        "Forced test panic",
-        "Backtrace:",
-        "Last log lines",
-    ] {
+    for expected in expected {
         assert!(report.contains(expected), "{expected} missing:\n{report}");
     }
     let deadline = Instant::now() + Duration::from_secs(10);

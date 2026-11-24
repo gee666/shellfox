@@ -2,9 +2,12 @@
 //! and holds an OS file lock on its `owner.lock` while it runs. The lock ends
 //! with the process on every OS, so a lock that can be taken marks a dead
 //! owner regardless of pid reuse. `remove_dir_all` never follows links.
+//! The locks of every window's run directory are held until the process
+//! exits, although the window's `FrontendDirectories` is dropped early.
 use std::{
     fs::File,
     path::{Path, PathBuf},
+    sync::Mutex,
     time::{Duration, SystemTime},
 };
 
@@ -14,28 +17,53 @@ const LOCK: &str = "owner.lock";
 /// to itself, so none still uses one.
 const UNLOCKED_AGE: Duration = Duration::from_secs(10 * 60);
 
-pub(super) struct RunLock {
+struct RunLock {
     dir: PathBuf,
     _file: File,
 }
+static HELD: Mutex<Vec<RunLock>> = Mutex::new(Vec::new());
 
-pub(super) fn claim(run: &Path) -> std::io::Result<RunLock> {
+pub(super) fn claim(run: &Path) -> std::io::Result<()> {
     let file = File::options()
         .create(true)
         .truncate(false)
         .write(true)
         .open(run.join(LOCK))?;
     file.try_lock().map_err(std::io::Error::other)?;
-    Ok(RunLock {
+    held().push(RunLock {
         dir: run.to_owned(),
         _file: file,
-    })
+    });
+    Ok(())
+}
+
+fn held() -> std::sync::MutexGuard<'static, Vec<RunLock>> {
+    HELD.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+/// Removes this process's run directories.
+pub(super) fn release_all() {
+    release_where(|_| true);
+}
+
+fn release_where(mut matches: impl FnMut(&Path) -> bool) {
+    let released: Vec<_> = {
+        let mut held = held();
+        let (released, kept) = std::mem::take(&mut *held)
+            .into_iter()
+            .partition(|lock| matches(&lock.dir));
+        *held = kept;
+        released
+    };
+    for lock in released {
+        lock.remove();
+    }
 }
 
 impl RunLock {
     /// Unlocks, then removes the directory. A file another process still holds
     /// (a WebView2 profile on Windows) leaves it for the next start's sweep.
-    pub fn remove(self) {
+    fn remove(self) {
         let RunLock { dir, _file } = self;
         drop(_file);
         if let Err(error) = std::fs::remove_dir_all(&dir)
@@ -102,16 +130,17 @@ mod tests {
             path
         };
         let live = run("run-1-1");
-        let held = claim(&live).unwrap();
+        claim(&live).unwrap();
+        // A lock file no process holds, as a gone owner leaves it.
         let dead = run("run-2-2");
-        drop(claim(&dead).unwrap());
+        std::fs::write(dead.join(LOCK), "").unwrap();
         let unlocked = run("run-3-3");
         let other = run("settings");
         sweep_older(ui.path(), Duration::from_secs(3600));
         assert!(live.exists() && !dead.exists() && unlocked.exists() && other.exists());
         sweep_older(ui.path(), Duration::ZERO);
         assert!(live.exists() && !unlocked.exists() && other.exists());
-        held.remove();
+        release_where(|dir| dir == live);
         assert!(!live.exists());
     }
 

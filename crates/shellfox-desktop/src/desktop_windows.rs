@@ -104,7 +104,7 @@ pub(crate) fn open(
             WindowPresentation::Activate
         },
     )?;
-    let test_panic = test_panic(&options);
+    let test_crash = test_crash(&options);
     cx.open_window(window_options, move |window, cx| {
         #[cfg(windows)]
         backdrop::apply(window);
@@ -137,13 +137,18 @@ pub(crate) fn open(
         });
         let shown = root.clone();
         window.defer(cx, move |window, cx| {
-            if let Some(message) = test_panic {
+            if let Some(crash) = test_crash {
                 let timer = cx
                     .background_executor()
                     .timer(std::time::Duration::from_secs(5));
+                // A foreground task, like real UI work. Its panic unwinds on
+                // Linux and aborts inside the native callbacks of Windows and macOS.
                 cx.spawn(async move |_| {
                     timer.await;
-                    panic!("{message}");
+                    match crash {
+                        TestCrash::Panic(message) => panic!("{message}"),
+                        TestCrash::Abort => std::process::abort(),
+                    }
                 })
                 .detach();
             }
@@ -172,12 +177,21 @@ pub(crate) fn open(
     })
 }
 
-/// The panic `SHELLFOX_TEST_PANIC` forces mid-work: `1` in the first UI only,
-/// `gpu` a GPU failure in every UI, relaunched ones included.
-fn test_panic(options: &Options) -> Option<&'static str> {
+#[derive(Clone, Copy)]
+enum TestCrash {
+    Panic(&'static str),
+    /// A native crash: no panic, no report from the UI itself.
+    Abort,
+}
+
+/// The crash `SHELLFOX_TEST_PANIC` forces mid-work: `1` a panic and `abort`
+/// an abort in the first UI only, `gpu` a GPU failure in every UI.
+fn test_crash(options: &Options) -> Option<TestCrash> {
+    let first = options.crash_report.is_none();
     match std::env::var(shellfox_service::crash_report::TEST_PANIC_ENV).as_deref() {
-        Ok("1") if options.crash_report.is_none() => Some("Forced test panic"),
-        Ok("gpu") => Some("GPU has crashed (forced test panic)"),
+        Ok("1") if first => Some(TestCrash::Panic("Forced test panic")),
+        Ok("abort") if first => Some(TestCrash::Abort),
+        Ok("gpu") => Some(TestCrash::Panic("GPU has crashed (forced test panic)")),
         _ => None,
     }
 }

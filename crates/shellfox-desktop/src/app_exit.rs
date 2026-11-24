@@ -62,6 +62,8 @@ impl Exit {
             } else {
                 Outcome::Clean
             });
+            // macOS exits inside this hook, before main's own release.
+            crate::frontend_composition::release_run_dirs();
             async {}
         })
         .detach();
@@ -76,7 +78,11 @@ impl Exit {
         let host_gone = match &self.owner {
             Some(owner) => {
                 crate::system_end::finish(&owner.host, outcome == Outcome::StartupFailed);
-                owner.cleanup_until_confirmed();
+                // A crashed UI leaves the host to relaunch it. Cleanup would only
+                // wait out its timeout on the windows this UI registered.
+                if outcome != Outcome::Panicked {
+                    owner.cleanup_until_confirmed();
+                }
                 owner.host.is_stopped().unwrap_or(false)
             }
             None => true,

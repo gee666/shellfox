@@ -15,7 +15,6 @@ pub(crate) struct FrontendDirectories {
     device: PathBuf,
     device_root: Option<Arc<FileService>>,
     editor: Option<Arc<EditorBackend>>,
-    run_lock: Option<run_dirs::RunLock>,
 }
 
 impl FrontendDirectories {
@@ -28,7 +27,6 @@ impl FrontendDirectories {
             device: options.device_config_root.clone(),
             device_root: None,
             editor: None,
-            run_lock: None,
         })
     }
 
@@ -36,15 +34,13 @@ impl FrontendDirectories {
         private(&self.ui).context("Create private frontend UI root")?;
         run_dirs::sweep(&self.ui);
         private(&self.run).context("Create private frontend run root")?;
-        self.run_lock = Some(run_dirs::claim(&self.run).context("Lock the frontend run root")?);
+        run_dirs::claim(&self.run).context("Lock the frontend run root")?;
         Ok(())
     }
 
-    /// Removes this process's run directory at exit.
+    /// Removes the run directories of this process, every window's, at exit.
     pub fn finish(&mut self) {
-        if let Some(lock) = self.run_lock.take() {
-            lock.remove();
-        }
+        release_run_dirs();
     }
 
     pub fn device_root(&mut self) -> Result<Arc<FileService>> {
@@ -66,6 +62,11 @@ impl FrontendDirectories {
         self.editor = Some(editor.clone());
         Ok(editor)
     }
+}
+
+/// See `FrontendDirectories::finish`; for exit paths without one at hand.
+pub(crate) fn release_run_dirs() {
+    run_dirs::release_all();
 }
 
 fn private(path: &std::path::Path) -> Result<Arc<FileService>> {
