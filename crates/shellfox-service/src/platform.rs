@@ -246,10 +246,9 @@ impl Listener {
             bound,
         })
     }
-    /// Closes the listener and unlinks its socket file if it is still ours.
-    pub fn close(self) -> Result<()> {
-        drop(self.socket);
-        socket_files::remove(&self.directory, &self.leaf, self.bound)
+    /// Unlinks the socket file if it still leads here, then closes.
+    pub async fn close(self) -> Result<()> {
+        socket_files::remove(&self.socket, &self.directory, &self.leaf, self.bound).await
     }
     pub fn address(&self) -> String {
         self.path.to_string_lossy().into_owned()

@@ -254,7 +254,7 @@ impl BootGuard {
             #[cfg(unix)]
             {
                 let address = listener.address();
-                if let Err(error) = listener.close() {
+                if let Err(error) = listener.close().await {
                     eprintln!("Endpoint socket kept: {error:#}");
                     self.endpoint.preserve_socket(address);
                 }
