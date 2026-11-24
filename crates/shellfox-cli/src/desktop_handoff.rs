@@ -88,9 +88,72 @@ pub fn update(desktop: &Path, check: bool) -> Result<i32> {
     Ok(status.code().unwrap_or(1))
 }
 
+/// The desktop installed with this CLI installs or repairs one integration.
+/// Headless packages have none, as 0.9's headless host had no provider.
+pub fn ensure_integration(kind: crate::manager::Integration) -> Result<serde_json::Value> {
+    use crate::output::CliError;
+    let desktop = desktop_binary().ok_or_else(|| {
+        CliError::coded(
+            "UNSUPPORTED",
+            "This host has no desktop integration provider.",
+            false,
+        )
+    })?;
+    let output = std::process::Command::new(&desktop)
+        .env_remove("SHELLFOX_TERMINAL_MARKER")
+        .args(["--ensure-integration", kind.argument()])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .with_context(|| format!("Could not start {}", desktop.display()))?;
+    integration_reply(&output.stdout)
+}
+
+/// The desktop's 0.9 `Result` JSON: the state, or the error as a CLI error.
+fn integration_reply(stdout: &[u8]) -> Result<serde_json::Value> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Reply {
+        ok: bool,
+        value: Option<serde_json::Value>,
+        error: Option<shellfox_protocol::AppError>,
+    }
+    let reply: Reply =
+        serde_json::from_slice(stdout).context("The desktop returned no integration result")?;
+    match reply {
+        Reply {
+            ok: true,
+            value: Some(value),
+            error: None,
+        } => Ok(value),
+        Reply {
+            ok: false,
+            value: None,
+            error: Some(error),
+        } => Err(crate::output::CliError::app(error)),
+        _ => anyhow::bail!("The desktop returned an invalid integration result"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn integration_replies_carry_the_state_or_the_desktop_error() {
+        let state = integration_reply(br#"{"ok":true,"value":{"installed":true}}"#).unwrap();
+        assert_eq!(state["installed"], true);
+        let error = integration_reply(
+            br#"{"ok":false,"error":{"code":"UNSUPPORTED","message":"No file manager.","retryable":false}}"#,
+        )
+        .unwrap_err();
+        let error = error.downcast_ref::<crate::output::CliError>().unwrap();
+        assert_eq!(
+            (&*error.code, &*error.message),
+            ("UNSUPPORTED", "No file manager.")
+        );
+        assert!(integration_reply(b"").is_err());
+        assert!(integration_reply(br#"{"ok":true}"#).is_err());
+    }
     #[test]
     fn finds_only_the_installed_sibling_desktop() {
         let temp = tempfile::tempdir().unwrap();

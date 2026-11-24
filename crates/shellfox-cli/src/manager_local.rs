@@ -153,6 +153,9 @@ impl<'a> Local<'a> {
                 return self.session(&snapshot, id).await;
             }
             Call::SaveSettings(patch) => return self.settings(SettingsRequest::Save(patch)).await,
+            Call::EnsureIntegration(kind) => {
+                return crate::desktop_handoff::ensure_integration(kind)
+            }
             Call::GetKeepAwake => {
                 let report = self.0.power_status().await?;
                 return Ok(

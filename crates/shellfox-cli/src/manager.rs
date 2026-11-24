@@ -17,14 +17,35 @@ pub enum Call {
     SaveSettings(Box<SettingsPatch>),
     GetKeepAwake,
     SetKeepAwake(bool),
+    /// 0.9 kept these always on: the call only installs or repairs.
+    EnsureIntegration(Integration),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Integration {
+    Cli,
+    Explorer,
+}
+impl Integration {
+    pub fn method(self) -> &'static str {
+        match self {
+            Self::Cli => "setCliIntegration",
+            Self::Explorer => "setExplorerIntegration",
+        }
+    }
+    /// The desktop's --ensure-integration argument.
+    pub fn argument(self) -> &'static str {
+        match self {
+            Self::Cli => "cli",
+            Self::Explorer => "explorer",
+        }
+    }
 }
 
 /// 0.9 methods with no Rust equivalent. They fail with UNSUPPORTED, not VALIDATION.
 const UNAVAILABLE: &[&str] = &[
     "prepareSessionRegistration",
     "retryTab",
-    "setExplorerIntegration",
-    "setCliIntegration",
     "listSshProfiles",
     "saveSshProfile",
     "deleteSshProfile",
@@ -51,6 +72,11 @@ struct SessionInput {
 struct Empty {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Installed {
+    installed: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Active {
     active: bool,
 }
@@ -71,6 +97,20 @@ pub fn parse(method: &str, payload: Value) -> Result<Call> {
             Call::GetKeepAwake
         }
         "setKeepAwake" => Call::SetKeepAwake(input::<Active>(method, payload)?.active),
+        "setCliIntegration" | "setExplorerIntegration" => {
+            let (kind, always) = if method == "setCliIntegration" {
+                (Integration::Cli, "CLI integration is always enabled.")
+            } else {
+                (
+                    Integration::Explorer,
+                    "File-manager integration is always enabled.",
+                )
+            };
+            if !input::<Installed>(method, payload)?.installed {
+                return Err(CliError::usage(always));
+            }
+            Call::EnsureIntegration(kind)
+        }
         method if UNAVAILABLE.contains(&method) => {
             return Err(CliError::coded(
                 "UNSUPPORTED",
@@ -99,6 +139,7 @@ impl Call {
             Self::SaveSettings(_) => "saveSettings",
             Self::GetKeepAwake => "getKeepAwake",
             Self::SetKeepAwake(_) => "setKeepAwake",
+            Self::EnsureIntegration(kind) => kind.method(),
         }
     }
     /// 0.9 asked before these, and refused them without --yes when it couldn't ask.
@@ -153,5 +194,35 @@ mod tests {
             code(parse("installUpdate", json!({})).unwrap_err()),
             "UNSUPPORTED"
         );
+    }
+    #[test]
+    fn integrations_can_only_be_ensured() {
+        let call = parse("setExplorerIntegration", json!({ "installed": true })).unwrap();
+        assert!(matches!(
+            call,
+            Call::EnsureIntegration(Integration::Explorer)
+        ));
+        assert_eq!(call.name(), "setExplorerIntegration");
+        assert!(matches!(
+            parse("setCliIntegration", json!({ "installed": true })),
+            Ok(Call::EnsureIntegration(Integration::Cli))
+        ));
+        let error = |method, payload| {
+            let error = parse(method, payload).unwrap_err();
+            let error = error.downcast_ref::<CliError>().unwrap();
+            (error.code.to_string(), error.message.clone())
+        };
+        assert_eq!(
+            error("setCliIntegration", json!({ "installed": false })),
+            (
+                "VALIDATION".into(),
+                "CLI integration is always enabled.".into()
+            )
+        );
+        assert_eq!(
+            error("setExplorerIntegration", json!({ "installed": false })).1,
+            "File-manager integration is always enabled."
+        );
+        assert_eq!(error("setCliIntegration", json!({})).0, "VALIDATION");
     }
 }
