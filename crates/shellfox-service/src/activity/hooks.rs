@@ -197,7 +197,11 @@ impl Service {
             return;
         }
         let _ = self.flush_activity(false);
-        if now < self.activity.next_poll_ms {
+        // A started, exited or added tab is published at once; the rest polls.
+        // Missing facts (a failed capture) keep waiting for the poll.
+        let stale = crate::activity::integration::read_source(&self.activity.watch)
+            .is_some_and(|source| !crate::facts::capture::lifecycle_current(self, &source));
+        if now < self.activity.next_poll_ms && !stale {
             return;
         }
         self.activity.next_poll_ms = now.saturating_add(500);
@@ -228,7 +232,7 @@ impl Service {
             let snapshot = self.host.snapshot()?;
             let current_revision = crate::activity::integration::read_source(&self.activity.watch)
                 .map(|source| source.snapshot.revision);
-            if self.activity.dirty || current_revision != Some(snapshot.revision) {
+            if stale || self.activity.dirty || current_revision != Some(snapshot.revision) {
                 self.publish_source_facts(snapshot, settings)?;
             }
             Ok(())
