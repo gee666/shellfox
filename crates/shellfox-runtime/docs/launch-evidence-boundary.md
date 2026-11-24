@@ -1,64 +1,61 @@
 # Launch privilege and source sharing boundary
 
-Common terminal/Runtime FACTS and the standard PTY producer are implemented. Raw factories use the frozen `spawn_with_launch_binding` integration hook. This is not a share grant or a new wire contract.
+`NativeLaunchEvidence` records how privileged a terminal or raw process was when it started. It is a description, not a share grant, a process-control right or a wire field. The types live in `crates/shellfox-terminal/src/launch_privilege.rs`.
 
-## Existing evidence we can reuse
+## What the evidence holds
 
-- Standard Windows PTY startup already authenticates the original supervisor through a private pipe, then retains a query-only handle for the exact launched child. The handle is checked against native FILETIME birth and the exact owned Job before READY. `inspection::OwnedInspection` holds the needed child/Job handles.
-- Windows raw automation retains the original `std::process::Child` supervisor handle and Job. The current raw protocol has no target-child handle/birth transfer. The trusted raw supervisor uses ordinary `Command::spawn` with no alternate-token or elevation API. A narrowly reviewed factory-inheritance attestation could use that documented primary-token inheritance; it must be labelled as such. Prefer the existing private child-proof pattern if direct target-token evidence is required.
-- Program/resource leases prove executable/resource identity and lifetime. They do not prove process privilege.
-- The managed elevated channel's READY PID/birth and a fake fixture's purpose do not prove a real elevated token. Its real factory remains gated. Do not infer elevation from creation intent, a profile name or a message marker.
-- Rust currently has no original-handle token-elevation reader. The old TypeScript owner-SID helper uses PID discovery and is not an ownership/privilege authority to reuse here.
+`NativeLaunchEvidence` is opaque and not Serde. Only the owned factories can construct it. It records:
 
-## Concrete producer boundary
+- the native process identity and exact birth, taken from the original handle;
+- the factory purpose (`LaunchFactoryPurpose`), fixed by the implementation, never a caller or profile string;
+- the launch privilege: `Normal`, `Elevated` or `Unknown`, with a `LaunchUnknownReason`;
+- the basis (`LaunchEvidenceBasis`), such as `OriginalPinnedChildToken`, `ReviewedSupervisorPrimaryTokenInheritance`, `OriginalPinnedPosixCredentials` or `OriginalDarwinCredentials`;
+- an opaque source-binding identity, never a numeric PID or executable path.
 
-Terminal-local opaque, non-Serde `NativeLaunchEvidence` constructors are private to actual owned factories. It records:
+Evidence is captured only through an original process or supervisor handle that has already been checked against the owned Job and its birth time. Capture borrows those handles, closes its `TOKEN_QUERY` handle at once and keeps no extra Job, process or token handle. The producer never opens an arbitrary PID, scans WMI or the process list, adjusts tokens, triggers UAC, uses debug privilege or falls back to a PID or path.
 
-- Native owner/process identity and exact birth, retained from the original handle proof.
-- Factory purpose, fixed by the implementation, not a caller/profile string.
-- A sampled launch privilege fact: Normal, Elevated or Unknown.
-- The evidence basis, such as OriginalTargetPrimaryToken or ReviewedFactoryPrimaryTokenInheritance.
-- An opaque source-binding identity, not a numeric PID or executable path.
+## Windows
 
-Capture only through an original process/supervisor handle already checked for the owned Job and birth. Capture borrows those handles, closes its TOKEN_QUERY handle immediately and retains no extra Job/process/token handles in the sealed receipt. The original owner alone retains its domain; a published parser retains only immutable initial facts/native birth and its private binding. Never open an arbitrary PID to manufacture this capability. No WMI/global scan, token adjustment, UAC, debug privilege or PID/path fallback belongs in the producer.
+The producer calls `OpenProcessToken(TOKEN_QUERY)` and checked `GetTokenInformation` on the original handle. Token elevation is a fact about that token, not a claim that the account isn't an administrator. Elevation type and integrity level are checked for consistency. A high-integrity or inconsistent token that can't justify `Normal` stays `Unknown`. There is no default of `Normal`. A host running as administrator can give standard PTY and raw targets an elevated token.
 
-On Windows use `OpenProcessToken(TOKEN_QUERY)` and checked `GetTokenInformation` on that handle. Token elevation is a fact, not a claim that the account lacks administrator membership. Capture elevation type and integrity as sanity evidence; inconsistent/high-integrity cases that cannot justify Normal stay Unknown rather than being labelled non-elevated. No ordinary-source default is permitted. An administrator host may cause the standard PTY/raw target to inherit an elevated token.
+PTYs: standard Windows PTY startup authenticates the original supervisor through a private pipe and keeps a query-only handle for the launched child. That handle is checked against its FILETIME birth and the owned Job before READY. `inspection::OwnedInspection` holds the child and Job handles.
 
-For PTYs the direct authenticated child handle is already available. The approved raw first slice uses the reviewed standard-factory inheritance basis below; the direct-child alternative remains a possible future strengthening:
+Raw processes: the raw supervisor keeps the original `std::process::Child` handle and Job, and starts the target with plain `Command::spawn`, with no alternate token or elevation API. The raw protocol doesn't pass a target-child handle back. So `RawProcess::spawn_with_launch_binding` records the supervisor's primary token after exact Job assignment and before GO, and confirms it only after READY. The basis says so (`ReviewedSupervisorPrimaryTokenInheritance`) rather than claiming a direct child observation. Passing a child-proof handle through the raw handshake, as PTYs do, would make this a direct observation.
 
-1. Extend the private raw supervisor handshake using the existing child-proof pattern, then query the original target handle; or
-2. The implemented approved first slice attests the fixed standard factory's same-primary-token launch contract using the original supervisor handle captured after exact Job assignment and before GO, confirming the receipt only after successful READY. It exposes ReviewedSupervisorPrimaryTokenInheritance, not a fabricated direct-child observation.
+`RawProcess::spawn` stays unbound and produces no evidence. Generic external byte streams (`ExternalBytes`) have no process evidence and stay `Unknown`, as do unsupported OSes and helper paths.
 
-`RawProcess::spawn` remains unbound and yields no inferred receipt. `RawProcess::spawn_with_launch_binding` may capture a pending standard-factory observation after exact Job assignment and before GO, confirming it only after successful READY. Until that actual factory receipt is bound to its exact Runtime, ExternalBytes stays Unknown. Generic external byte streams have no process evidence at all. Unsupported OS/native helper paths stay Unknown and keep their existing execution gates.
+Program and resource leases prove executable identity and lifetime, not privilege. The administrator helper's READY PID and birth don't prove an elevated token either. Never infer elevation from creation intent, a profile name or a message marker. The old TypeScript owner-SID helper found processes by PID and is not a privilege authority.
 
-## Bind the raw factory to the reserved source
+## Linux and macOS
 
-An external parser is created before raw launch. `ExternalSource::take_launch_binding` gives trusted bootstrap one non-Serde binding from that parser. The non-clone binding is consumed by the frozen `RawProcess::spawn_with_launch_binding` overload, and its one-shot `take_launch_evidence` supplies the receipt to `ExternalSource::bind_launch_evidence`. Runtime checks both the private instance seal and fixed factory purpose. Pass it into the actual raw factory. The factory returns opaque evidence carrying that same private binding after successful owned startup. The Runtime/Service can then bind the evidence only to that reserved source identity and generation.
+See [Unix PTY support](../../shellfox-terminal/UNIX.md#privilege-policy). Linux reads the pinned controller's UIDs, capabilities and `no_new_privs` before GO (`PosixLaunchFacts`). macOS records matching real, effective and saved UIDs at launch and makes no claim about later execs.
 
-Do not expose `set_privilege(Normal)`, accept a client enum, use the run PID/path as the binding, or attach an old run's evidence to a reused request ID. The binding is correlation only, never permission to launch or share. Preserve it with a published parser when its raw RPC record retires.
+## Binding evidence to a source
+
+An external parser exists before its raw launch. `ExternalSource::take_launch_binding` hands trusted bootstrap one non-clone, non-Serde binding from that parser. `RawProcess::spawn_with_launch_binding` consumes it, and after a successful start `take_launch_evidence` returns evidence that carries the same binding. `ExternalSource::bind_launch_evidence` checks the Runtime instance seal and the factory purpose before accepting it. The Service can then attach the evidence only to that reserved source and generation.
+
+Don't add `set_privilege(Normal)`, accept a privilege enum from a client, bind by run PID or path, or attach an old run's evidence to a reused request ID. The binding only correlates; it never permits a launch or a share. A published parser keeps its binding after its raw RPC record is dropped.
 
 ## Sharing is separate
 
-Keep three things distinct:
+Three things stay distinct:
 
-1. Descriptive initial-launch privilege evidence.
-2. Trusted native source-share admission, issued for an actual registered factory purpose and exact source/generation.
-3. The authenticated peer's existing ReadOnly/Write permission.
+1. the descriptive launch evidence above;
+2. the Service's decision to share a source, made for a registered factory purpose and an exact source and generation;
+3. the authenticated peer's ReadOnly or Write permission.
 
-A V2 attachment must satisfy the owning Service's current share policy and peer permission. `SourceKind::ExternalBytes`, `profile.elevation == None`, creation intent, output text and Source Closed are not share grants. Elevated/Unknown launches should remain local-only under the initial conservative policy unless a separate reviewed native policy explicitly says otherwise. A read-only source never gains stdin/resize rights just because its launch was Normal.
+A V2 attachment must pass the owning Service's share policy and the peer's permission. `SourceKind::ExternalBytes`, `profile.elevation == None`, creation intent, output text and a closed source are not share grants. Elevated and Unknown launches stay local-only under the current policy. A read-only source never gains input or resize rights because its launch was Normal.
 
-Use a concrete Service source-evidence registry, not an unimplemented generic provider facade. The existing V2 `Fact`/Unknown representation can report unrecorded/unavailable evidence internally. Server-side share gating can be implemented before adding a privilege field to a wire schema. No new wire field is proposed by this document.
+The Service keeps evidence in a concrete source-evidence registry. The V2 `Fact`/Unknown representation can report missing evidence internally, and share checks run on the server, so no wire field is needed. The current profile filter is not launch proof. Facts copied into a watch or DTO never stand in for the registry entry when the Service decides to share.
 
-The current profile filter must not be called launch proof. Replace or supplement it only when real factory evidence and source-share admission are connected. Facts copied into a watch/DTO must not substitute for the opaque owner registry capability at admission.
+## Limits
 
-## What this does not promise
+This describes the first launch only. It can't promise that later commands, descendants, SSH or container contexts, or elevation the user approves stay non-elevated. Sharing a source is a separate, explicit decision to share its data, and its scope must be stated where it's offered.
 
-This describes the initial owned launch. It cannot promise that every later interactive command, descendant, SSH/container context or user-approved elevation stays non-elevated. A static Normal launch fact is not an all-future-session security guarantee. Source sharing remains an explicit data-sharing decision and must document that scope.
+## Tests
 
-## Native tests without protected targets
-
-- Query the current test host token through its actual handle, then query a genuinely owned fixture child. Compare observed values, never hardcode Normal. If the host is elevated, the ordinary inherited child must not be reported non-elevated.
-- Exercise only these owned fixtures, with no UAC or account/network actions. A mock elevated channel remains Unknown; mapping-unit tests are not native elevation acceptance.
-- Reject stale/wrong source bindings, missing original-child proof and token-query failure. Keep permission independent from descriptive facts.
-- Prove published final parsers retain their source evidence across raw-record eviction, and reused request IDs cannot acquire an old parser/grant.
-- Do not claim Linux/macOS privilege acceptance from Windows or model tests.
+- Query the test host's own token, then a fixture child the test owns, and compare the observed values. Never hardcode `Normal`. On an elevated host, an ordinary inherited child must not be reported as non-elevated.
+- Use only owned fixtures, with no UAC, account or network actions. A mock elevated channel stays `Unknown`. Mapping unit tests don't show native elevation behavior.
+- Reject stale or wrong source bindings, missing child proof and token-query failure.
+- Published parsers keep their evidence after their raw record is dropped, and a reused request ID can't pick up an old parser or grant.
+- Windows and model tests say nothing about Linux or macOS privilege.
