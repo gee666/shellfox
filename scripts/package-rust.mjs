@@ -10,6 +10,7 @@ import { packageNotices } from './package-rust-notices.mjs';
 import { packageHeadless } from './package-rust-headless.mjs';
 import { releaseVersion } from './release-version.mjs';
 import { assertGlibcFloor, GLIBC_FLOOR } from './package-rust-glibc.mjs';
+import { checkLinuxDebugSize, debugInfoEnv } from './package-rust-debuginfo.mjs';
 
 const pkg = readJson(path.join(root, 'package.json'));
 const icon = extension => path.join(root, `resources/icon/icon.${extension}`);
@@ -199,7 +200,7 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
     const { buildEnv, helperSha256 } = await stageResources({ directory: stage, work, kind: 'desktop',
       nugetSnapshot, probeTailscale: false, signDarwin });
     const cargoTarget = path.resolve(process.env.CARGO_TARGET_DIR || path.join(scratchRoot, 'rust-installers-target'));
-    const env = { ...buildEnv, SHELLFOX_PACKAGED_GO_SHA256: helperSha256 };
+    const env = { ...buildEnv, SHELLFOX_PACKAGED_GO_SHA256: helperSha256, ...debugInfoEnv(process.platform) };
     run('cargo', ['build', '--locked', '--release', '--target-dir', cargoTarget,
       '-p', 'shellfox-desktop', '--bin', 'shellfox', '-p', 'shellfox-cli', '--bin', 'shellfox-cli'], { env, stdio: 'inherit', timeout: 50 * 60_000 });
     const mac = process.platform === 'darwin', win = process.platform === 'win32';
@@ -211,7 +212,10 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
     copy(path.join(root, 'LICENSE'), path.join(mac ? resources : app, 'LICENSE'));
     const profile = path.join(cargoTarget, 'release');
     // Desktop and headless ship these two binaries; both must meet the floor.
-    if (process.platform === 'linux') assertGlibcFloor(['shellfox', 'shellfox-cli'].map(name => path.join(profile, name)));
+    if (process.platform === 'linux') {
+      assertGlibcFloor(['shellfox', 'shellfox-cli'].map(name => path.join(profile, name)));
+      checkLinuxDebugSize(path.join(profile, 'shellfox'), work);
+    }
     copy(path.join(profile, win ? 'shellfox.exe' : 'shellfox'), path.join(executables, win ? 'Shellfox.exe' : mac ? 'Shellfox' : 'shellfox'), 0o755);
     copy(path.join(profile, win ? 'shellfox-cli.exe' : 'shellfox-cli'), path.join(executables, win ? 'bin/shellfox-cli.exe' : 'shellfox-cli'), 0o755);
     packageHeadless({ profile, stage, artifacts, version: pkg.version, target, sign: signDarwin });

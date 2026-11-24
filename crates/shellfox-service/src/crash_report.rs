@@ -18,7 +18,7 @@ use std::{
 
 const KEEP_REPORTS: usize = 10;
 const TAIL_LINES: usize = 200;
-/// Set to make the UI panic once its window is open; tests use it.
+/// Makes the UI panic 5 s after its window opens; see desktop_windows.rs.
 pub const TEST_PANIC_ENV: &str = "SHELLFOX_TEST_PANIC";
 
 struct Reporter {
@@ -74,11 +74,37 @@ pub fn install(data_dir: &Path, role: &'static str, version: &'static str, build
             thread.name().unwrap_or("unnamed"),
             std::backtrace::Backtrace::force_capture()
         );
-        if let Some(path) = write(role, "panic", &body) {
+        let kind = if gpu_failure(message, &location) {
+            GPU_FAILURE
+        } else {
+            "panic"
+        };
+        if let Some(path) = write(role, kind, &body) {
             eprintln!("Shellfox crash report: {}", path.display());
         }
         previous(info);
     }));
+}
+
+const GPU_FAILURE: &str = "GPU failure";
+
+/// blade-graphics, GPUI's Vulkan and Metal layer, panics when the device is
+/// lost (a driver reset or GPU hang) or out of memory. Nothing in GPUI 0.2.2
+/// can recreate its renderer, so only a new UI process recovers.
+fn gpu_failure(message: &str, location: &str) -> bool {
+    message.starts_with("GPU has crashed")
+        || message.starts_with("GPU error")
+        || location.contains("blade-graphics")
+}
+
+/// Whether the report at `path` is about a GPU failure.
+pub fn is_gpu_failure(path: &Path) -> bool {
+    use std::io::BufRead;
+    let mut first = String::new();
+    std::fs::File::open(path)
+        .map(|file| std::io::BufReader::new(file).read_line(&mut first))
+        .is_ok_and(|read| read.is_ok())
+        && first.trim_end().ends_with(GPU_FAILURE)
 }
 
 /// Warnings and errors of GPUI and other crates, which log through `log`.
@@ -222,6 +248,26 @@ fn system() -> Vec<(&'static str, String)> {
         "OS",
         format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
     )];
+    // Releases ship no PDBs or dSYMs, so Windows and macOS backtraces are
+    // bare addresses. With the load address they resolve offline against the
+    // release workflow's symbols artifact.
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn _dyld_get_image_header(index: u32) -> *const std::ffi::c_void;
+        }
+        // SAFETY: image 0 is always the main executable.
+        let base = unsafe { _dyld_get_image_header(0) };
+        facts.push(("Image base", format!("{base:p}")));
+    }
+    #[cfg(windows)]
+    {
+        // SAFETY: a null name asks for this executable's own module handle.
+        let base = unsafe {
+            windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(std::ptr::null())
+        };
+        facts.push(("Image base", format!("{base:p}")));
+    }
     if cfg!(target_os = "linux") {
         let release = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
         if let Some(name) = release
@@ -289,6 +335,26 @@ mod tests {
         let leap = SystemTime::UNIX_EPOCH + Duration::from_secs(951_782_400);
         assert_eq!(timestamp(leap, "-"), "20000229-000000");
         assert_eq!(timestamp(SystemTime::UNIX_EPOCH, " "), "19700101 000000");
+    }
+
+    #[test]
+    fn gpu_failures_are_told_apart() {
+        let blade = "/r/blade-graphics-0.7.1/src/vulkan/resource.rs:314:9";
+        assert!(gpu_failure(
+            "called `Result::unwrap()` on an `Err` value",
+            blade
+        ));
+        assert!(gpu_failure(
+            "GPU has crashed, and no debug information is available.",
+            "x"
+        ));
+        assert!(!gpu_failure("index out of bounds", "crates/a.rs:1:1"));
+        let dir = tempfile::tempdir().unwrap();
+        let report = dir.path().join("crash.txt");
+        std::fs::write(&report, "Shellfox ui GPU failure\nVersion: x\n").unwrap();
+        assert!(is_gpu_failure(&report));
+        std::fs::write(&report, "Shellfox ui panic\nGPU failure\n").unwrap();
+        assert!(!is_gpu_failure(&report));
     }
 
     #[test]

@@ -208,11 +208,16 @@ fn main() -> Result<()> {
             shellfox_service::crash_report::fatal(&anyhow::anyhow!(
                 "The event loop ended without a quit, as on a lost display connection"
             ));
+            // A failure exit, so the host relaunches this UI.
+            std::process::exit(1);
         }
         _ => {}
     }
+    // The startup dialog does not fit a crash mid-work, and it would hold the
+    // process, and so the host's relaunch, until dismissed.
+    let panicked = graphics.is_err();
     finish_frontend(graphics).inspect_err(|error| {
-        if show_startup_error {
+        if show_startup_error && !panicked {
             desktop_errors::startup(error);
         }
     })
@@ -275,7 +280,7 @@ fn run_graphics(
             }
             cx.set_global(app_errors);
             if let Some(report) = options.crash_report.clone() {
-                cx.set_global(crash_notice::CrashNotice(report));
+                cx.set_global(crash_notice::CrashNotice::new(&report));
             }
             cx.set_global(device_prefs::DevicePrefs(device_colors));
             cx.set_global(editors);

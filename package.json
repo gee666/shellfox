@@ -42,7 +42,7 @@
     "test:terminal-native": "node scripts/terminal-native-preflight.mjs",
     "test:administrator": "node scripts/elevated-terminal-test.mjs",
     "test:secrets": "node --test scripts/secret-fixtures.test.mjs",
-    "test:packaging": "node --test scripts/packaging.test.mjs scripts/headless.test.mjs scripts/mobile-build.test.mjs scripts/mobile-e2e-controls.test.mjs scripts/secret-fixtures.test.mjs"
+    "test:packaging": "node --test scripts/packaging.test.mjs scripts/package-rust-debuginfo.test.mjs scripts/headless.test.mjs scripts/mobile-build.test.mjs scripts/mobile-e2e-controls.test.mjs scripts/secret-fixtures.test.mjs"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",

@@ -80,3 +80,53 @@ fn a_crashed_ui_leaves_a_report_and_its_host_relaunches_it() {
     }
     std::thread::sleep(Duration::from_secs(2));
 }
+
+#[test]
+fn gpu_failures_are_relaunched_three_times_then_given_up() {
+    let desktop = Desktop::new("desktop-gpu-relaunch-");
+    let mut ui = Ui(desktop
+        .command(&[])
+        .env(shellfox_service::crash_report::TEST_PANIC_ENV, "gpu")
+        .spawn()
+        .unwrap());
+    let _host = Host(&desktop);
+    wait_exit(
+        &mut ui,
+        Duration::from_secs(90),
+        "The forced GPU failure did not end the UI",
+    );
+    // Each UI panics 5 s after its window opens; waits are 1, 3 and 10 s.
+    let host_log = desktop.logs().join("host.log");
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let log = loop {
+        let log = std::fs::read_to_string(&host_log).unwrap_or_default();
+        if log.contains("crashed too often") {
+            break log;
+        }
+        assert!(Instant::now() < deadline, "{log}");
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    assert_eq!(
+        log.matches("Shellfox relaunched UI ended").count(),
+        3,
+        "{log}"
+    );
+    let reports: Vec<_> = std::fs::read_dir(desktop.logs())
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("crash-")
+        })
+        .collect();
+    assert!(reports.len() >= 2, "{reports:?}");
+    assert!(
+        reports
+            .iter()
+            .all(|report| shellfox_service::crash_report::is_gpu_failure(report)),
+        "{reports:?}"
+    );
+}

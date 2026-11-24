@@ -6,9 +6,12 @@
 //! stdout carries one line: the readiness marker or the startup error. stdin is
 //! a pipe from the UI that started this host. The UI writes the quit byte before
 //! it stops the host; EOF without it means the UI died, and the host starts it
-//! again once with the N relaunch arguments, unless this host is stopping. If
-//! the login session ended (logout, display gone) it stops instead, as a
+//! again with the N relaunch arguments, unless this host is stopping. A
+//! relaunched UI that exits with an error is started again, up to 3 times in
+//! 5 minutes (relaunch.rs). If the login session ended (logout, display gone) it stops instead, as a
 //! logout ended 0.9.x and its shells. Later UIs attach on their own.
+mod relaunch;
+
 use anyhow::{ensure, Context, Result};
 use shellfox_service::{
     desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest},
@@ -194,39 +197,50 @@ fn watch_ui(
                 Ok(_) => {}
             }
         }
-        let after = after_ui(shellfox_service::desktop_session::ended(), || {
-            serving.routes_launches()
-        });
-        eprintln!("Shellfox UI ended without quitting: {after:?}");
-        match after {
-            AfterUi::Stop => return serving.stop(),
-            AfterUi::Nothing => return,
-            AfterUi::Relaunch => {}
-        }
-        let report = shellfox_service::crash_report::ui_exit(started);
-        let mut command = Command::new(&ui);
-        command.args(&relaunch).arg("--owned-host");
-        if let Some(report) = report {
-            command.arg("--crash-report").arg(report);
-        }
-        command
-            .stdin(Stdio::null())
-            // This host's stdout and stderr belong to the UI that died.
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            // A startup token belongs to the launch that already used it.
-            .env_remove("DESKTOP_STARTUP_ID")
-            .env_remove("XDG_ACTIVATION_TOKEN");
-        match command.spawn() {
-            // Reap it; a second crash is not relaunched.
-            Ok(mut child) => {
-                let status = child.wait();
-                eprintln!("Shellfox relaunched UI ended: {status:?}");
+        let mut since = started;
+        let mut relaunches = relaunch::Relaunches::default();
+        loop {
+            let after = after_ui(shellfox_service::desktop_session::ended(), || {
+                serving.routes_launches()
+            });
+            eprintln!("Shellfox UI ended without quitting: {after:?}");
+            match after {
+                AfterUi::Stop => return serving.stop(),
+                AfterUi::Nothing => return,
+                AfterUi::Relaunch => {}
+            }
+            let report = shellfox_service::crash_report::ui_exit(since);
+            let Some(wait) = relaunches.next(std::time::Instant::now()) else {
+                eprintln!("Shellfox UI crashed too often; it is not relaunched");
+                return;
+            };
+            std::thread::sleep(wait);
+            since = std::time::SystemTime::now();
+            let mut command = Command::new(&ui);
+            command.args(&relaunch).arg("--owned-host");
+            if let Some(report) = report {
+                command.arg("--crash-report").arg(report);
+            }
+            command
+                .stdin(Stdio::null())
+                // This host's stdout and stderr belong to the UI that died.
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                // A startup token belongs to the launch that already used it.
+                .env_remove("DESKTOP_STARTUP_ID")
+                .env_remove("XDG_ACTIVATION_TOKEN");
+            let status = match command.spawn().and_then(|mut child| child.wait()) {
+                Ok(status) => status,
+                Err(error) => return eprintln!("Shellfox UI relaunch failed: {error:#}"),
+            };
+            eprintln!("Shellfox relaunched UI ended: {status}");
+            // A relaunched UI quits with its host and exits 0; anything else is a crash.
+            if status.success() {
                 if shellfox_service::desktop_session::ended() {
                     serving.stop();
                 }
+                return;
             }
-            Err(error) => eprintln!("Shellfox UI relaunch failed: {error:#}"),
         }
     };
     if let Err(error) = std::thread::Builder::new()

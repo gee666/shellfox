@@ -33,6 +33,11 @@ thiserror = "2"
 portable-pty = "=0.9.0"
 gpui = "=0.2.2"
 
+# Crash report backtraces show file:line. Linux keeps the tables in the
+# binary; Windows packages ship the PDBs beside the executables.
+[profile.release]
+debug = "line-tables-only"
+
 # Native integration tests verify the full helper executable at each open.
 [profile.dev.package."sha2:0.10.9"]
 opt-level = 3

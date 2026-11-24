@@ -55,7 +55,7 @@ jobs:
       - name: GPUI build dependencies
         run: |
           bash .github/scripts/setup-ubuntu-apt.sh
-          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev acl xvfb xauth mesa-vulkan-drivers
+          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev acl xvfb xauth xdotool mesa-vulkan-drivers
       - name: Prepare pinned Ghostty
         uses: ./.github/actions/pinned-ghostty
         timeout-minutes: 35
@@ -78,6 +78,11 @@ jobs:
         run: |
           cargo build --locked -p shellfox-cli
           env -u WAYLAND_DISPLAY xvfb-run -a cargo test --locked -p shellfox-desktop --test launch_smoke
+      # A minute of typing, Files panel, new tabs and resizes; any UI exit fails.
+      - name: Desktop soak under X11
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        timeout-minutes: 10
+        run: env -u WAYLAND_DISPLAY SHELLFOX_X11_SOAK=1 xvfb-run -a -s '-screen 0 1920x1080x24' cargo test --locked -p shellfox-desktop --test x11_soak -- --nocapture
       - name: Service automation against the owned raw fixture
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         run: |

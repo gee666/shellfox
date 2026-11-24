@@ -104,10 +104,7 @@ pub(crate) fn open(
             WindowPresentation::Activate
         },
     )?;
-    // The forced test panic comes mid-work and spares the UI relaunched after it.
-    let test_panic = options.crash_report.is_none()
-        && std::env::var_os(shellfox_service::crash_report::TEST_PANIC_ENV)
-            .is_some_and(|value| value == "1");
+    let test_panic = test_panic(&options);
     cx.open_window(window_options, move |window, cx| {
         #[cfg(windows)]
         backdrop::apply(window);
@@ -140,16 +137,13 @@ pub(crate) fn open(
         });
         let shown = root.clone();
         window.defer(cx, move |window, cx| {
-            if test_panic {
+            if let Some(message) = test_panic {
                 let timer = cx
                     .background_executor()
                     .timer(std::time::Duration::from_secs(5));
                 cx.spawn(async move |_| {
                     timer.await;
-                    panic!(
-                        "Forced test panic ({})",
-                        shellfox_service::crash_report::TEST_PANIC_ENV
-                    );
+                    panic!("{message}");
                 })
                 .detach();
             }
@@ -176,4 +170,14 @@ pub(crate) fn open(
         });
         root
     })
+}
+
+/// The panic `SHELLFOX_TEST_PANIC` forces mid-work: `1` in the first UI only,
+/// `gpu` a GPU failure in every UI, relaunched ones included.
+fn test_panic(options: &Options) -> Option<&'static str> {
+    match std::env::var(shellfox_service::crash_report::TEST_PANIC_ENV).as_deref() {
+        Ok("1") if options.crash_report.is_none() => Some("Forced test panic"),
+        Ok("gpu") => Some("GPU has crashed (forced test panic)"),
+        _ => None,
+    }
 }

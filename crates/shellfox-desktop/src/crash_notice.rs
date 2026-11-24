@@ -1,17 +1,24 @@
 //! The sidebar notice of a UI that its host relaunched after a crash.
 use crate::{accessibility::Role, assets::icon_sized, root::Root, theme::Palette};
 use gpui::{AnyElement, Context, Global, div, prelude::*, px};
-use std::path::PathBuf;
+use std::path::Path;
 
-/// The report the host passed with `--crash-report`, until dismissed.
-pub(crate) struct CrashNotice(pub PathBuf);
+/// About the report the host passed with `--crash-report`, until dismissed.
+pub(crate) struct CrashNotice(String);
 impl Global for CrashNotice {}
 
-pub(crate) fn message(report: &std::path::Path) -> String {
-    format!(
-        "Shellfox closed unexpectedly. The crash report is in {}.",
-        report.display()
-    )
+impl CrashNotice {
+    pub fn new(report: &Path) -> Self {
+        let cause = if shellfox_service::crash_report::is_gpu_failure(report) {
+            "The GPU driver reset and Shellfox restarted."
+        } else {
+            "Shellfox closed unexpectedly."
+        };
+        Self(format!(
+            "{cause} The crash report is in {}.",
+            report.display()
+        ))
+    }
 }
 
 impl Root {
@@ -20,7 +27,7 @@ impl Root {
         palette: Palette,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let text = message(&cx.try_global::<CrashNotice>()?.0);
+        let text = cx.try_global::<CrashNotice>()?.0.clone();
         let dismiss = div()
             .id("dismiss-crash-notice")
             .flex_none()

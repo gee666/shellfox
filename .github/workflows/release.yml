@@ -225,6 +225,23 @@ jobs:
           name: shellfox-desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: tmp/rust-installers/
           if-no-files-found: error
+      # Symbols for crash report addresses ("Image base"); never release assets.
+      # The name stays outside the shellfox-* pattern the release job downloads.
+      - name: Symbols artifact name
+        id: symbols
+        if: runner.os != 'Linux'
+        run: echo "name=symbols-v$(node -p "require('./package.json').version")-${{ matrix.platform }}-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: runner.os != 'Linux'
+        with:
+          name: ${{ steps.symbols.outputs.name }}
+          path: |
+            tmp/release/target/release/shellfox.pdb
+            tmp/release/target/release/shellfox_cli.pdb
+            tmp/release/target/release/shellfox.dSYM
+            tmp/release/target/release/shellfox-cli.dSYM
+          retention-days: 90
+          if-no-files-found: error
   release:
     name: publish GitHub release
     needs: [package, mobile]
