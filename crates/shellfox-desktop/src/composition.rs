@@ -106,23 +106,36 @@ impl EntityInputHandler for TerminalView {
 }
 
 /// A native commit (IME, dead key, emoji picker, dictation) is terminal text,
-/// sent exactly once; line breaks become Enter. Marked text never is sent.
-/// Other controls cannot be typed and are dropped.
+/// sent exactly once. Marked text never is sent. A committed line break is
+/// Enter and a committed tab is Tab, since XIM servers may commit the key
+/// instead of forwarding it. Other controls cannot be typed and are dropped.
 fn commit(text: &str) -> Vec<KeyEvent> {
     let mut events = Vec::new();
-    for (i, line) in text.split('\n').enumerate() {
-        if i > 0 {
-            let enter = KeyEvent::press(PhysicalKey::Enter, KeyModifiers::NONE);
-            events.push(enter.release());
-            events.insert(events.len() - 1, enter);
+    let mut run = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        let key = match c {
+            '\r' | '\n' => PhysicalKey::Enter,
+            '\t' => PhysicalKey::Tab,
+            _ => {
+                if validate_text(c.encode_utf8(&mut [0; 4])).is_ok() {
+                    run.push(c);
+                }
+                continue;
+            }
+        };
+        if c == '\r' {
+            chars.next_if_eq(&'\n');
         }
-        let line: String = line
-            .chars()
-            .filter(|c| validate_text(c.encode_utf8(&mut [0; 4])).is_ok())
-            .collect();
-        if !line.is_empty() {
-            events.push(KeyEvent::text(line));
+        if !run.is_empty() {
+            events.push(KeyEvent::text(std::mem::take(&mut run)));
         }
+        let press = KeyEvent::press(key, KeyModifiers::NONE);
+        events.push(press.release());
+        events.insert(events.len() - 1, press);
+    }
+    if !run.is_empty() {
+        events.push(KeyEvent::text(run));
     }
     events
 }
@@ -156,5 +169,19 @@ mod tests {
         assert!(commit("").is_empty());
         assert_eq!(bytes(&mut terminal, "\x1b[A"), b"[A");
         assert_eq!(bytes(&mut terminal, "ls\npwd"), b"ls\rpwd");
+        assert_eq!(bytes(&mut terminal, "a\r\nb\rc"), b"a\rb\rc");
+    }
+
+    #[test]
+    fn a_committed_tab_is_the_tab_key_in_every_keyboard_mode() {
+        for mode in [&b""[..], b"\x1b[>1u", b"\x1b[>7u"] {
+            let mut terminal = Terminal::new(80, 24).unwrap();
+            terminal.feed(mode).unwrap();
+            assert_eq!(bytes(&mut terminal, "\t"), b"\t");
+            assert_eq!(bytes(&mut terminal, "snip\tx"), b"snip\tx");
+        }
+        let mut terminal = Terminal::new(80, 24).unwrap();
+        terminal.feed(b"\x1b[>31u").unwrap();
+        assert_eq!(bytes(&mut terminal, "\t"), b"\x1b[9u\x1b[9;1:3u");
     }
 }
