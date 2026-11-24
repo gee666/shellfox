@@ -30,6 +30,9 @@ struct Reporter {
 static REPORTER: OnceLock<Reporter> = OnceLock::new();
 static NOTES: Mutex<Vec<(&'static str, String)>> = Mutex::new(Vec::new());
 static WRITING: AtomicBool = AtomicBool::new(false);
+/// This process's own report. A later panic, such as the abort after a panic
+/// in a callback that cannot unwind, is appended to it.
+static OWN_REPORT: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// `<data>.logs`, the sibling of the host data directory.
 pub fn logs_dir(data_dir: &Path) -> PathBuf {
@@ -124,21 +127,41 @@ pub fn ui_exit(since: SystemTime) -> Option<PathBuf> {
     )
 }
 
-/// Writes `crash-<time>-<process role>.txt` with the tail of `log_role`'s log.
-fn write(log_role: &str, kind: &str, body: &str) -> Option<PathBuf> {
+/// Writes `crash-<time>-<role>.txt` about the `role` process, with the tail
+/// of its log.
+fn write(role: &str, kind: &str, body: &str) -> Option<PathBuf> {
     let reporter = REPORTER.get()?;
     if WRITING.swap(true, Ordering::SeqCst) {
         return None;
     }
+    let path = write_unguarded(reporter, role, kind, body);
+    WRITING.store(false, Ordering::SeqCst);
+    path
+}
+
+fn write_unguarded(reporter: &Reporter, role: &str, kind: &str, body: &str) -> Option<PathBuf> {
+    let own = role == reporter.role;
+    let mut first = OWN_REPORT.lock().unwrap_or_else(|error| error.into_inner());
+    if let (true, Some(path)) = (own, first.as_ref()) {
+        use std::io::Write as _;
+        let mut file = std::fs::OpenOptions::new().append(true).open(path).ok()?;
+        file.write_all(format!("\n\nThen, {kind}:\n{body}\n").as_bytes())
+            .ok()?;
+        return Some(path.clone());
+    }
     let now = SystemTime::now();
     let mut text = format!(
-        "Shellfox {} {kind}\nVersion: {} ({})\nTime: {} UTC\nPid: {}\n",
-        reporter.role,
+        "Shellfox {role} {kind}\nVersion: {} ({})\nTime: {} UTC\n",
         reporter.version,
         reporter.build,
         timestamp(now, " "),
-        std::process::id()
     );
+    let pid = std::process::id();
+    let _ = if own {
+        writeln!(text, "Pid: {pid}")
+    } else {
+        writeln!(text, "Reported by: {} pid {pid}", reporter.role)
+    };
     for (key, value) in system() {
         let _ = writeln!(text, "{key}: {value}");
     }
@@ -149,22 +172,22 @@ fn write(log_role: &str, kind: &str, body: &str) -> Option<PathBuf> {
     {
         let _ = writeln!(text, "{key}: {value}");
     }
-    let log = reporter.dir.join(format!("{log_role}.log"));
+    let log = reporter.dir.join(format!("{role}.log"));
     let _ = write!(
         text,
         "\n{body}\n\nLast log lines ({}):\n{}",
         log.display(),
         stderr_log::tail(&log, TAIL_LINES)
     );
-    let path = reporter.dir.join(format!(
-        "crash-{}-{}.txt",
-        timestamp(now, "-"),
-        reporter.role
-    ));
-    let written = std::fs::write(&path, text).is_ok();
+    let path = reporter
+        .dir
+        .join(format!("crash-{}-{role}.txt", timestamp(now, "-")));
+    std::fs::write(&path, text).ok()?;
     prune(&reporter.dir);
-    WRITING.store(false, Ordering::SeqCst);
-    written.then_some(path)
+    if own {
+        *first = Some(path.clone());
+    }
+    Some(path)
 }
 
 /// Crash reports by name, oldest first, with their modification times.
