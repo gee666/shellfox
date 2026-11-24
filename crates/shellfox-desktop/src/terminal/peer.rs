@@ -14,6 +14,7 @@ mod input;
 mod output;
 mod overlay;
 mod requests;
+mod writes;
 use requests::{Applied, Operation};
 
 pub(super) struct Peer {
@@ -113,16 +114,12 @@ impl Peer {
         let State::Attached { cursor, .. } = &self.state else {
             return Ok(());
         };
-        anyhow::ensure!(
-            self.writes.len() < 64,
-            "Terminal input queue is full; input was not sent."
-        );
         let write = cursor
             .write(String::from_utf8(bytes)?, Some(user), self.connection)
             .map_err(|_| {
                 anyhow::anyhow!("Terminal input exceeds the v1 limit or control was lost.")
             })?;
-        self.writes.push_back(write);
+        writes::push(&mut self.writes, write)?;
         self.kick();
         Ok(())
     }

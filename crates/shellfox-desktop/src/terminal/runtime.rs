@@ -8,7 +8,7 @@ pub(in crate::terminal) mod physical;
 mod retire;
 use super::{Backend, TerminalView, links};
 use gpui::{ClipboardItem, Context};
-pub(super) use outbox::Outbox;
+pub(super) use outbox::{Outbox, PAUSED};
 use shellfox_runtime::{Command, ErrorCode, Response, SubmitError};
 
 fn submission_error(error: SubmitError) -> String {
