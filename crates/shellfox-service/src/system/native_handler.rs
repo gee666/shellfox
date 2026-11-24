@@ -1,8 +1,6 @@
 use super::{
     error, native_capabilities,
-    native_guard::{
-        GuardedSystemFiles, GuardedSystemRegistry, GuardedSystemResources, SystemNativeGuard,
-    },
+    native_guard::{GuardedSystemFiles, GuardedSystemResources, SystemNativeGuard},
     HostSystemServices, NativeSystemBackend, SystemAction, SystemCapability, SystemNativeAuthority,
     SystemNativeRequest, SystemNativeResponse, SystemNativeStatus, SystemProviders, SystemResponse,
     SystemResult, SystemScope,
@@ -40,10 +38,6 @@ impl SystemNativeHandler {
                 }),
                 files: Arc::new(GuardedSystemFiles {
                     inner: backend.files.clone(),
-                    guard: guard.clone(),
-                }),
-                registry: Arc::new(GuardedSystemRegistry {
-                    inner: backend.registry.clone(),
                     guard: guard.clone(),
                 }),
                 opener: backend.opener.clone(),

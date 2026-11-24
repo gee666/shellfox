@@ -1,6 +1,6 @@
 use super::{
-    error, CliInstallPlan, DesktopLaunch, RegistrySlot, RegistryState, SystemFile, SystemFiles,
-    SystemInstallResources, SystemRegistry, SystemResult, SystemScope,
+    error, CliInstallPlan, DesktopLaunch, SystemFile, SystemFiles, SystemInstallResources,
+    SystemResult, SystemScope,
 };
 use shellfox_protocol::{CancellationToken, ErrorCode};
 use std::{
@@ -55,24 +55,6 @@ impl SystemFiles for GuardedSystemFiles {
     ) -> SystemResult<()> {
         self.guard
             .run(|| self.inner.replace(path, expected, bytes, executable))
-    }
-}
-pub(super) struct GuardedSystemRegistry {
-    pub inner: Arc<dyn SystemRegistry>,
-    pub guard: SystemNativeGuard,
-}
-impl SystemRegistry for GuardedSystemRegistry {
-    fn read(&self, slot: RegistrySlot) -> SystemResult<RegistryState> {
-        self.guard.run(|| self.inner.read(slot))
-    }
-    fn compare_replace(
-        &self,
-        slot: RegistrySlot,
-        expected: &RegistryState,
-        desired: Option<&RegistryState>,
-    ) -> SystemResult<()> {
-        self.guard
-            .run(|| self.inner.compare_replace(slot, expected, desired))
     }
 }
 pub(super) struct GuardedSystemResources {

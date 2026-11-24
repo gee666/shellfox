@@ -5,7 +5,6 @@ use super::{
     io::{SystemFile, SystemFiles},
     linux_discovery::*,
     linux_templates as template,
-    registry::SystemRegistry,
     resources::*,
     thunar, SystemResult, SystemScope,
 };
@@ -155,7 +154,6 @@ fn state(facts: &LinuxMenuDiscovery, installed: bool) -> ExplorerIntegration {
 }
 pub(super) fn query(
     files: &dyn SystemFiles,
-    registry: &dyn SystemRegistry,
     env: &dyn SystemEnvironment,
     discovery: &dyn SystemLinuxDiscovery,
     plan: &CliInstallPlan,
@@ -194,12 +192,11 @@ pub(super) fn query(
         }
         installed &= matches;
     }
-    installed &= cli::query(files, registry, env, plan, scope)?.installed;
+    installed &= cli::query(files, env, plan, scope)?.installed;
     Ok(state(&facts, installed))
 }
 pub(super) fn set(
     files: &dyn SystemFiles,
-    registry: &dyn SystemRegistry,
     env: &dyn SystemEnvironment,
     discovery: &dyn SystemLinuxDiscovery,
     plan: &CliInstallPlan,
@@ -222,7 +219,7 @@ pub(super) fn set(
     }
     let changes = prepare_changes(files, env, &facts, launch, enabled)?;
     if enabled {
-        cli::set(files, registry, env, plan, scope, true)?;
+        cli::set(files, env, plan, scope, true)?;
     }
     for MenuChange {
         item,
@@ -238,7 +235,7 @@ pub(super) fn set(
         )?;
     }
     if enabled {
-        query(files, registry, env, discovery, plan, launch, scope)
+        query(files, env, discovery, plan, launch, scope)
     } else {
         Ok(state(&facts, false))
     }
@@ -266,7 +263,7 @@ fn prepare_changes(
         } else {
             if previous
                 .as_ref()
-                .is_some_and(|file| !owns_file(&item.path, &file.bytes))
+                .is_some_and(|file| !owns_file(&file.bytes))
             {
                 if enabled {
                     return Err(error(ErrorCode::AuthFailed,"A file-manager action belongs to another installation; nothing was changed."));
@@ -294,7 +291,6 @@ fn prepare_changes(
 }
 pub(super) fn preflight(
     files: &dyn SystemFiles,
-    registry: &dyn SystemRegistry,
     env: &dyn SystemEnvironment,
     discovery: &dyn SystemLinuxDiscovery,
     plan: &CliInstallPlan,
@@ -317,7 +313,7 @@ pub(super) fn preflight(
     }
     prepare_changes(files, env, &facts, launch, enabled)?;
     if enabled {
-        cli::preflight(files, registry, env, plan, scope)?;
+        cli::preflight(files, env, plan, scope)?;
     }
     Ok(())
 }

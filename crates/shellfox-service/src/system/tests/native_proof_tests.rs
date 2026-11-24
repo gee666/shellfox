@@ -42,7 +42,7 @@ impl SystemInstallResources for Resources {
 }
 #[test]
 fn missing_external_resource_proof_allows_queries_but_never_installation() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let mut backend = fixture.backend(
         Vec::new(),
         SystemInstallPolicy {
@@ -90,12 +90,11 @@ fn missing_external_resource_proof_allows_queries_but_never_installation() {
             .code,
         ErrorCode::NativeUnavailable
     );
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
     assert!(!fixture.plan.directory.exists());
 }
 #[test]
 fn expired_resource_proof_stays_an_error_and_cannot_enable_mutations() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let resources = Arc::new(Resources {
         valid: AtomicBool::new(true),
         inner: fixture.resources.clone(),

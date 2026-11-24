@@ -97,7 +97,6 @@ pub(super) fn user_backend(
             environment,
             resources,
             files,
-            registry: Arc::new(super::NativeSystemRegistry),
             opener: Arc::new(super::NativeSystemOpener {
                 interactive_session: false,
             }),

@@ -5,9 +5,7 @@ use std::{
     sync::Arc,
 };
 
-pub const CLI_OWNER: &str = "Shellfox/cli-v1";
 pub const POSIX_OWNER: &str = "Shellfox/linux-v1";
-pub const EXPLORER_OWNER: &str = "Shellfox/native-v1";
 
 #[derive(Clone, Debug)]
 pub struct ManagedFile {
@@ -220,7 +218,7 @@ pub(super) fn validate_plan(plan: &CliInstallPlan) -> SystemResult<()> {
     if !plan
         .files
         .iter()
-        .any(|file| file.path == plan.marker && owns_file(&file.path, &file.bytes))
+        .any(|file| file.path == plan.marker && owns_file(&file.bytes))
     {
         return Err(error(
             ErrorCode::Validation,
@@ -229,24 +227,10 @@ pub(super) fn validate_plan(plan: &CliInstallPlan) -> SystemResult<()> {
     }
     Ok(())
 }
-pub(super) fn owns_file(path: &Path, bytes: &[u8]) -> bool {
-    if path
-        .file_name()
-        .is_some_and(|name| name == "shellfox-owner.json")
-    {
-        serde_json::from_slice::<serde_json::Value>(bytes)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("owner")
-                    .and_then(|owner| owner.as_str())
-                    .map(|owner| owner == CLI_OWNER)
-            })
-            .unwrap_or(false)
-    } else {
-        std::str::from_utf8(bytes).is_ok_and(|text| {
-            text.lines()
-                .any(|line| line.trim_end_matches('\r') == format!("# {POSIX_OWNER}"))
-        })
-    }
+/// Shellfox-written POSIX files carry this owner line, as in 0.9.
+pub(super) fn owns_file(bytes: &[u8]) -> bool {
+    std::str::from_utf8(bytes).is_ok_and(|text| {
+        text.lines()
+            .any(|line| line.trim_end_matches('\r') == format!("# {POSIX_OWNER}"))
+    })
 }

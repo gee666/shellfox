@@ -1,12 +1,11 @@
 use super::{
     cli,
     environment::{NativeSystemEnvironment, SystemEnvironment, SystemPlatform},
-    error, explorer,
+    error,
     io::{NativeSystemFiles, SystemFiles},
     linux,
     linux_discovery::{NativeSystemLinuxDiscovery, SystemLinuxDiscovery},
     opener::{NativeSystemOpener, SystemOpenTarget, SystemOpener},
-    registry::SystemRegistry,
     resources::SystemInstallResources,
     SystemAction, SystemBackend, SystemResponse, SystemResult, SystemScope,
 };
@@ -23,7 +22,6 @@ pub struct SystemProviders {
     pub environment: Arc<dyn SystemEnvironment>,
     pub resources: Arc<dyn SystemInstallResources>,
     pub files: Arc<dyn SystemFiles>,
-    pub registry: Arc<dyn SystemRegistry>,
     pub opener: Arc<dyn SystemOpener>,
     pub linux_discovery: Arc<dyn SystemLinuxDiscovery>,
 }
@@ -32,7 +30,6 @@ pub struct NativeSystemBackend {
     pub environment: Arc<dyn SystemEnvironment>,
     pub resources: Arc<dyn SystemInstallResources>,
     pub files: Arc<dyn SystemFiles>,
-    pub registry: Arc<dyn SystemRegistry>,
     pub opener: Arc<dyn SystemOpener>,
     pub linux_discovery: Arc<dyn SystemLinuxDiscovery>,
     pub policy: SystemInstallPolicy,
@@ -44,7 +41,6 @@ impl NativeSystemBackend {
             environment,
             resources,
             files,
-            registry,
             opener,
             linux_discovery,
         } = providers;
@@ -52,7 +48,6 @@ impl NativeSystemBackend {
             environment,
             resources,
             files,
-            registry,
             opener,
             linux_discovery,
             policy,
@@ -76,7 +71,6 @@ impl NativeSystemBackend {
                 environment,
                 resources,
                 files,
-                registry: Arc::new(super::NativeSystemRegistry),
                 opener: Arc::new(NativeSystemOpener {
                     interactive_session,
                 }),
@@ -116,18 +110,12 @@ impl SystemBackend for NativeSystemBackend {
     fn cli_integration(&self, scope: SystemScope) -> SystemResult<CliIntegration> {
         self.resources.validate_current()?;
         let plan = self.resources.cli_plan(scope)?;
-        cli::query(
-            &*self.files,
-            &*self.registry,
-            &*self.environment,
-            &plan,
-            scope,
-        )
+        cli::query(&*self.files, &*self.environment, &plan, scope)
     }
     fn explorer_integration(&self, scope: SystemScope) -> SystemResult<ExplorerIntegration> {
         match self.environment.platform(){
-            SystemPlatform::Windows=>{self.resources.validate_current()?;explorer::query(&*self.registry,&self.resources.desktop_launch()?,scope)},
-            SystemPlatform::Linux=>{self.resources.validate_current()?;linux::query(&*self.files,&*self.registry,&*self.environment,&*self.linux_discovery,&self.resources.cli_plan(scope)?,&self.resources.desktop_launch()?,scope)},
+            SystemPlatform::Windows=>{self.resources.validate_current()?;Err(windows_installer())},
+            SystemPlatform::Linux=>{self.resources.validate_current()?;linux::query(&*self.files,&*self.environment,&*self.linux_discovery,&self.resources.cli_plan(scope)?,&self.resources.desktop_launch()?,scope)},
             SystemPlatform::Macos=>Ok(ExplorerIntegration{supported:false,installed:false,folder_item_installed:false,background_installed:false,reason:Some("Finder context-menu installation is not supported by this application's platform integration.".into())}),
             SystemPlatform::Other=>Err(error(ErrorCode::Unsupported,"File-manager integration is unavailable on this platform.")),
         }
@@ -167,7 +155,6 @@ impl SystemBackend for NativeSystemBackend {
                 let plan = self.resources.cli_plan(scope)?;
                 Ok(SystemResponse::Cli(cli::set(
                     &*self.files,
-                    &*self.registry,
                     &*self.environment,
                     &plan,
                     scope,
@@ -184,12 +171,8 @@ impl SystemBackend for NativeSystemBackend {
                 self.install_allowed(scope)?;
                 let launch = self.resources.desktop_launch()?;
                 let value = match self.environment.platform() {
-                    SystemPlatform::Windows => {
-                        explorer::set(&*self.registry, &launch, scope, installed)?
-                    }
                     SystemPlatform::Linux => linux::set(
                         &*self.files,
-                        &*self.registry,
                         &*self.environment,
                         &*self.linux_discovery,
                         &self.resources.cli_plan(scope)?,
@@ -207,4 +190,13 @@ impl SystemBackend for NativeSystemBackend {
             }
         }
     }
+}
+
+/// The Squirrel installer and the desktop own Windows integration
+/// (shellfox-desktop/src/squirrel.rs); the service only reports it.
+pub(super) fn windows_installer() -> shellfox_protocol::AppError {
+    error(
+        ErrorCode::Unsupported,
+        "Windows integration is managed by the Shellfox installer.",
+    )
 }

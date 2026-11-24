@@ -51,7 +51,7 @@ pub struct SystemFacts {
 }
 
 /// Injectable host provider. Implementations must not mutate installation,
-/// registry, PATH, profiles or files in any of the three query methods.
+/// PATH, profiles or files in any of the three query methods.
 /// These methods are synchronous; the facts adapter runs them off-owner.
 pub trait SystemBackend: Send + Sync {
     fn home_directory(&self) -> SystemResult<Directory>;

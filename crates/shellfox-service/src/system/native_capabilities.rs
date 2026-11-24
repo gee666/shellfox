@@ -1,5 +1,5 @@
 use super::{
-    cli, error, explorer, linux, NativeSystemBackend, SystemCapability, SystemFacts,
+    cli, error, linux, NativeSystemBackend, SystemCapability, SystemFacts,
     SystemMutationCapabilities, SystemNativeCapabilities, SystemPlatform, SystemResult,
     SystemScope,
 };
@@ -17,7 +17,6 @@ pub(super) fn collect(
         .and_then(|_| {
             cli::preflight(
                 &*backend.files,
-                &*backend.registry,
                 &*backend.environment,
                 &backend.resources.cli_plan(scope)?,
                 scope,
@@ -30,12 +29,8 @@ pub(super) fn collect(
             .and_then(|_| {
                 let launch = backend.resources.desktop_launch()?;
                 match backend.environment.platform() {
-                    SystemPlatform::Windows => {
-                        explorer::preflight(&*backend.registry, &launch, scope)
-                    }
                     SystemPlatform::Linux => linux::preflight(
                         &*backend.files,
-                        &*backend.registry,
                         &*backend.environment,
                         &*backend.linux_discovery,
                         &backend.resources.cli_plan(scope)?,

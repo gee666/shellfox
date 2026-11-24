@@ -5,11 +5,10 @@ use crate::{
     owner::ServiceOwner,
 };
 use shellfox_protocol::CancellationToken;
-use std::sync::atomic::Ordering;
 
 #[tokio::test(flavor = "current_thread")]
 async fn actual_owner_client_routes_system_settings_with_real_provider_and_no_boot_writes() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let data = fixture.root.join("owner-data");
     std::fs::create_dir(&data).unwrap();
     let mut owner = ServiceOwner::start(
@@ -38,7 +37,6 @@ async fn actual_owner_client_routes_system_settings_with_real_provider_and_no_bo
         .await
         .unwrap();
     assert!(!fixture.plan.directory.exists());
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
     let NativeResponse::System(SystemNativeResponse::Status(status)) = client
         .native(NativeAction::System(SystemNativeRequest::Status {
             scope: SystemScope::User,
@@ -62,13 +60,12 @@ async fn actual_owner_client_routes_system_settings_with_real_provider_and_no_bo
     };
     assert!(state.installed);
     client.native(NativeAction::DetachAll).await.unwrap();
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 1);
     assert!(fixture.opener.0.lock().unwrap().is_empty());
     owner.shutdown().await.unwrap();
 }
 #[tokio::test(flavor = "current_thread")]
 async fn lost_accepted_reply_does_not_retry_an_external_installation_change() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let data = fixture.root.join("owner-data");
     std::fs::create_dir(&data).unwrap();
     let mut owner = ServiceOwner::start(
@@ -107,7 +104,6 @@ async fn lost_accepted_reply_does_not_retry_an_external_installation_change() {
         panic!("owner system status")
     };
     assert!(status.facts.cli.as_ref().unwrap().installed);
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 1);
     owner.shutdown().await.unwrap();
 }
 #[test]

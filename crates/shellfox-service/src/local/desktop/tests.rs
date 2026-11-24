@@ -28,8 +28,7 @@ async fn attached_provider_requires_current_desktop_registration() {
             SystemPlatform, SystemScope,
         },
     };
-    use std::sync::atomic::Ordering;
-    let fixture = OwnedSystemFixture::new(SystemPlatform::Windows);
+    let fixture = OwnedSystemFixture::new(SystemPlatform::Linux);
     let data = fixture.root.join("attached-owner");
     std::fs::create_dir(&data).unwrap();
     let mut owner = ServiceOwner::start(
@@ -94,7 +93,6 @@ async fn attached_provider_requires_current_desktop_registration() {
         .private_request_in_epoch(invoke(serde_json::from_value(forged).unwrap()), epoch)
         .await
         .is_err());
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
     let result = window
         .private_request_in_epoch(invoke(token), epoch)
         .await
@@ -105,7 +103,6 @@ async fn attached_provider_requires_current_desktop_registration() {
         panic!("CLI status")
     };
     assert!(state.installed);
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 1);
     renderer
         .private_request_in_epoch(
             PrivateRequest::DesktopLaunch(DesktopLaunchRequest::UnregisterAttached { token }),
@@ -117,7 +114,6 @@ async fn attached_provider_requires_current_desktop_registration() {
         .private_request_in_epoch(invoke(token), epoch)
         .await
         .is_err());
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 1);
     window.close_lifetime(epoch).await.unwrap();
     renderer.close_lifetime(renderer_epoch).await.unwrap();
     owner.shutdown().await.unwrap();

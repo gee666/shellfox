@@ -22,7 +22,6 @@ pub fn providers(home: &Path) -> (NativeHostProviders, OpenRecorder) {
             environment: environment.clone(),
             resources: Arc::new(NoInstallation),
             files: files.clone(),
-            registry: Arc::new(NativeSystemRegistry),
             opener: Arc::new(opener.clone()),
             linux_discovery: Arc::new(NativeSystemLinuxDiscovery { environment, files }),
         },

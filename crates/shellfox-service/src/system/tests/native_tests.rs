@@ -38,11 +38,11 @@ fn handler(
     policy: SystemInstallPolicy,
     lost: CancellationToken,
 ) -> SystemNativeHandler {
-    SystemNativeHandler::new(fixture.backend(Vec::new(), policy), lost).unwrap()
+    SystemNativeHandler::new(fixture.backend(vec![FileManager::Nemo], policy), lost).unwrap()
 }
 #[test]
 fn real_provider_status_is_read_only_and_policy_is_not_a_default_grant() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let authority = Authority::local(41);
     let handler = handler(
         &fixture,
@@ -66,7 +66,6 @@ fn real_provider_status_is_read_only_and_policy_is_not_a_default_grant() {
     assert!(
         matches!(status.capabilities.cli.install,SystemCapability::Unavailable(ref error)if error.code==ErrorCode::Unsupported)
     );
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
     assert!(!fixture.plan.directory.exists());
     assert!(fixture.opener.0.lock().unwrap().is_empty());
     assert_eq!(
@@ -86,7 +85,7 @@ fn real_provider_status_is_read_only_and_policy_is_not_a_default_grant() {
 }
 #[test]
 fn authorized_native_actions_use_the_same_actual_provider_and_return_real_state() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let authority = Authority::local(41);
     let handler = handler(
         &fixture,
@@ -109,7 +108,6 @@ fn authorized_native_actions_use_the_same_actual_provider_and_return_real_state(
         panic!("status")
     };
     assert_eq!(status.capabilities.cli.install, SystemCapability::Available);
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
     let SystemNativeResponse::Cli(cli) = handler
         .handle(
             41,
@@ -176,7 +174,7 @@ fn authorized_native_actions_use_the_same_actual_provider_and_return_real_state(
 }
 #[test]
 fn unknown_controller_and_lost_host_are_denied_before_discovery_or_writes() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let authority = Authority::local(41);
     let lost = CancellationToken::new();
     let handler = handler(
@@ -202,7 +200,6 @@ fn unknown_controller_and_lost_host_are_denied_before_discovery_or_writes() {
             ErrorCode::AuthFailed
         );
     }
-    assert_eq!(fixture.registry.reads.load(Ordering::SeqCst), 0);
     lost.cancel();
     assert_eq!(
         handler
@@ -218,19 +215,14 @@ fn unknown_controller_and_lost_host_are_denied_before_discovery_or_writes() {
             .code,
         ErrorCode::NativeUnavailable
     );
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
     assert!(!fixture.plan.directory.exists());
 }
 #[test]
 fn system_scope_and_foreign_installations_are_honest_unavailable_capabilities() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let authority = Authority::local(41);
     fs::create_dir(&fixture.plan.directory).unwrap();
-    fs::write(
-        fixture.plan.directory.join("shellfox.cmd"),
-        b"foreign program",
-    )
-    .unwrap();
+    fs::write(fixture.plan.directory.join("shellfox"), b"foreign program").unwrap();
     let handler = handler(
         &fixture,
         SystemInstallPolicy {
@@ -282,7 +274,6 @@ fn system_scope_and_foreign_installations_are_honest_unavailable_capabilities() 
             .code,
         ErrorCode::Unsupported
     );
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
 }
 
 mod loss;

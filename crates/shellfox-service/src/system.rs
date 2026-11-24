@@ -1,13 +1,11 @@
 //! Host-only OS integration. Queries are synchronous and read-only; callers
 //! schedule them off the owner/UI thread. Explicit actions use a separate path.
 //!
-//! References: main/platform/{shellfox-cli,linux-cli,linux-menus,explorer}.ts,
-//! directory-prompt.ts and desktop-requests.ts. Query paths never reproduce the
-//! legacy Explorer.get migration/write side effects. Installation resources are
-//! supplied by the validated package composition root, not current_exe().
-//! Native system-wide mutation/elevation is deliberately unavailable. URI syntax
-//! is not authorization. Registry and file revision checks are cooperative edit
-//! conflict detection, not a hostile same-user namespace immutability claim.
+//! Linux: the per-user CLI launcher and file-manager menus (main/platform/
+//! linux-cli.ts and linux-menus.ts in 0.9). Windows integration belongs to the
+//! Squirrel installer in shellfox-desktop. Installation resources come from the
+//! package layout, never from a request. File revision checks are cooperative
+//! edit-conflict detection, not protection against the same user.
 #[cfg(test)]
 mod tests;
 use shellfox_protocol::{AppError, CliIntegration, Directory, ExplorerIntegration, Validate};
@@ -22,7 +20,6 @@ pub use types::{
 mod cli;
 mod deb;
 mod environment;
-mod explorer;
 mod file_platform;
 mod io;
 mod linux;
@@ -42,12 +39,9 @@ pub use native_api::{
     SystemNativeRequest, SystemNativeResponse, SystemNativeStatus,
 };
 pub use native_handler::SystemNativeHandler;
-mod registry;
 mod resources;
 mod thunar;
 mod validation;
-#[cfg(windows)]
-mod windows_registry;
 pub use deb::DebPackage;
 pub use environment::{NativeSystemEnvironment, SystemEnvironment, SystemPlatform};
 #[cfg(windows)]
@@ -59,19 +53,11 @@ pub use linux_discovery::{
 pub use linux_portable::{posix_router, PortableLinux, DESKTOP_VERBS};
 pub use native::{NativeSystemBackend, SystemInstallPolicy, SystemProviders};
 pub use opener::{NativeSystemOpener, SystemOpenTarget, SystemOpener};
-#[cfg(not(windows))]
-pub use registry::NativeSystemRegistry;
-pub use registry::{
-    RegistryField, RegistryRevision, RegistrySlot, RegistryState, RegistryStringKind, RegistryText,
-    SystemRegistry,
-};
 pub use resources::{
     validate_stable_package_root, CliInstallPlan, ConfiguredSystemResources, DesktopLaunch,
     DesktopLaunchDisposition, ManagedFile, SystemInstallResources,
 };
 pub use validation::{absolute_path as validate_system_path, web_url as validate_web_url};
-#[cfg(windows)]
-pub use windows_registry::NativeSystemRegistry;
 
 pub struct HostSystemServices {
     backend: Arc<dyn SystemBackend>,

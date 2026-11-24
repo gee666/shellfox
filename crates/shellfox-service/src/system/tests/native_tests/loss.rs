@@ -34,7 +34,7 @@ impl SystemFiles for CancelAfterWrite {
 }
 #[test]
 fn accepted_partial_external_write_is_not_retried_or_reported_as_success_after_loss() {
-    let fixture = Fixture::new(SystemPlatform::Windows);
+    let fixture = Fixture::new(SystemPlatform::Linux);
     let authority = Authority::local(41);
     let lost = CancellationToken::new();
     let writes = Arc::new(CancelAfterWrite {
@@ -64,6 +64,6 @@ fn accepted_partial_external_write_is_not_retried_or_reported_as_success_after_l
     assert_eq!(error.code, ErrorCode::NativeUnavailable);
     assert!(!error.retryable);
     assert_eq!(writes.writes.load(Ordering::SeqCst), 1);
-    assert!(!fixture.plan.marker.exists());
-    assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
+    // The accepted write stays; it is reported, never rolled back or retried.
+    assert!(fixture.plan.marker.exists());
 }

@@ -3,10 +3,7 @@ use std::{
     collections::BTreeMap,
     ffi::OsString,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 
 pub struct Environment {
@@ -26,54 +23,6 @@ impl SystemEnvironment for Environment {
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case(name))
             .map(|(_, value)| value.clone())
-    }
-}
-#[derive(Default)]
-pub struct Registry {
-    pub values: Mutex<BTreeMap<RegistrySlot, RegistryState>>,
-    pub reads: AtomicUsize,
-    pub writes: AtomicUsize,
-    pub fail: Mutex<bool>,
-}
-impl SystemRegistry for Registry {
-    fn read(&self, slot: RegistrySlot) -> SystemResult<RegistryState> {
-        self.reads.fetch_add(1, Ordering::SeqCst);
-        if *self.fail.lock().unwrap() {
-            return Err(error(
-                shellfox_protocol::ErrorCode::NativeUnavailable,
-                "Injected registry unavailable.",
-            ));
-        }
-        Ok(self
-            .values
-            .lock()
-            .unwrap()
-            .get(&slot)
-            .cloned()
-            .unwrap_or_default())
-    }
-    fn compare_replace(
-        &self,
-        slot: RegistrySlot,
-        expected: &RegistryState,
-        desired: Option<&RegistryState>,
-    ) -> SystemResult<()> {
-        let mut values = self.values.lock().unwrap();
-        if &values.get(&slot).cloned().unwrap_or_default() != expected {
-            return Err(error(
-                shellfox_protocol::ErrorCode::FileConflict,
-                "Injected registry revision changed.",
-            ));
-        }
-        self.writes.fetch_add(1, Ordering::SeqCst);
-        if let Some(value) = desired {
-            let mut value = value.clone();
-            value.revision.key = expected.revision.key + 1;
-            values.insert(slot, value);
-        } else {
-            values.remove(&slot);
-        }
-        Ok(())
     }
 }
 #[derive(Default)]
@@ -97,7 +46,6 @@ pub struct Fixture {
     pub plan: CliInstallPlan,
     pub resources: Arc<ConfiguredSystemResources>,
     pub env: Arc<Environment>,
-    pub registry: Arc<Registry>,
     pub opener: Arc<Opener>,
     pub files: Arc<NativeSystemFiles>,
 }
@@ -119,27 +67,11 @@ impl Fixture {
         let exe = package.join("Shellfox.exe");
         std::fs::write(&exe, b"synthetic package executable; never run").unwrap();
         let directory = root.join("bin");
-        let files = if platform == SystemPlatform::Windows {
-            vec![
-                ManagedFile {
-                    path: directory.join("shellfox.cmd"),
-                    bytes: b"@echo off\r\nrem synthetic owned CLI\r\n".to_vec(),
-                    executable: false,
-                },
-                ManagedFile {
-                    path: directory.join("shellfox-owner.json"),
-                    bytes: br#"{"owner":"Shellfox/cli-v1","executable":"synthetic-packaged"}"#
-                        .to_vec(),
-                    executable: false,
-                },
-            ]
-        } else {
-            vec![ManagedFile {
-                path: directory.join("shellfox"),
-                bytes: b"#!/bin/sh\n# Shellfox/linux-v1\n# synthetic; never executed\n".to_vec(),
-                executable: true,
-            }]
-        };
+        let files = vec![ManagedFile {
+            path: directory.join("shellfox"),
+            bytes: b"#!/bin/sh\n# Shellfox/linux-v1\n# synthetic; never executed\n".to_vec(),
+            executable: true,
+        }];
         let marker = files.last().unwrap().path.clone();
         let plan = CliInstallPlan {
             directory: directory.clone(),
@@ -177,7 +109,6 @@ impl Fixture {
             plan,
             resources,
             env,
-            registry: Arc::new(Registry::default()),
             opener: Arc::new(Opener::default()),
             files: Arc::new(NativeSystemFiles),
         }
@@ -192,7 +123,6 @@ impl Fixture {
                 environment: self.env.clone(),
                 resources: self.resources.clone(),
                 files: self.files.clone(),
-                registry: self.registry.clone(),
                 opener: self.opener.clone(),
                 linux_discovery: Arc::new(Discovery(LinuxMenuDiscovery {
                     managers,
