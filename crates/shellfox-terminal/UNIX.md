@@ -49,4 +49,4 @@ cargo clippy -p shellfox-terminal --lib -- -D warnings
 cargo test -p shellfox-terminal --lib --test unix_production --features test-support --no-run
 ```
 
-Acceptance executes the built artifacts through the owned gated-fork/pidfd runner, not through an untracked shell launch. The actual SSH carrier test runs /usr/bin/ssh against an owned local ProxyCommand without making a network connection. It establishes carrier inheritance, not SSH authentication or Android handoff acceptance.
+The tests run the built artifacts through the owned gated-fork/pidfd runner, not through an untracked shell launch. The SSH carrier test runs /usr/bin/ssh against an owned local ProxyCommand, with no network connection. It checks carrier inheritance, not SSH authentication or the Android handoff.

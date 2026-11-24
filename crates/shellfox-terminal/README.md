@@ -2,11 +2,11 @@
 
 Reusable PTY transport for Shellfox terminals. It does not parse terminal sequences or open Shellfox production storage.
 
-## Platform gate
+## Platforms
 
-Interactive sessions currently require Windows 10 1809 or newer and a trusted supervisor executable. Other platforms return an error before opening a PTY. No direct-child or cached PID/process-group fallback exists. This is not cross-platform lifecycle parity.
+Interactive sessions run on Windows 10 1809 or newer, Linux and macOS. Other platforms return an error before opening a PTY. Windows and Linux start each shell through a trusted supervisor executable; macOS starts it directly. The Windows Job ownership is below. Linux cgroup or session containment and the macOS process-group cleanup are in [UNIX.md](UNIX.md).
 
-The supervisor executable must call `shellfox_terminal::supervisor_entry()` before GUI initialization, hooks, application argument parsing or other work. If it returns `Some(code)`, exit immediately with that code. Set `config.supervisor = Some(std::env::current_exe()?)`. Never substitute an arbitrary executable or a PATH lookup.
+On Windows and Linux the supervisor executable must call `shellfox_terminal::supervisor_entry()` before GUI initialization, hooks, application argument parsing or other work. If it returns `Some(code)`, exit immediately with that code. Set `config.supervisor = Some(std::env::current_exe()?)`. Never substitute an arbitrary executable or a PATH lookup.
 
 ## Ownership
 
