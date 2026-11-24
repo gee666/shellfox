@@ -28,6 +28,8 @@ mod tests;
 
 mod cleanup;
 mod client;
+mod health;
+pub(crate) use health::{OwnerFailure, OwnerHealth, WEDGED_AFTER};
 mod controller;
 use controller::controller_id;
 mod task;
@@ -57,6 +59,7 @@ pub(crate) struct ServiceOwner {
     done: oneshot::Receiver<crate::ShutdownOutcome>,
     thread: Option<JoinHandle<()>>,
     abandon: CancellationToken,
+    health: OwnerHealth,
     cleanup_done: Option<crate::ShutdownOutcome>,
     cleanup_error: Option<String>,
 }
@@ -73,6 +76,8 @@ impl ServiceOwner {
         let (finished, done) = oneshot::channel();
         let abandon = CancellationToken::new();
         let owner_abandon = abandon.clone();
+        let health = OwnerHealth::new();
+        let owner_health = health.clone();
         let wake = OwnerWake::new(sender.clone());
         let runtime_handle = tokio::runtime::Handle::try_current().ok();
         let thread = std::thread::Builder::new()
@@ -121,10 +126,12 @@ impl ServiceOwner {
                 // keep running meanwhile; each attach runs once its start settled.
                 let mut starting: Vec<(shellfox_core::TabId, Task)> = Vec::new();
                 dispatcher.bind_wake(wake.clone());
+                let ended = owner_health.end_guard();
                 loop {
                     if lost.is_cancelled() || owner_abandon.is_cancelled() {
                         break;
                     }
+                    owner_health.pass_started();
                     wake.rearm();
                     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         service.pump_power();
@@ -180,7 +187,11 @@ impl ServiceOwner {
                                 service.pause_for_runtime(service.owner_pass_timeout());
                                 continue;
                             }
-                            incoming.recv_timeout(service.owner_pass_timeout())
+                            let timeout = service.owner_pass_timeout();
+                            owner_health.waiting();
+                            let received = incoming.recv_timeout(timeout);
+                            owner_health.pass_started();
+                            received
                         }
                     };
                     let received = match received {
@@ -402,6 +413,10 @@ impl ServiceOwner {
                         Err(mpsc::RecvTimeoutError::Timeout) => {}
                     }
                 }
+                if !lost.is_cancelled() && !owner_abandon.is_cancelled() {
+                    eprintln!("Shellfox host: the service owner stopped; the host exits.");
+                }
+                drop(ended);
                 let _ = finished.send(cleanup::finish(service));
             })?;
         Ok(Self {
@@ -410,6 +425,7 @@ impl ServiceOwner {
             done,
             thread: Some(thread),
             abandon,
+            health,
             cleanup_done: None,
             cleanup_error: None,
         })
@@ -422,6 +438,9 @@ impl ServiceOwner {
         ready
             .await
             .context("Service owner stopped before activation was confirmed.")
+    }
+    pub(crate) fn health(&self) -> OwnerHealth {
+        self.health.clone()
     }
     pub fn client(&self, client_id: uuid::Uuid) -> OwnerClient {
         OwnerClient {

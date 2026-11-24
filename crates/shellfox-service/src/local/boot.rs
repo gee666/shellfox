@@ -270,6 +270,7 @@ impl BootGuard {
     }
     pub async fn cleanup(&mut self, status: &impl Fn(LocalBootStatus)) -> crate::ShutdownOutcome {
         status(LocalBootStatus::RetainedCleanup);
+        let mut attempts = 0;
         loop {
             match self.cleanup_once().await {
                 Ok(()) => {
@@ -283,7 +284,18 @@ impl BootGuard {
                     status(LocalBootStatus::NoOwnerClean);
                     return outcome;
                 }
-                Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+                // A host that can't confirm its cleanup must still end, or it
+                // keeps its ownership and no new host can start.
+                Err(error) if attempts >= 300 => {
+                    eprintln!(
+                        "Shellfox host: cleanup not confirmed after 30 s: {error:#}. Exiting."
+                    );
+                    std::process::exit(1);
+                }
+                Err(_) => {
+                    attempts += 1;
+                    tokio::time::sleep(Duration::from_millis(100)).await
+                }
             }
         }
     }

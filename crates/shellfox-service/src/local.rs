@@ -13,6 +13,8 @@ mod transport_frame;
 use transport_frame::{Frame, LifetimeReply, TRANSPORT_VERSION};
 mod desktop;
 mod launch;
+#[cfg(test)]
+mod owner_death_tests;
 mod request;
 mod runtime_codes;
 pub use desktop::{DesktopProviderRequest, DesktopReply, DesktopRequest};
@@ -226,11 +228,15 @@ async fn run_started(
         None => client,
     };
     let lost = ownership.lost();
+    let health = service.health();
+    let owner_failure = health.failed(crate::owner::WEDGED_AFTER);
+    tokio::pin!(owner_failure);
     // The owner may be busy; a stop or lost ownership must not wait for it.
     let watches = tokio::select! {
         biased;
         _ = server.stop.cancelled() => return Ok(()),
         _ = lost.cancelled() => anyhow::bail!("Native host ownership lost; refusing further metadata access."),
+        failure = &mut owner_failure => return owner_failed(failure),
         watches = client.native_watches() => watches?,
     };
     let polls = std::sync::Arc::new(long_poll::LongPolls::new(watches, client.remote_state()));
@@ -266,9 +272,29 @@ async fn run_started(
             },
             _ = server.stop.cancelled() => {}
             _ = lost.cancelled() => {}
+            failure = &mut owner_failure => return owner_failed(failure),
         }
     }
     Ok(())
+}
+
+/// A host whose owner ended or hangs can't answer anyone. It exits, so every
+/// client's lifetime closes and the UI offers a restart.
+fn owner_failed(failure: crate::owner::OwnerFailure) -> Result<()> {
+    match failure {
+        crate::owner::OwnerFailure::Ended => {
+            anyhow::bail!("The service owner stopped; the host exits.")
+        }
+        crate::owner::OwnerFailure::Wedged => {
+            // Cleanup needs the owner, so it can't run: exit now and let the
+            // terminal supervisors see their host go.
+            eprintln!(
+                "Shellfox host: the service owner has not answered for {} s; the host exits.",
+                crate::owner::WEDGED_AFTER.as_secs()
+            );
+            std::process::exit(1);
+        }
+    }
 }
 
 fn preflight_boot_paths(data: &Path, helper: &Path) -> Result<()> {
