@@ -58,6 +58,7 @@ fn state() -> host::RemoteControlState {
         cleanup_retained: true,
         incoming_legacy_terminal_attachment: false,
         terminal_capability_reason: "Incoming legacy terminal attachment is unavailable.".into(),
+        root_account: false,
     }
 }
 fn fixture(outcome: Outcome) -> (NativeServices, Arc<Fixture>) {
@@ -126,6 +127,12 @@ fn pending_connections_attempt_ids_and_capability_limits_are_preserved() {
         matches!(&state.attempts[0].kind,api::RemoteAttemptKind::Connect{peer_id}if peer_id=="peer-1")
     );
     assert_eq!(state.limitations.len(), 2);
+    assert!(
+        !state
+            .limitations
+            .iter()
+            .any(|l| l == super::native_state::ROOT_ACCOUNT)
+    );
     assert!(state.error.is_none());
     assert!(state.login_url.is_none());
 }
@@ -194,4 +201,23 @@ fn auth_keys_are_validated_and_bound_as_redacted_native_credentials() {
 fn a_wrong_response_variant_is_not_silent_success() {
     let (service, _) = fixture(Outcome::WrongResponse);
     assert!(run(&service, api::Request::RemoteState).is_err());
+}
+#[test]
+fn a_root_host_with_remote_access_on_says_devices_get_root_shells() {
+    let mut host = state();
+    host.root_account = true;
+    let shown = super::native_state::project(host.clone());
+    assert!(
+        shown
+            .limitations
+            .iter()
+            .any(|line| line == super::native_state::ROOT_ACCOUNT)
+    );
+    host.enabled = false;
+    let off = super::native_state::project(host);
+    assert!(
+        !off.limitations
+            .iter()
+            .any(|line| line == super::native_state::ROOT_ACCOUNT)
+    );
 }

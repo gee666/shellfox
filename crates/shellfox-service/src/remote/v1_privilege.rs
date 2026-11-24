@@ -42,9 +42,19 @@ pub(super) fn ensure_normal_launch() -> Result<(), AppError> {
 
 /// Said once when remote access starts, so a root host is a visible choice.
 pub(super) fn note_root_remote_access() {
-    #[cfg(unix)]
-    if rustix::process::getuid().is_root() {
+    if root_account() {
         eprintln!("Shellfox host is running as root; approved devices get root shells.");
+    }
+}
+/// The desktop shows the same note from the remote state.
+pub(super) fn root_account() -> bool {
+    #[cfg(unix)]
+    {
+        rustix::process::getuid().is_root()
+    }
+    #[cfg(windows)]
+    {
+        false
     }
 }
 

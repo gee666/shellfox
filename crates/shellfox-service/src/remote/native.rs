@@ -188,6 +188,8 @@ pub struct RemoteControlState {
     pub cleanup_retained: bool,
     pub incoming_legacy_terminal_attachment: bool,
     pub terminal_capability_reason: String,
+    /// The host runs as root, so approved devices get root shells.
+    pub root_account: bool,
 }
 impl fmt::Debug for RemoteControlState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

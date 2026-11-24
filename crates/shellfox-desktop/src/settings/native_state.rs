@@ -1,5 +1,7 @@
 use super::api;
 use shellfox_service::remote::native as host;
+/// Shown while remote access is on and the host runs as root.
+pub(crate) const ROOT_ACCOUNT: &str = "This host runs as root. Approved devices get root shells.";
 pub(crate) fn project(state: host::RemoteControlState) -> api::RemoteState {
     let status = match state.status {
         host::RemoteNetworkStatus::Disabled => api::NetworkStatus::Disabled,
@@ -61,6 +63,9 @@ pub(crate) fn project(state: host::RemoteControlState) -> api::RemoteState {
         })
         .collect();
     let mut limitations = Vec::new();
+    if state.enabled && state.root_account {
+        limitations.push(ROOT_ACCOUNT.into());
+    }
     if !state.incoming_legacy_terminal_attachment && !state.terminal_capability_reason.is_empty() {
         limitations.push(state.terminal_capability_reason);
     }

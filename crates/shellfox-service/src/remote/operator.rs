@@ -26,6 +26,8 @@ pub struct RemoteOperatorState {
     pub cleanup_retained: bool,
     pub incoming_legacy_terminal_attachment: bool,
     pub terminal_capability_reason: String,
+    #[serde(default)]
+    pub root_account: bool,
 }
 impl std::fmt::Debug for RemoteOperatorState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -59,6 +61,7 @@ impl From<&RemoteControlState> for RemoteOperatorState {
             cleanup_retained: state.cleanup_retained,
             incoming_legacy_terminal_attachment: state.incoming_legacy_terminal_attachment,
             terminal_capability_reason: state.terminal_capability_reason.clone(),
+            root_account: state.root_account,
         }
     }
 }
@@ -87,6 +90,7 @@ impl From<RemoteOperatorState> for RemoteControlState {
             cleanup_retained: state.cleanup_retained,
             incoming_legacy_terminal_attachment: state.incoming_legacy_terminal_attachment,
             terminal_capability_reason: state.terminal_capability_reason,
+            root_account: state.root_account,
         }
     }
 }

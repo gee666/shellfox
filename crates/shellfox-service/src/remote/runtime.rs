@@ -93,6 +93,7 @@ impl RemoteRuntime {
             incoming_legacy_terminal_attachment: true,
             terminal_capability_reason:
                 "Approved devices can attach to ordinary host-account terminals.".into(),
+            root_account: super::v1_privilege::root_account(),
         };
         let (sender, receiver) = mpsc::channel(16);
         let (outgoing, outgoing_receiver) = mpsc::channel(16);
