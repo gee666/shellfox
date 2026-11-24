@@ -1,4 +1,5 @@
 mod limits;
+mod typing;
 use super::*;
 use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
 use shellfox_ghostty_vt::{Modifiers, MouseButton, MouseEvent, MouseGeometry, Terminal};
@@ -93,8 +94,35 @@ impl Transport {
         panic!("bounded queue failed to drain");
     }
 }
+/// Queues pastes until input pauses.
+fn fill_memory_budget(queue: &mut Outbox) {
+    let text = "x".repeat(60_000);
+    loop {
+        let paste = Command::Paste {
+            lease: LEASE,
+            text: text.clone(),
+        };
+        match queue.enqueue(paste, Pending::Applied) {
+            Ok(()) => {}
+            Err(error) => return assert_eq!(error, PAUSED),
+        }
+    }
+}
+/// Every key event sent, single or batched, in order.
+fn key_events(requests: &[Request]) -> Vec<&KeyEvent> {
+    requests
+        .iter()
+        .flat_map(|request| match &request.command {
+            Command::Key { event, .. } => std::slice::from_ref(event),
+            Command::Keys { events, .. } => events.as_slice(),
+            _ => &[],
+        })
+        .collect()
+}
+/// A backlog the transport cannot take yet.
+const BACKLOG: usize = 64;
 fn saturate_normal(queue: &mut Outbox) {
-    for _ in 0..NORMAL_CAPACITY {
+    for _ in 0..BACKLOG {
         queue
             .enqueue(
                 Command::Scroll {
@@ -221,35 +249,20 @@ fn wheel_burst_and_motion_are_coalesced_without_crossing_release_or_keys() {
 #[test]
 fn rejected_press_does_not_hold_and_repeated_cancel_keeps_fixed_bounds() {
     let mut queue = Outbox::default();
-    saturate_normal(&mut queue);
-    for _ in 0..(CAPACITY - NORMAL_CAPACITY) / 2 {
-        queue
-            .enqueue(
-                mouse(MouseAction::Press, MouseButton::Left, 10.),
-                Pending::Applied,
-            )
-            .unwrap();
-        queue
-            .enqueue(
-                mouse(MouseAction::Release, MouseButton::Left, 10.),
-                Pending::Applied,
-            )
-            .unwrap();
-    }
-    assert_eq!(queue.queue.len(), CAPACITY);
-    assert!(
-        queue
-            .enqueue(
-                mouse(MouseAction::Press, MouseButton::Right, 10.),
-                Pending::Applied
-            )
-            .is_err()
+    fill_memory_budget(&mut queue);
+    let len = queue.queue.len();
+    assert_eq!(
+        queue.enqueue(
+            mouse(MouseAction::Press, MouseButton::Right, 10.),
+            Pending::Applied
+        ),
+        Err(PAUSED)
     );
     assert_eq!(queue.buttons(), 0);
     for _ in 0..1000 {
         queue.cancel(false).unwrap();
     }
-    assert_eq!(queue.queue.len(), CAPACITY);
+    assert_eq!(queue.queue.len(), len);
 }
 
 #[test]
@@ -278,7 +291,7 @@ fn key_release_reservation_and_maximum_wheel_backlog_are_bounded() {
     queue
         .enqueue(key(KeyAction::Press), Pending::Applied)
         .unwrap();
-    for _ in 1..NORMAL_CAPACITY {
+    for _ in 1..BACKLOG {
         queue
             .enqueue(
                 Command::Scroll {

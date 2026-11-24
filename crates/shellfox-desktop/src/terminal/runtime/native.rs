@@ -132,6 +132,7 @@ impl Access {
         let expected = self.lease().context("Control lease is missing")?;
         let (lease, command) = match command {
             Command::Key { lease, event } => (lease, NativeCommand::Key(event)),
+            Command::Keys { lease, events } => (lease, NativeCommand::Keys(events)),
             Command::Paste { lease, text } => (lease, NativeCommand::Paste(text)),
             Command::Mouse {
                 lease,

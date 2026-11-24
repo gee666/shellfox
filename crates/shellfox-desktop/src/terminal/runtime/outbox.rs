@@ -7,8 +7,10 @@ use shellfox_runtime::{Command, Request, RequestId, SubmitError};
 use shellfox_service::native::NativeInputContext;
 use std::collections::{HashMap, VecDeque};
 
-const NORMAL_CAPACITY: usize = 64;
-const CAPACITY: usize = NORMAL_CAPACITY + MAX_HELD;
+mod batch;
+pub(crate) use batch::PAUSED;
+use batch::{MAX_PENDING_BYTES, cost};
+
 const MAX_WHEEL_STEPS: usize = 256;
 const MAX_IN_FLIGHT: usize = 64;
 const CONTROL_CAPACITY: usize = 16;
@@ -18,6 +20,7 @@ struct Queued {
     pending: Pending,
     repeats: u16,
     input: Option<NativeInputContext>,
+    cost: usize,
 }
 #[derive(Default)]
 pub(crate) struct Outbox {
@@ -25,6 +28,9 @@ pub(crate) struct Outbox {
     physical: Physical,
     wheel_steps: usize,
     controls: usize,
+    /// Approximate memory held by queued commands; see batch::cost.
+    bytes: usize,
+    paused: bool,
 }
 fn control(command: &Command) -> bool {
     matches!(
@@ -88,11 +94,14 @@ impl Outbox {
                 work.command,
                 Command::Mouse { .. }
                     | Command::Key { .. }
+                    | Command::Keys { .. }
                     | Command::Paste { .. }
                     | Command::RawInput { .. }
             )
         });
         self.wheel_steps = 0;
+        self.bytes = self.queue.iter().map(|work| work.cost).sum();
+        self.paused = false;
         if cleanup_confirmed {
             self.physical = Physical::default();
         }
@@ -112,6 +121,7 @@ impl Outbox {
             Command::Paste { text, .. } => text.len(),
             Command::RawInput { bytes, .. } => bytes.len(),
             Command::Key { event, .. } => event.text.len(),
+            Command::Keys { events, .. } => events.iter().map(|event| event.text.len()).sum(),
             _ => 0,
         };
         if bytes > shellfox_runtime::MAX_INPUT_BYTES {
@@ -149,22 +159,32 @@ impl Outbox {
             .checked_add_signed(isize::from(change))
             .ok_or("Invalid physical input state")?;
         let is_control = control(&command);
-        let ordinary = self.queue.len() - self.controls;
-        if held > MAX_HELD
-            || is_control && self.controls >= CONTROL_CAPACITY
-            || !is_control
-                && (ordinary + 1 + held > CAPACITY || change == 0 && ordinary >= NORMAL_CAPACITY)
-        {
+        if held > MAX_HELD || is_control && self.controls >= CONTROL_CAPACITY {
             return Err("Terminal busy: command was not accepted");
         }
-        // Each accepted press reserves one future release slot. Releases cannot
-        // overtake their press or keys, even when all ordinary slots are full.
+        let cost = cost(&command);
+        // Releases of held keys and buttons are always queued, so a pause
+        // never leaves a key stuck. At most MAX_HELD of them exist.
+        if !is_control && change >= 0 {
+            if self.paused && self.bytes > MAX_PENDING_BYTES / 2 {
+                return Err(PAUSED);
+            }
+            self.paused = self.bytes + cost > MAX_PENDING_BYTES;
+            if self.paused {
+                return Err(PAUSED);
+            }
+        }
         self.physical.accept(&mut command);
+        self.bytes += cost;
+        let Err(command) = batch::join(self.queue.back_mut(), command, &pending, &input) else {
+            return Ok(());
+        };
         self.queue.push_back(Queued {
             command,
             pending,
             repeats: 1,
             input,
+            cost,
         });
         self.wheel_steps += usize::from(is_wheel);
         self.controls += usize::from(is_control);
@@ -216,6 +236,7 @@ impl Outbox {
                 Ok(()) => {
                     *next = id;
                     pending.insert(id, work.pending);
+                    self.bytes -= work.cost;
                     self.wheel_steps -= usize::from(is_wheel);
                     self.controls -= usize::from(is_control);
                     if let Some(command) = repeated {
@@ -224,6 +245,7 @@ impl Outbox {
                             pending: Pending::Applied,
                             repeats: work.repeats - 1,
                             input: work.input,
+                            cost: 0,
                         });
                     }
                 }
@@ -233,10 +255,12 @@ impl Outbox {
                         pending: work.pending,
                         repeats: work.repeats,
                         input: work.input,
+                        cost: work.cost,
                     });
                     break;
                 }
                 Err(error) => {
+                    self.bytes -= work.cost;
                     self.controls -= usize::from(is_control);
                     self.wheel_steps -= if is_wheel {
                         usize::from(work.repeats)

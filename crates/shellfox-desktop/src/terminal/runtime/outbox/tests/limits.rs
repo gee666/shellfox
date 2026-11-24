@@ -15,7 +15,7 @@ fn focus_loss_and_capture_cancel_release_once_under_backpressure() {
                 Pending::Applied,
             )
             .unwrap();
-        for _ in 2..NORMAL_CAPACITY {
+        for _ in 2..BACKLOG {
             queue
                 .enqueue(
                     Command::Scroll {
@@ -65,8 +65,8 @@ fn all_accepted_physical_keys_keep_reserved_release_slots_at_the_hard_limit() {
             .enqueue(key(KeyAction::Press), Pending::Applied)
             .is_err()
     );
+    fill_memory_budget(&mut queue);
     queue.cancel(false).unwrap();
-    assert_eq!(queue.queue.len(), CAPACITY);
     assert!(!queue.has_held());
     let mut transport = Transport::new();
     transport.fill();
@@ -75,13 +75,7 @@ fn all_accepted_physical_keys_keep_reserved_release_slots_at_the_hard_limit() {
     }
     assert_eq!(transport.next, 0);
     let requests = transport.finish(&mut queue);
-    let keys: Vec<_> = requests
-        .iter()
-        .filter_map(|request| match &request.command {
-            Command::Key { event, .. } => Some(event),
-            _ => None,
-        })
-        .collect();
+    let keys = key_events(&requests);
     assert_eq!(keys.len(), 2 * MAX_HELD);
     assert!(
         keys[..MAX_HELD]
@@ -124,7 +118,7 @@ fn protocol_control_has_separate_bounded_space_without_spending_release_reservat
         )
         .unwrap();
     queue.cancel(true).unwrap();
-    assert_eq!(queue.queue.len(), NORMAL_CAPACITY + CONTROL_CAPACITY + 2);
+    assert_eq!(queue.queue.len(), BACKLOG + CONTROL_CAPACITY + 2);
     assert_eq!(queue.buttons(), 0);
     Transport::new().finish(&mut queue);
     assert_eq!(queue.controls, 0);
@@ -191,7 +185,7 @@ fn changed_shift_or_control_modifiers_do_not_hide_an_accepted_physical_release()
         )
         .unwrap();
     assert!(!queue.has_held());
-    assert_eq!(Transport::new().finish(&mut queue).len(), 2);
+    assert_eq!(key_events(&Transport::new().finish(&mut queue)).len(), 2);
 }
 
 #[test]
