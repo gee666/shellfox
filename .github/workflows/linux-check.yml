@@ -88,6 +88,12 @@ jobs:
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         timeout-minutes: 5
         run: env -u WAYLAND_DISPLAY SHELLFOX_X11_KEYS=1 xvfb-run -a cargo test --locked -p shellfox-desktop --test x11_keys -- --nocapture
+      # Eight tabs redrawing at 30 fps for three minutes: the host keeps answering
+      # request bursts and holds a stable fd count.
+      - name: Host soak
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        timeout-minutes: 10
+        run: SHELLFOX_HOST_SOAK=1 cargo test --locked -p shellfox-cli --test host_soak -- --nocapture
       - name: Service automation against the owned raw fixture
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         run: |

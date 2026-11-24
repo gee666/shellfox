@@ -65,6 +65,10 @@ impl Fixture {
         }
         Ok(fixture)
     }
+    #[allow(dead_code, reason = "only the soak watches the host process")]
+    pub fn host_pid(&self) -> Option<u32> {
+        self.host.as_ref().map(|host| host.0.id())
+    }
     /// `shellfox-cli --data-dir ... WORDS`, the command line a terminal would also run.
     pub fn argv(&self, words: &[&str]) -> Vec<String> {
         let hash: String = self.digest.iter().map(|b| format!("{b:02x}")).collect();
