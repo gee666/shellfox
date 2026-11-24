@@ -176,3 +176,64 @@ async fn replacement_epoch_cannot_adopt_old_raw_pipes_and_old_eof_cannot_revoke_
     client.close_all_lifetimes().await.unwrap();
     owner.shutdown().await.unwrap();
 }
+
+/// Reopening right after shutdown works, also while other threads fork
+/// children (as terminal spawns do) that briefly hold a copy of the store lock.
+#[tokio::test]
+async fn the_store_reopens_after_every_shutdown() {
+    let data = crate::tests::scratch();
+    #[cfg(unix)]
+    let _forks = Forks::start();
+    for round in 0..50 {
+        let mut owner = ServiceOwner::start(
+            data.path().into(),
+            std::env::current_exe().unwrap(),
+            CancellationToken::new(),
+            (),
+        )
+        .await
+        .unwrap();
+        owner
+            .client(uuid::Uuid::new_v4())
+            .execute(LocalApiRequest::Snapshot {})
+            .await
+            .unwrap();
+        owner.shutdown().await.unwrap();
+        if let Err(error) = shellfox_host::Host::open(data.path()) {
+            panic!("round {round}: the store is still owned after shutdown: {error:?}");
+        }
+    }
+}
+/// Forks children that wait a moment before exec, until dropped.
+#[cfg(unix)]
+struct Forks(std::sync::Arc<std::sync::atomic::AtomicBool>);
+#[cfg(unix)]
+impl Forks {
+    fn start() -> Self {
+        use std::os::unix::process::CommandExt;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let running = std::sync::Arc::new(AtomicBool::new(true));
+        let forking = running.clone();
+        std::thread::spawn(move || {
+            while forking.load(Ordering::Relaxed) {
+                let mut command = std::process::Command::new("/bin/true");
+                // pre_exec makes this a real fork that holds every fd until exec.
+                // SAFETY: the closure only sleeps, which is async-signal-safe.
+                unsafe {
+                    command.pre_exec(|| {
+                        std::thread::sleep(Duration::from_millis(5));
+                        Ok(())
+                    })
+                };
+                let _ = command.status();
+            }
+        });
+        Self(running)
+    }
+}
+#[cfg(unix)]
+impl Drop for Forks {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}

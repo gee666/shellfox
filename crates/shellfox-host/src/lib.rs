@@ -71,18 +71,34 @@ struct PendingClose {
     revision: u64,
     terminals: Vec<TerminalIdentity>,
 }
+/// A child forked by any thread holds a copy of the lock until it execs, so a
+/// store its host just released can look owned for a moment. A live host keeps
+/// the lock for good.
+const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+fn lock_store(ownership: &File) -> Result<()> {
+    let deadline = std::time::Instant::now() + LOCK_WAIT;
+    loop {
+        match ownership.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(_) => {
+                return Err(Error::new(
+                    ErrorCode::Conflict,
+                    "Another host owns this experiment store.",
+                ))
+            }
+        }
+    }
+}
 impl Host {
     /// Opens only this explicit directory's separately named experiment store.
     /// One host owns the directory. Share an Arc<Host> between local clients.
     pub fn open(directory: impl AsRef<Path>) -> Result<Self> {
         let (directory, ownership, _checked_artifacts) =
             storage_guard::prepare(directory.as_ref())?;
-        ownership.try_lock().map_err(|_| {
-            Error::new(
-                ErrorCode::Conflict,
-                "Another host owns this experiment store.",
-            )
-        })?;
+        lock_store(&ownership)?;
         let db = storage::open(&directory.join(STORE_FILENAME))?;
         let host = Self {
             inner: Mutex::new(Inner {
