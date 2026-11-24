@@ -36,6 +36,36 @@ fn xdotool(args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
+/// Replaces the shell's line with `line` and presses Return. xdotool types
+/// "\n" as the Linefeed keysym, which is not Enter. Keep lines short: the
+/// terminal rejects keys while about 64 are unacknowledged.
+fn type_line(window: &str, line: &str) {
+    xdotool(&["windowfocus", "--sync", window]);
+    xdotool(&["key", "ctrl+u"]);
+    xdotool(&["type", "--delay", "20", line]);
+    xdotool(&["key", "Return"]);
+}
+
+/// Retypes a probe until the shell in `folder` runs it: the first keys can
+/// arrive before the new tab's terminal has focus.
+fn wait_for_shell(window: &str, folder: &Path, ui: &mut Ui) {
+    let marker = folder.join("shell-ready");
+    for _ in 0..6 {
+        type_line(window, "touch shell-ready");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if marker.exists() {
+                return;
+            }
+            if let Some(status) = ui.0.try_wait().unwrap() {
+                panic!("The desktop exited while waiting for the shell: {status}");
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    panic!("The shell in the new tab never ran a typed command");
+}
+
 fn wait_for(log: &Path, ui: &mut Ui, done: impl Fn(&str) -> bool, what: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
@@ -60,8 +90,7 @@ fn tab_and_shift_tab_reach_the_focused_x11_terminal() {
     let desktop = Desktop::new("desktop-x11-keys-");
     let folder = desktop.data.parent().unwrap().join("work");
     std::fs::create_dir_all(&folder).unwrap();
-    let script = folder.join("keylog.py");
-    std::fs::write(&script, LOGGER).unwrap();
+    std::fs::write(folder.join("keylog.py"), LOGGER).unwrap();
     let mut ui = Ui(desktop.command(&[]).spawn().unwrap());
     let host = Host(&desktop);
     desktop.wait_registered(Some(&mut ui));
@@ -72,12 +101,14 @@ fn tab_and_shift_tab_reach_the_focused_x11_terminal() {
     assert!(status.success(), "launch forwarding failed: {status}");
     let window = xdotool(&["search", "--sync", "--name", "^Shellfox v"]);
     let window = window.lines().next().unwrap().to_owned();
+    wait_for_shell(&window, &folder, &mut ui);
     // (kitty flags, Tab bytes, Shift+Tab bytes) as hex.
     for (flags, tab, shift_tab) in [("0", "09", "1b5b5a"), ("7", "09", "1b5b393b3275")] {
         let log = folder.join(format!("keys-{flags}.log"));
-        xdotool(&["windowfocus", "--sync", &window]);
-        let command = format!("python3 {} {} {flags}\n", script.display(), log.display());
-        xdotool(&["type", "--delay", "20", &command]);
+        type_line(
+            &window,
+            &format!("python3 keylog.py keys-{flags}.log {flags}"),
+        );
         wait_for(
             &log,
             &mut ui,
