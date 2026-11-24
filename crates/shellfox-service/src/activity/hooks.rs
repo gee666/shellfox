@@ -66,7 +66,7 @@ impl Service {
             InspectionScope::Guest
         } else if cfg!(windows) {
             InspectionScope::LocalWindows
-        } else if cfg!(target_os = "linux") {
+        } else if cfg!(any(target_os = "linux", target_os = "macos")) {
             InspectionScope::LocalUnix
         } else {
             InspectionScope::Unsupported

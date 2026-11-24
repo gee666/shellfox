@@ -8,20 +8,29 @@ use std::{collections::HashMap, ffi::OsString};
 pub enum InspectionScope {
     LocalWindows,
     LocalUnix,
+    /// A WSL tab. Its root is the local wsl.exe; guest processes are out of reach.
     Guest,
     Ssh,
     Unsupported,
 }
 impl InspectionScope {
+    /// The inspection sees the shell and its descendants, so status can use it.
     pub(super) fn locally_inspectable(self) -> bool {
         matches!(self, Self::LocalWindows | Self::LocalUnix)
+    }
+    /// The tab's root process can be inspected. For WSL that proves only the
+    /// wsl.exe root, which is enough for automatic expiry, as in 0.9.
+    fn root_inspectable(self) -> bool {
+        self.locally_inspectable() || self == Self::Guest
     }
 
     fn matches_platform(self, platform: InspectionPlatform) -> bool {
         matches!(
             (self, platform),
-            (Self::LocalWindows, InspectionPlatform::Windows)
-                | (Self::LocalUnix, InspectionPlatform::Unix)
+            (
+                Self::LocalWindows | Self::Guest,
+                InspectionPlatform::Windows
+            ) | (Self::LocalUnix, InspectionPlatform::Unix)
         )
     }
 }
@@ -107,8 +116,7 @@ impl RuntimeInspectionState {
             && identities.iter().all(|identity| {
                 self.entries.get(&identity.tab_id).is_some_and(|entry| {
                     entry.identity == *identity
-                        // Guest and SSH shells have no local process proof.
-                        && entry.scope.locally_inspectable()
+                        && entry.scope.root_inspectable()
                         && entry.completed_started_at.is_some_and(|started| {
                             started >= since_ms.max(entry.minimum_started_at)
                         })
@@ -142,7 +150,7 @@ impl ProcessInspector for RuntimeProcessInspector<'_> {
             .get_mut(&identity.tab_id)
             .filter(|entry| entry.identity == identity)
             .ok_or(InspectionFailure::OwnershipMismatch)?;
-        if !entry.scope.locally_inspectable() {
+        if !entry.scope.root_inspectable() {
             return Err(InspectionFailure::Unavailable);
         }
         let runtime = self
@@ -287,4 +295,18 @@ fn text(value: OsString, total: &mut usize, exact: &mut bool) -> Result<String, 
         return Err(InspectionFailure::Bounds);
     }
     Ok(text)
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::{InspectionPlatform as P, InspectionScope as S};
+
+    #[test]
+    fn a_wsl_root_counts_but_its_status_stays_hidden() {
+        assert!(S::Guest.root_inspectable() && !S::Guest.locally_inspectable());
+        assert!(S::Guest.matches_platform(P::Windows));
+        assert!(!S::Guest.matches_platform(P::Unix));
+        assert!(S::LocalUnix.matches_platform(P::Unix));
+        assert!(!S::Unsupported.root_inspectable());
+    }
 }

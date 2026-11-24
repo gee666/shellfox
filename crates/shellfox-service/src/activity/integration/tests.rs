@@ -277,11 +277,7 @@ fn unsupported_scopes_and_missing_runtime_do_not_request_or_fake_processes() {
     let identity = id();
     let source = HashMap::<TabId, shellfox_runtime::Runtime>::new();
     let mut state = RuntimeInspectionState::new();
-    for scope in [
-        InspectionScope::Guest,
-        InspectionScope::Ssh,
-        InspectionScope::Unsupported,
-    ] {
+    for scope in [InspectionScope::Ssh, InspectionScope::Unsupported] {
         state.watch(identity, scope).unwrap();
         let mut inspector = RuntimeProcessInspector::new(&source, &mut state, 0);
         assert!(matches!(
@@ -289,13 +285,18 @@ fn unsupported_scopes_and_missing_runtime_do_not_request_or_fake_processes() {
             Err(InspectionFailure::Unavailable)
         ));
     }
-    state
-        .watch(identity, InspectionScope::LocalWindows)
-        .unwrap();
-    let mut inspector = RuntimeProcessInspector::new(&source, &mut state, 0);
-    assert!(matches!(
-        inspector.inspect(identity),
-        Err(InspectionFailure::OwnershipMismatch)
-    ));
-    assert!(!state.fresh_since(&[identity], 0));
+    // A WSL tab's wsl.exe root is inspected like a local shell.
+    for scope in [
+        InspectionScope::LocalWindows,
+        InspectionScope::LocalUnix,
+        InspectionScope::Guest,
+    ] {
+        state.watch(identity, scope).unwrap();
+        let mut inspector = RuntimeProcessInspector::new(&source, &mut state, 0);
+        assert!(matches!(
+            inspector.inspect(identity),
+            Err(InspectionFailure::OwnershipMismatch)
+        ));
+        assert!(!state.fresh_since(&[identity], 0));
+    }
 }
