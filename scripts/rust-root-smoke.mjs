@@ -38,7 +38,10 @@ const until = async (check, what, ms = 15_000) => {
     await delay(50);
   }
 };
-const alive = pid => existsSync(`/proc/${pid}`) && !/^\d+ \(.*\) [ZX] /.test(readFileSync(`/proc/${pid}/stat`, 'utf8'));
+const alive = pid => {
+  try { return !/^\d+ \(.*\) [ZX] /.test(readFileSync(`/proc/${pid}/stat`, 'utf8')); }
+  catch { return false; } // Gone between the check and the read.
+};
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
 
 let host;

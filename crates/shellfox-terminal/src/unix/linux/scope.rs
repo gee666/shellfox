@@ -77,7 +77,15 @@ pub fn probe(runner: &Path, true_program: &Path, fresh_nonce: &str) -> Result<Op
         "scope probe paths must be absolute"
     );
     let args = scope_arguments(fresh_nonce, true_program, &[])?;
-    let mut child = match Command::new(runner)
+    let mut probe = Command::new(runner);
+    // The same default bus as a launch, for hosts started without one.
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+        probe.env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            crate::unix::boundary::user_bus(),
+        );
+    }
+    let mut child = match probe
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

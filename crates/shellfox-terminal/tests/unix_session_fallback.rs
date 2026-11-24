@@ -37,6 +37,24 @@ fn session_terminal_input_output_resize_and_exit() {
 }
 
 #[test]
+fn session_status_stays_after_the_controller_is_reaped() {
+    session();
+    let fixture = Fixture::new();
+    let mut session = PtySession::spawn(fixture.shell("exit 3")).unwrap();
+    let mut status = None;
+    until(|| {
+        status = session.try_wait().unwrap();
+        status.is_some()
+    });
+    // The reaped controller's PID may name another session by now; polling
+    // again must not sweep it.
+    for _ in 0..5 {
+        assert_eq!(session.try_wait().unwrap().unwrap().exit_code(), 3);
+    }
+    session.shutdown().unwrap();
+}
+
+#[test]
 fn session_close_kills_a_child_that_ignores_hangup() {
     session();
     let fixture = Fixture::new();

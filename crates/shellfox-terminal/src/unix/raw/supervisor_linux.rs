@@ -91,7 +91,7 @@ fn run(stream: &mut UnixStream, teardown: &Teardown, command: &RawCommand) -> Re
             stream.write_all(&super::controller::exit_report(status))?;
             return Ok(());
         }
-        teardown.reap_orphans(child.id());
+        teardown.reap_orphans(Some(child.id()));
         stopping |= CLOSE.load(Ordering::Relaxed);
         let mut byte = [0];
         match stream.read(&mut byte) {

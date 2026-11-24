@@ -85,8 +85,9 @@ impl Teardown {
         )?;
         Ok(Self::Cgroup(kill))
     }
-    /// Reaps orphans that exited while the guest runs, never the guest.
-    pub fn reap_orphans(&self, guest: u32) {
+    /// Reaps orphans that exited, never the unreaped guest. None once the
+    /// guest is reaped, since an orphan may then reuse its PID.
+    pub fn reap_orphans(&self, guest: Option<u32>) {
         if matches!(self, Self::Cgroup(_)) {
             return;
         }
@@ -102,7 +103,7 @@ impl Teardown {
                 )
             };
             let pid = unsafe { info.si_pid() };
-            if peeked != 0 || pid <= 0 || pid as u32 == guest {
+            if peeked != 0 || pid <= 0 || Some(pid as u32) == guest {
                 return;
             }
             unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) };
@@ -120,6 +121,11 @@ impl Teardown {
                 loop {
                     while unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) } > 0 {}
                     if matches!(session.kill(), Ok(false)) {
+                        // The last pass's victims, or init would inherit
+                        // zombies it may never reap in a container.
+                        while unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) } > 0
+                        {
+                        }
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(5));
@@ -251,7 +257,7 @@ fn run(
         "PTY controller close requested before exec"
     );
     let mut child = command.spawn().context("exec owned PTY program")?;
-    // From here even IPC failure goes through entry's cgroup.kill.
+    // From here even IPC failure goes through entry's teardown.
     stream.write_all(b"START\n")?;
     stream.set_nonblocking(true)?;
     let mut sent_exit = false;
@@ -260,7 +266,7 @@ fn run(
             // Same exit as owner-channel loss: entry's teardown.
             return Ok(0);
         }
-        teardown.reap_orphans(child.id());
+        teardown.reap_orphans((!sent_exit).then(|| child.id()));
         if !sent_exit {
             if let Some(status) = child.try_wait()? {
                 let code = status

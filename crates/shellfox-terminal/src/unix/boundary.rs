@@ -121,12 +121,19 @@ pub(super) struct Sweep {
     closing: Option<Instant>,
     /// A recent scan that still found members; never caches emptiness.
     populated: Option<Instant>,
+    /// The controller exited and no member was left. Final: nothing can join
+    /// a session whose leader is dead and empty, and once the controller is
+    /// reaped its PID may name another session.
+    finished: bool,
 }
 impl Boundary {
     pub fn create() -> Result<Self> {
         Ok(match containment() {
             Containment::Cgroup => Self::Cgroup(Cgroup::create()?),
-            Containment::Session => Self::Session(Sweep::default()),
+            Containment::Session => {
+                sweep::same_pid_namespace()?;
+                Self::Session(Sweep::default())
+            }
         })
     }
     pub fn containment(&self) -> Containment {
@@ -188,7 +195,13 @@ impl Boundary {
             .spawn(move || {
                 sweep::wait_exit(&root);
                 wake();
-                while matches!(session.wait(MEMBER_RECHECK), Ok(true)) {
+                loop {
+                    match session.wait(MEMBER_RECHECK) {
+                        Ok(false) => break,
+                        Ok(true) => (),
+                        // A failed scan is not an empty session.
+                        Err(_) => std::thread::sleep(MEMBER_RECHECK),
+                    }
                     wake();
                 }
                 wake();
@@ -202,6 +215,9 @@ impl Boundary {
             Self::Cgroup(group) => return group.terminate(),
             Self::Session(sweep) => sweep,
         };
+        if sweep.finished {
+            return Ok(());
+        }
         let (session, root) = sweep
             .session
             .zip(sweep.root.as_ref())
@@ -229,14 +245,20 @@ impl Boundary {
             Self::Cgroup(group) => return group.empty(),
             Self::Session(sweep) => sweep,
         };
-        let Some(session) = sweep.session else {
+        let (Some(session), Some(root)) = (sweep.session, sweep.root.as_ref()) else {
             return Ok(true);
         };
+        if sweep.finished {
+            return Ok(true);
+        }
         let now = Instant::now();
         if sweep.populated.is_some_and(|at| now < at + SWEEP_INTERVAL) {
             return Ok(false);
         }
+        // Exit first, so an empty scan after it is final.
+        let exited = sweep::exited(root)?;
         sweep.populated = session.populated()?.then_some(now);
+        sweep.finished = exited && sweep.populated.is_none();
         Ok(sweep.populated.is_none())
     }
     pub fn remove(&mut self) -> Result<()> {

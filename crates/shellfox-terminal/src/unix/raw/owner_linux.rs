@@ -137,6 +137,8 @@ impl Owner {
         Ok(())
     }
     pub fn remove(&mut self, child: &mut Child) -> Result<()> {
+        // The exit first, so a refused remove leaves nothing half done.
+        ensure!(self.exited(child)?, "Raw controller has not exited");
         self.group.remove()?;
         child
             .try_wait()?

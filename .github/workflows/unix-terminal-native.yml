@@ -6,8 +6,9 @@ on:
     branches: [experiment/ghostty-rust]
     paths:
       - 'crates/shellfox-terminal/**'
-      - 'crates/shellfox-service/src/remote/v1_privilege.rs'
-      - 'crates/shellfox-service/src/automation/replay.rs'
+      - 'crates/shellfox-service/**'
+      - 'crates/shellfox-cli/**'
+      - 'crates/shellfox-desktop/src/smoke.rs'
       - 'scripts/rust-root-smoke.mjs'
       - 'src/main/terminal/native/darwin-terminal-supervisor.c'
       - 'Cargo.lock'
@@ -19,8 +20,9 @@ on:
   pull_request:
     paths:
       - 'crates/shellfox-terminal/**'
-      - 'crates/shellfox-service/src/remote/v1_privilege.rs'
-      - 'crates/shellfox-service/src/automation/replay.rs'
+      - 'crates/shellfox-service/**'
+      - 'crates/shellfox-cli/**'
+      - 'crates/shellfox-desktop/src/smoke.rs'
       - 'scripts/rust-root-smoke.mjs'
       - 'src/main/terminal/native/darwin-terminal-supervisor.c'
       - 'Cargo.lock'
