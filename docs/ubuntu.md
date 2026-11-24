@@ -12,7 +12,7 @@ Don't run Shellfox itself with sudo. Its shells, settings and Tailscale node bel
 
 The package puts the app in `/usr/lib/shellfox/` (`shellfox` is the desktop, `shellfox-cli` the CLI and host) and adds a menu entry. `/usr/bin/shellfox` is the CLI. It hands `start`, `add`, `new`, `create`, `--new-session` and `--new-window` to the desktop in the background, as the 0.9 launcher did. `/usr/bin/shellfox-cli` links to the CLI directly.
 
-Each launch adds or repairs an Open in Shellfox entry for folders in Files (Nautilus), Nemo, Dolphin, Thunar and Caja, in your own `~/.local/share` and `~/.config`. The entries run `/usr/bin/shellfox start <folder>`, so the ones 0.9 installed keep working after the upgrade. Files shows a top-level item with `python3-nautilus` installed and a Scripts item otherwise; restart Files to see it. The Files and Caja entries are small `python3` scripts, as in 0.9.
+Each launch adds or repairs an Open in Shellfox entry for folders in Files (Nautilus), Nemo, Dolphin, Thunar and Caja, in your own `~/.local/share` and `~/.config`. The entries run `/usr/bin/shellfox start <folder>`, so the ones 0.9 installed keep working after the upgrade. Files shows a top-level item with `python3-nautilus` installed and a Scripts item otherwise; restart Files to see it. The Scripts items for Files and Caja are plain `sh` scripts.
 
 ```sh
 shellfox session create .
@@ -22,7 +22,7 @@ shellfox help
 
 The window draws through X11 or Wayland with Vulkan. The package depends on fontconfig, FreeType, X11/XCB, xkbcommon, Wayland and `libvulkan1`, but you still need a working Vulkan driver. Python is no longer needed.
 
-The portable `.tar.gz` has the same binaries without the package. It doesn't update itself.
+The portable `.tar.gz` has the same binaries without the package. Each launch writes `~/.local/bin/shellfox`, which runs the extracted `shellfox-cli` and hands the same desktop commands to the extracted `shellfox`, and adds the same file-manager entries, which run that launcher. Add `~/.local/bin` to PATH if your shell doesn't already have it. Move the folder and launch it again to point the launcher at the new place. It doesn't update itself.
 
 ## Updating
 

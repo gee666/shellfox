@@ -1,9 +1,10 @@
 //! Always-on desktop integration, as in 0.9: the `shellfox` command and the
 //! "Open in Shellfox" file-manager entries are installed and repaired on every
 //! launch. There is no toggle; uninstalling the app removes them.
-//! Windows: Squirrel shims, user PATH and Explorer verbs. Linux (.deb): the
-//! package's /usr/bin/shellfox plus per-user Files, Nemo, Dolphin, Thunar and
-//! Caja menus. macOS: ~/.local/bin/shellfox; Finder has no menu, as in 0.9.
+//! Windows: Squirrel shims, user PATH and Explorer verbs. Linux: per-user
+//! Files, Nemo, Dolphin, Thunar and Caja menus that run the .deb's
+//! /usr/bin/shellfox, or the ~/.local/bin/shellfox launcher the portable
+//! .tar.gz writes. macOS: ~/.local/bin/shellfox; Finder has no menu, as in 0.9.
 use serde_json::{Value, json};
 use shellfox_protocol::{AppError, CliIntegration, ErrorCode, ExplorerIntegration};
 
@@ -121,20 +122,31 @@ fn ensure_explorer() -> Result<ExplorerIntegration, AppError> {
 }
 
 #[cfg(target_os = "linux")]
-fn deb() -> Result<shellfox_service::system::HostSystemServices, AppError> {
-    use shellfox_service::system::{DebPackage, HostSystemServices, NativeSystemEnvironment};
-    let package = DebPackage::current()
-        .ok_or_else(|| unsupported("File-manager menus require the installed .deb package."))?;
-    let backend = package.backend(std::sync::Arc::new(NativeSystemEnvironment));
-    Ok(HostSystemServices::new(std::sync::Arc::new(backend)))
+fn linux() -> Result<shellfox_service::system::HostSystemServices, AppError> {
+    use shellfox_service::system::{
+        DebPackage, HostSystemServices, NativeSystemEnvironment, PortableLinux,
+    };
+    use std::sync::Arc;
+    let environment = Arc::new(NativeSystemEnvironment);
+    let backend = if let Some(package) = DebPackage::current() {
+        package.backend(environment)
+    } else {
+        let exe = std::env::current_exe().map_err(|error| failed(error.to_string()))?;
+        shellfox_service::app_paths::is_packaged()
+            .then(|| PortableLinux::current(&exe, &*environment))
+            .flatten()
+            .ok_or_else(|| unsupported("Desktop integration requires the installed app."))?
+            .backend(environment)
+    };
+    Ok(HostSystemServices::new(Arc::new(backend)))
 }
 #[cfg(target_os = "linux")]
 fn ensure_cli() -> Result<CliIntegration, AppError> {
-    deb()?.ensure_cli()
+    linux()?.ensure_cli()
 }
 #[cfg(target_os = "linux")]
 fn ensure_explorer() -> Result<ExplorerIntegration, AppError> {
-    deb()?.ensure_explorer()
+    linux()?.ensure_explorer()
 }
 
 #[cfg(target_os = "macos")]

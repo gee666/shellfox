@@ -29,7 +29,7 @@ The phone app is a remote client. It connects to a desktop or headless host and 
 - The folder icon opens Files beside the terminal: browse, edit, preview Markdown, SVG, HTML and images, upload and download. Clicking a file path printed in a terminal opens it there. See [Files](docs/files-api.md).
 - The eye button keeps the computer awake while Shellfox runs.
 - Settings has General, Terminals, Agents, Remote access and SSH pages.
-- Right-click a folder and choose Open in Shellfox to start a session there: Explorer on Windows (Show more options on Windows 11), and Files, Nemo, Dolphin, Thunar or Caja with the `.deb`. As in 0.9, every launch adds or repairs this entry and the `shellfox` command; there is no toggle. Uninstalling removes them. macOS has no Finder entry.
+- Right-click a folder and choose Open in Shellfox to start a session there: Explorer on Windows (Show more options on Windows 11), and Files, Nemo, Dolphin, Thunar or Caja with the `.deb` or the portable `.tar.gz`. As in 0.9, every launch adds or repairs this entry and the `shellfox` command; there is no toggle. Uninstalling removes them. macOS has no Finder entry.
 
 Closing a tab ends its shell. Quitting Shellfox with live shells asks first, then stops the host and its shells. A window crash leaves the host and shells running, and the next launch reattaches.
 

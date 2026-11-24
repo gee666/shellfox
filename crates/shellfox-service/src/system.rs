@@ -27,6 +27,7 @@ mod file_platform;
 mod io;
 mod linux;
 mod linux_discovery;
+mod linux_portable;
 mod linux_templates;
 mod native;
 mod native_api;
@@ -55,6 +56,7 @@ pub use io::{FileRevision, NativeSystemFiles, SystemFile, SystemFiles};
 pub use linux_discovery::{
     FileManager, LinuxMenuDiscovery, NativeSystemLinuxDiscovery, SystemLinuxDiscovery,
 };
+pub use linux_portable::{posix_router, PortableLinux, DESKTOP_VERBS};
 pub use native::{NativeSystemBackend, SystemInstallPolicy, SystemProviders};
 pub use opener::{NativeSystemOpener, SystemOpenTarget, SystemOpener};
 #[cfg(not(windows))]

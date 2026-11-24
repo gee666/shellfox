@@ -1,4 +1,8 @@
 use anyhow::{Context, Result};
+#[cfg(any(windows, test))]
+use shellfox_service::system::DESKTOP_VERBS;
+#[cfg(any(windows, target_os = "macos", test))]
+use shellfox_service::system::posix_router;
 use std::ffi::OsString;
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
@@ -177,26 +181,6 @@ struct WindowsShims {
     cmd: String,
     powershell: String,
     posix: String,
-}
-
-/// First words that open the desktop instead of running the CLI, as in 0.9.
-#[cfg(any(windows, target_os = "macos", test))]
-const DESKTOP_VERBS: [&str; 6] = [
-    "start",
-    "add",
-    "new",
-    "create",
-    "--new-session",
-    "--new-window",
-];
-
-/// POSIX tail shared by the Git Bash/WSL and macOS shims; `$exe` and `$cli` are set.
-#[cfg(any(windows, target_os = "macos", test))]
-fn posix_router() -> String {
-    format!(
-        "case \"${{1:-}}\" in\n  {})\n    \"$exe\" \"$@\" </dev/null >/dev/null 2>&1 &\n    exit 0\n    ;;\nesac\nexec \"$cli\" \"$@\"\n",
-        DESKTOP_VERBS.join("|")
-    )
 }
 
 /// From WSL, the folder of `start|add|new|create [PATH]` and `session create

@@ -30,26 +30,7 @@ impl DebPackage {
     }
     /// Per-user menus for this package, against the given HOME/XDG environment.
     pub fn backend(self, environment: Arc<dyn SystemEnvironment>) -> NativeSystemBackend {
-        let files: Arc<dyn super::SystemFiles> = Arc::new(super::NativeSystemFiles);
-        NativeSystemBackend::new(
-            SystemProviders {
-                linux_discovery: Arc::new(super::NativeSystemLinuxDiscovery {
-                    environment: environment.clone(),
-                    files: files.clone(),
-                }),
-                environment,
-                resources: Arc::new(self),
-                files,
-                registry: Arc::new(super::NativeSystemRegistry),
-                opener: Arc::new(super::NativeSystemOpener {
-                    interactive_session: false,
-                }),
-            },
-            SystemInstallPolicy {
-                allow_user_install: true,
-                allow_open: false,
-            },
-        )
+        user_backend(Arc::new(self), environment)
     }
 }
 impl SystemInstallResources for DebPackage {
@@ -99,4 +80,31 @@ impl SystemInstallResources for DebPackage {
             ))
         }
     }
+}
+
+/// A backend that installs per-user integration for an installed layout.
+pub(super) fn user_backend(
+    resources: Arc<dyn SystemInstallResources>,
+    environment: Arc<dyn SystemEnvironment>,
+) -> NativeSystemBackend {
+    let files: Arc<dyn super::SystemFiles> = Arc::new(super::NativeSystemFiles);
+    NativeSystemBackend::new(
+        SystemProviders {
+            linux_discovery: Arc::new(super::NativeSystemLinuxDiscovery {
+                environment: environment.clone(),
+                files: files.clone(),
+            }),
+            environment,
+            resources,
+            files,
+            registry: Arc::new(super::NativeSystemRegistry),
+            opener: Arc::new(super::NativeSystemOpener {
+                interactive_session: false,
+            }),
+        },
+        SystemInstallPolicy {
+            allow_user_install: true,
+            allow_open: false,
+        },
+    )
 }

@@ -50,25 +50,28 @@ class ShellfoxMenu(GObject.GObject, Nautilus.MenuProvider):
 "#
     ))
 }
+/// Files and Caja run scripts in the viewed local folder, with the selection
+/// as arguments relative to it. Using those instead of the URI variables means
+/// no percent-decoding, so names with spaces or non-UTF-8 bytes pass unchanged.
 pub(super) fn script(launcher: &Path, caja: bool) -> SystemResult<String> {
-    let launcher = serde_json::to_string(path_text(launcher)?)
-        .map_err(|_| error(ErrorCode::Validation, "Invalid file-menu path."))?;
+    let launcher = shell_quote(path_text(launcher)?);
     let prefix = if caja { "CAJA" } else { "NAUTILUS" };
     Ok(format!(
-        r#"#!/usr/bin/env python3
+        r#"#!/bin/sh
 # Shellfox/linux-v1
-import os, subprocess, sys
-from urllib.parse import urlparse, unquote
-selected = [p for p in os.environ.get('{prefix}_SCRIPT_SELECTED_FILE_PATHS', '').splitlines() if p]
-if len(selected) > 1: sys.exit(1)
-folder = selected[0] if selected else ''
-if not folder:
-    raw = os.environ.get('{prefix}_SCRIPT_CURRENT_URI', '')
-    uri = urlparse(raw)
-    if not raw.lower().startswith('file://') or uri.scheme != 'file' or uri.netloc not in ('', 'localhost') or uri.query or uri.fragment: sys.exit(1)
-    folder = unquote(uri.path)
-if not os.path.isabs(folder) or any(ord(c) < 32 or ord(c) == 127 for c in folder) or not os.path.isdir(folder): sys.exit(1)
-subprocess.Popen([{launcher}, 'start', folder], start_new_session=True)
+# Remote folders have no local working directory.
+case "${{{prefix}_SCRIPT_CURRENT_URI:-}}" in
+  [Ff][Ii][Ll][Ee]:///*|[Ff][Ii][Ll][Ee]://localhost/*) ;;
+  *) exit 1 ;;
+esac
+[ "$#" -le 1 ] || exit 1
+folder=$PWD
+if [ "$#" = 1 ]; then
+  case "$1" in /*) folder=$1 ;; *) folder=$PWD/$1 ;; esac
+fi
+case "$folder" in *[[:cntrl:]]*) exit 1 ;; esac
+[ -d "$folder" ] || exit 1
+exec {launcher} start "$folder"
 "#
     ))
 }
