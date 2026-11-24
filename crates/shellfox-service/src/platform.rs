@@ -7,6 +7,10 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(target_os = "macos")]
 mod darwin;
+#[cfg(unix)]
+mod socket_files;
+#[cfg(unix)]
+pub(crate) use socket_files::remove_stale as remove_stale_sockets;
 
 pub(crate) trait Stream: AsyncRead + AsyncWrite + Unpin + Send {
     fn verify_peer(&self) -> Result<()>;
@@ -162,7 +166,9 @@ pub(crate) async fn connect(address: &str, _directory: &Path) -> Result<LocalStr
 pub(crate) struct Listener {
     socket: tokio::net::UnixListener,
     path: PathBuf,
-    _directory: std::fs::File,
+    directory: std::fs::File,
+    leaf: std::ffi::CString,
+    bound: socket_files::SocketIdentity,
 }
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn anchored_socket_path(
@@ -230,11 +236,20 @@ impl Listener {
         #[cfg(not(target_os = "macos"))]
         let socket = tokio::net::UnixListener::bind(&kernel_path)?;
         std::fs::set_permissions(&kernel_path, std::fs::Permissions::from_mode(0o600))?;
+        let leaf = std::ffi::CString::new(leaf)?;
+        let bound = socket_files::identity(&held_directory, &leaf)?;
         Ok(Self {
             socket,
             path,
-            _directory: held_directory,
+            directory: held_directory,
+            leaf,
+            bound,
         })
+    }
+    /// Closes the listener and unlinks its socket file if it is still ours.
+    pub fn close(self) -> Result<()> {
+        drop(self.socket);
+        socket_files::remove(&self.directory, &self.leaf, self.bound)
     }
     pub fn address(&self) -> String {
         self.path.to_string_lossy().into_owned()

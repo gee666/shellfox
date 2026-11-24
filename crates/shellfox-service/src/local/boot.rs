@@ -86,6 +86,9 @@ impl BootGuard {
             .as_mut()
             .context("Native control owner missing")?
             .bind(&self.private)?;
+        // Ownership is held, so sockets in the directory are from dead hosts.
+        #[cfg(unix)]
+        platform::remove_stale_sockets(&self.private.endpoint_directory()?)?;
         self.listener = Some(platform::Listener::bind_verified(
             &self.private.path,
             #[cfg(unix)]
@@ -249,10 +252,15 @@ impl BootGuard {
         self.pending_record = None;
         if let Some(listener) = self.listener.take() {
             #[cfg(unix)]
-            let address = listener.address();
-            drop(listener); // closes only; no ignored pathname unlink
-            #[cfg(unix)]
-            self.endpoint.preserve_socket(address);
+            {
+                let address = listener.address();
+                if let Err(error) = listener.close() {
+                    eprintln!("Endpoint socket kept: {error:#}");
+                    self.endpoint.preserve_socket(address);
+                }
+            }
+            #[cfg(not(unix))]
+            drop(listener);
         }
         // Unpin created directories; the directories themselves stay.
         self.private.creation_owner().release();
