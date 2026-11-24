@@ -307,11 +307,18 @@ pub(crate) fn wait_started_exit(timeout: Duration) -> bool {
 /// Ends a host this UI started but could not reach: no shell can be in it.
 fn stop_started(grace: Duration) {
     announce_quit();
-    if !wait_started_exit(grace)
-        && let Some(started) = STARTED
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_mut()
+    if !wait_started_exit(grace) {
+        kill_started();
+    }
+}
+
+/// Ends a host this UI started that stopped answering. No-op for a host this
+/// UI didn't start.
+pub(crate) fn kill_started() {
+    if let Some(started) = STARTED
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_mut()
     {
         let _ = started.child.kill();
         let _ = started.child.wait();

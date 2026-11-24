@@ -32,7 +32,35 @@ fn outcome(owned: bool, closed: HostClosed, quitting: bool) -> Outcome {
     }
 }
 
-/// Watches the host on a lifetime of its own for as long as the app runs.
+/// A live host answers a snapshot well within this.
+const PING_DEADLINE: Duration = Duration::from_secs(10);
+const PING_EVERY: Duration = Duration::from_secs(5);
+/// Unanswered pings in a row before a host that keeps its lifetime open counts as lost.
+const MISSED_PINGS: u32 = 3;
+
+/// How the watched host ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Ended {
+    Closed(HostClosed),
+    /// The host kept this UI's lifetime open but stopped answering.
+    Unresponsive,
+}
+
+/// Resolves once `ping` failed `MISSED_PINGS` times in a row.
+async fn unresponsive<F, P>(mut ping: P, every: Duration)
+where
+    P: FnMut() -> F,
+    F: std::future::Future<Output = bool>,
+{
+    let mut missed = 0;
+    while missed < MISSED_PINGS {
+        tokio::time::sleep(every).await;
+        missed = if ping().await { 0 } else { missed + 1 };
+    }
+}
+
+/// Watches the host on a lifetime of its own for as long as the app runs, and
+/// pings it, so a hung host ends the views as surely as one that exited.
 pub(crate) fn watch(config: HostEndpointConfig, host: AppHost, cx: &mut App) {
     let (sender, ended) = tokio::sync::oneshot::channel();
     let watched = config.clone();
@@ -52,10 +80,21 @@ pub(crate) fn watch(config: HostEndpointConfig, host: AppHost, cx: &mut App) {
                         )
                         .await
                         .ok()?;
-                        Some(client.closed().await)
+                        let ping = || async {
+                            let snapshot = client
+                                .execute(shellfox_service::local_api::LocalApiRequest::Snapshot {});
+                            matches!(
+                                tokio::time::timeout(PING_DEADLINE, snapshot).await,
+                                Ok(Ok(_))
+                            )
+                        };
+                        Some(tokio::select! {
+                            closed = client.closed() => Ended::Closed(closed),
+                            () = unresponsive(ping, PING_EVERY) => Ended::Unresponsive,
+                        })
                     })
                 });
-            let _ = sender.send(closed.unwrap_or(HostClosed::Lost));
+            let _ = sender.send(closed.unwrap_or(Ended::Closed(HostClosed::Lost)));
         });
     if let Err(error) = thread {
         eprintln!("Shellfox host watch unavailable: {error:#}");
@@ -68,8 +107,18 @@ pub(crate) fn watch(config: HostEndpointConfig, host: AppHost, cx: &mut App) {
     .detach();
 }
 
-fn host_ended(closed: HostClosed, config: HostEndpointConfig, host: AppHost, cx: &mut App) {
+fn host_ended(ended: Ended, config: HostEndpointConfig, host: AppHost, cx: &mut App) {
     let quitting = crate::host_process::quit_announced() || host.is_stopped().unwrap_or(true);
+    let closed = match ended {
+        Ended::Closed(closed) => closed,
+        Ended::Unresponsive => {
+            eprintln!("Shellfox host stopped answering.");
+            // A hung host this UI started would keep its shells and block a
+            // fresh host; end it so Restart starts one.
+            crate::host_process::kill_started();
+            HostClosed::Lost
+        }
+    };
     let outcome = outcome(!host.is_external(), closed, quitting);
     if outcome == Outcome::Expected {
         return;
@@ -226,5 +275,19 @@ mod tests {
             Outcome::AwaitHost
         );
         assert_eq!(outcome(false, HostClosed::Lost, false), Outcome::AwaitHost);
+    }
+
+    #[tokio::test]
+    async fn a_host_that_stops_answering_counts_as_lost() {
+        let answers = [true, false, false, true, false, false, false];
+        let pinged = std::cell::Cell::new(0);
+        let ping = || {
+            let answer = answers.get(pinged.get()).copied().unwrap_or(true);
+            pinged.set(pinged.get() + 1);
+            async move { answer }
+        };
+        unresponsive(ping, Duration::from_millis(1)).await;
+        // One answer resets the count: only three misses in a row end the host.
+        assert_eq!(pinged.get(), 7);
     }
 }
