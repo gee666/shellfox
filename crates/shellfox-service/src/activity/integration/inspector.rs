@@ -107,8 +107,8 @@ impl RuntimeInspectionState {
             && identities.iter().all(|identity| {
                 self.entries.get(&identity.tab_id).is_some_and(|entry| {
                     entry.identity == *identity
-                        // Unix inspection feeds status, not automatic-expiry proof.
-                        && entry.scope == InspectionScope::LocalWindows
+                        // Guest and SSH shells have no local process proof.
+                        && entry.scope.locally_inspectable()
                         && entry.completed_started_at.is_some_and(|started| {
                             started >= since_ms.max(entry.minimum_started_at)
                         })

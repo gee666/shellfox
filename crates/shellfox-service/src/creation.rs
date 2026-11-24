@@ -117,7 +117,17 @@ impl Service {
                     .settings_profile(input.profile_id.as_str())?;
                 self.host.add_tab(session_id, input).map_err(Into::into)
             }
-            request => self.host.request(request).map_err(Into::into),
+            request => {
+                let selected = match &request {
+                    shellfox_host::HostRequest::ActivateSession { session_id } => Some(*session_id),
+                    _ => None,
+                };
+                let snapshot = self.host.request(request)?;
+                if let Some(id) = selected {
+                    self.touch_session(id);
+                }
+                Ok(snapshot)
+            }
         }
     }
 }

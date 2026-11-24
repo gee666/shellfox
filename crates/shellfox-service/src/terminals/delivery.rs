@@ -19,6 +19,7 @@ impl Service {
             }
         } else {
             self.pump_activity();
+            self.pump_retention();
         }
         self.native_capture_frames();
         self.publish_native_watches();

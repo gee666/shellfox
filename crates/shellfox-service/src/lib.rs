@@ -29,6 +29,7 @@ mod pipe_identity;
 mod platform;
 pub mod power;
 pub mod remote;
+mod retention;
 mod security;
 mod service_open;
 pub mod settings_runtime;
@@ -104,6 +105,7 @@ pub struct Service {
     catalog: native::catalog::NativeCatalogState,
     power: power::service::ServicePower,
     activity: activity::service::ServiceActivity,
+    retention: retention::Retention,
     ownership_lost: shellfox_protocol::CancellationToken,
     stopping: bool,
     metadata_closing: bool,

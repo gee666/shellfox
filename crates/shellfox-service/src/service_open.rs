@@ -12,6 +12,8 @@ impl Service {
             bail!("Explicit absolute private data directory and supervisor executable required.");
         }
         remove_legacy_terminal_homes(directory);
+        let activity = activity::service::ServiceActivity::new()?;
+        let retention = retention::Retention::new(activity.now_ms()?);
         Ok(Self {
             host: Host::open(directory)?,
             terminals: HashMap::new(),
@@ -24,7 +26,8 @@ impl Service {
             native: native::NativeState::default(),
             catalog: native::catalog::NativeCatalogState::default(),
             power: power::service::ServicePower::for_data_dir(directory),
-            activity: activity::service::ServiceActivity::new()?,
+            activity,
+            retention,
             ownership_lost: shellfox_protocol::CancellationToken::new(),
             stopping: false,
             metadata_closing: false,

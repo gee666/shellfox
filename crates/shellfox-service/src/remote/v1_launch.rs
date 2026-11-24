@@ -216,6 +216,7 @@ impl RemoteService<'_> {
         }) {
             self.start_remote_tab(tab)?;
         }
+        self.service.touch_session(session.id);
         self.launched_session(session.id)
     }
 }

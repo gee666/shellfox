@@ -62,6 +62,15 @@ impl ActivityPersistence {
     pub fn pending_count(&self) -> usize {
         self.pending.len()
     }
+    /// Touches not yet written to the session's `updatedAt`.
+    pub fn pending(&self, session: SessionId) -> Option<&SessionActivity> {
+        self.pending.get(&session)
+    }
+    /// A stored UTC timestamp on the owner's logical clock.
+    pub fn logical_ms(&self, at: &str) -> Option<u64> {
+        self.utc
+            .from_unix_ms(shellfox_host::activity_unix_ms(at).ok()?)
+    }
     pub fn touch(
         &mut self,
         session: SessionId,

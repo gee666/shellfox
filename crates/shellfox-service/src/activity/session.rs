@@ -2,6 +2,7 @@ use shellfox_core::Settings;
 
 pub const LIFECYCLE_INTERVAL_MS: u64 = 60_000;
 const HOUR_MS: f64 = 3_600_000.0;
+const MAX_DATE_MS: u64 = 8_640_000_000_000_000;
 #[derive(Clone, Copy, Debug)]
 pub struct SessionAging {
     pub updated_ms: u64,
@@ -41,22 +42,29 @@ impl SessionActivity {
             self.pending_ms = None;
         }
     }
-    pub fn due(&self, session: SessionAging, settings: &Settings, now_ms: u64) -> bool {
+    /// When the session's next automatic step is due. An unsettled session
+    /// settles `session_settle_hours` after its last action; a settled one is
+    /// deleted `session_delete_hours` after the later of settling and its last
+    /// action. Pinned sessions are never settled or deleted automatically.
+    pub fn deadline_ms(&self, session: SessionAging, settings: &Settings) -> Option<u64> {
+        if session.pinned {
+            return None;
+        }
         let last = self.last_action_ms(session);
-        let hours = match session.settled_ms {
-            Some(_) if session.pinned => return false,
-            Some(_) => settings.session_delete_hours,
-            None => settings.session_settle_hours,
+        let (base, hours) = match session.settled_ms {
+            Some(settled) => (settled.max(last), settings.session_delete_hours),
+            None => (last, settings.session_settle_hours),
         };
-        if !hours.is_finite() || hours < 0.0 {
-            return false;
+        if !hours.is_finite() || hours < 0.0 || base > MAX_DATE_MS {
+            return None;
         }
-        let base = session.settled_ms.map_or(last, |settled| settled.max(last));
         // JavaScript Date's supported range is exactly representable as f64.
-        if now_ms > 8_640_000_000_000_000 || base > 8_640_000_000_000_000 {
-            return false;
-        }
-        (now_ms as f64) >= (base as f64) + hours * HOUR_MS
+        let at = (base as f64 + hours * HOUR_MS).ceil();
+        (at <= MAX_DATE_MS as f64).then_some(at as u64)
+    }
+    pub fn due(&self, session: SessionAging, settings: &Settings, now_ms: u64) -> bool {
+        self.deadline_ms(session, settings)
+            .is_some_and(|at| now_ms >= at)
     }
     /// The caller refreshes ALL owned roots before this decision, including hidden
     /// sessions, then rechecks touches received while polling. Fresh healthy proof
