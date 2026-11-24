@@ -30,10 +30,10 @@ mod launch_runtime;
 mod linux_fontconfig;
 #[cfg(target_os = "macos")]
 mod macos_terminate;
-#[cfg(target_os = "linux")]
-mod native_window;
 #[cfg(target_os = "macos")]
 mod macos_window;
+#[cfg(target_os = "linux")]
+mod native_window;
 mod options;
 mod renderer;
 mod root;
