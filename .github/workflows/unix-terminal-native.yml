@@ -120,6 +120,12 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
+      # The checkout belongs to the runner's account. A root host rightly
+      # refuses data directories under another account's tree.
+      - name: Root owns the checkout
+        run: |
+          chown -R root:root "$GITHUB_WORKSPACE"
+          chown root:root "$(dirname "$GITHUB_WORKSPACE")" "$(dirname "$(dirname "$GITHUB_WORKSPACE")")"
       - name: Root, no systemd, pinned Rust
         run: |
           test "$(id -u)" = 0
