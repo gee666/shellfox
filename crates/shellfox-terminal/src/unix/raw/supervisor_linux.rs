@@ -1,7 +1,8 @@
 use super::{RawCommand, FLAG};
 use crate::unix::{
-    production_supervisor::{apply_privilege_policy, install_close_handlers, CLOSE},
+    production_supervisor::{apply_privilege_policy, install_close_handlers, Teardown, CLOSE},
     startup::peer,
+    Containment,
 };
 use anyhow::{ensure, Context, Result};
 use std::{
@@ -12,7 +13,6 @@ use std::{
         linux::net::SocketAddrExt,
         unix::net::{SocketAddr, UnixStream},
     },
-    path::PathBuf,
     sync::atomic::Ordering,
     time::Duration,
 };
@@ -45,6 +45,7 @@ fn enter(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<u32> {
         .parse()?;
     let policy = args.next().context("Missing raw launch policy")?;
     apply_privilege_policy(&policy)?;
+    let containment = Containment::parse(args.next().as_deref())?;
     ensure!(
         args.next().is_none()
             && unsafe { libc::getppid() } == parent as libc::pid_t
@@ -59,35 +60,13 @@ fn enter(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<u32> {
         "Raw parent peer changed"
     );
     let command = super::controller::released_command(&mut stream)?;
-    let mut kill = current_kill()?;
-    let _ = run(&mut stream, &command);
-    // Same live retention as PTY011. Neither diagnostics nor signal handlers
-    // may bypass or block this exact cgroup descriptor's termination/retry.
-    loop {
-        let _ = kill.write_all(b"1");
-        std::thread::sleep(Duration::from_secs(1));
-    }
+    let teardown = Teardown::open(containment)?;
+    let _ = run(&mut stream, &teardown, &command);
+    // Same live retention as the PTY controller. Neither diagnostics nor
+    // signal handlers may bypass or block this teardown and its retries.
+    teardown.finish()
 }
-fn current_kill() -> Result<File> {
-    let membership = std::fs::read_to_string("/proc/self/cgroup")?;
-    let group = membership
-        .strip_prefix("0::/")
-        .and_then(|s| s.strip_suffix('\n'))
-        .context("Raw cgroup membership missing")?;
-    let leaf = group.rsplit('/').next().context("Raw cgroup missing")?;
-    ensure!(
-        leaf.starts_with("shellfox-")
-            && leaf.ends_with(".scope")
-            && !group.split('/').any(|s| s == ".."),
-        "Raw not in owned cgroup"
-    );
-    Ok(std::fs::OpenOptions::new().write(true).open(
-        PathBuf::from("/sys/fs/cgroup")
-            .join(group)
-            .join("cgroup.kill"),
-    )?)
-}
-fn run(stream: &mut UnixStream, command: &RawCommand) -> Result<()> {
+fn run(stream: &mut UnixStream, teardown: &Teardown, command: &RawCommand) -> Result<()> {
     ensure!(
         !CLOSE.load(Ordering::Relaxed),
         "Raw close requested before target exec"
@@ -112,6 +91,7 @@ fn run(stream: &mut UnixStream, command: &RawCommand) -> Result<()> {
             stream.write_all(&super::controller::exit_report(status))?;
             return Ok(());
         }
+        teardown.reap_orphans(child.id());
         stopping |= CLOSE.load(Ordering::Relaxed);
         let mut byte = [0];
         match stream.read(&mut byte) {

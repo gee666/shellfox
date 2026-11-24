@@ -1,8 +1,9 @@
-//! Linux boundary: a systemd scope's cgroup v2 and the original controller pidfd.
+//! Linux boundary: the cgroup v2 scope or the controller's own session (see
+//! unix/boundary.rs), and the original controller's pidfd.
 use crate::{
     launch_privilege::{NativeLaunchBinding, NativeLaunchEvidence},
     raw_process::RawCommand,
-    unix::{cgroup::Cgroup, startup::Gate},
+    unix::{boundary::Boundary, linux::sweep, startup::Gate},
     UnixPrivilegeMode,
 };
 use anyhow::{ensure, Context, Result};
@@ -36,9 +37,8 @@ impl Control {
 
 pub(super) fn prepare(supervisor: &Path, _command: &RawCommand, bound: bool) -> Result<Launch> {
     let supervisor = crate::unix::private::helper_path(supervisor)?;
-    let group = Cgroup::create()?;
+    let group = Boundary::create()?;
     let gate = Gate::new()?;
-    let runner = crate::unix::private::helper_path(Path::new("/usr/bin/systemd-run"))?;
     // Match the ordinary shareable PTY: the pinned supervisor and the
     // target it execs must not gain privileges at exec time.
     let uid = unsafe { libc::getuid() };
@@ -47,22 +47,17 @@ pub(super) fn prepare(supervisor: &Path, _command: &RawCommand, bound: bool) -> 
     } else {
         UnixPrivilegeMode::Local
     };
-    let arguments = crate::unix::linux::scope::scope_arguments(
-        &crate::unix::linux::scope::fresh_nonce()?,
-        &supervisor,
-        &gate.raw_arguments(mode),
-    )?;
+    let argv = group.command_line(&supervisor, &gate.raw_arguments(mode, group.containment()))?;
     // Target cwd/argv/env travel ONLY on the authenticated startup socket.
     // No frame bytes are put in target stdin or the controller environment.
-    let mut command = Command::new(runner);
-    command
-        .arg("--expand-environment=no")
-        .args(arguments)
-        .env_clear()
-        .env(
+    let mut command = Command::new(&argv[0]);
+    command.args(&argv[1..]).env_clear();
+    if group.containment() == crate::unix::Containment::Cgroup {
+        command.env(
             "DBUS_SESSION_BUS_ADDRESS",
-            format!("unix:path=/run/user/{uid}/bus"),
+            crate::unix::boundary::user_bus(),
         );
+    }
     unsafe {
         command.pre_exec(|| {
             if libc::setsid() < 0 {
@@ -83,7 +78,7 @@ pub(super) fn prepare(supervisor: &Path, _command: &RawCommand, bound: bool) -> 
 }
 
 pub(super) struct Owner {
-    group: Cgroup,
+    group: Boundary,
     pidfd: Option<File>,
     mode: UnixPrivilegeMode,
 }
@@ -100,13 +95,14 @@ impl Owner {
         Ok(())
     }
     pub fn attach(&mut self, child: &Child) -> Result<()> {
-        self.group.attach(child.id())
+        let pidfd = self.pidfd.as_ref().context("missing original pidfd")?;
+        self.group.attach(child.id(), pidfd)
     }
-    /// The cgroup and pidfd outlive reaping, so the controller is reaped here.
-    pub fn exited(&mut self, child: &mut Child) -> Result<bool> {
-        Ok(child.try_wait()?.is_some())
+    /// Never reaps: the controller's PID also names its session until `remove`.
+    pub fn exited(&mut self, _child: &mut Child) -> Result<bool> {
+        sweep::exited(self.pidfd.as_ref().context("missing original pidfd")?)
     }
-    /// The cgroup ends every holder, so pipes always reach their actual EOF.
+    /// The boundary ends every holder, so pipes always reach their actual EOF.
     pub fn reader(&self, pipe: impl Read + Send + 'static) -> Result<Box<dyn Read + Send>> {
         Ok(Box::new(pipe))
     }
@@ -122,7 +118,7 @@ impl Owner {
             self.mode,
         )
     }
-    /// Calls `wake` on every cgroup change until the group is empty.
+    /// Calls `wake` as the tree tears down, then once it is empty.
     pub fn watch(&self, _child: &Child, wake: crate::Wake) -> Result<()> {
         self.group.watch(wake)
     }
@@ -140,8 +136,12 @@ impl Owner {
         }
         Ok(())
     }
-    pub fn remove(&mut self, _child: &mut Child) -> Result<()> {
-        self.group.remove()
+    pub fn remove(&mut self, child: &mut Child) -> Result<()> {
+        self.group.remove()?;
+        child
+            .try_wait()?
+            .context("Raw controller exit not yet waitable")?;
+        Ok(())
     }
     #[cfg(feature = "test-support")]
     pub fn signal_controller(&self, _child: &Child, signal: i32) -> Result<()> {

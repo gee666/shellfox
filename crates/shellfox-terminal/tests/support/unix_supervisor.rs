@@ -59,6 +59,10 @@ fn fixture() -> anyhow::Result<bool> {
             args.get(3)
                 .ok_or_else(|| anyhow::anyhow!("exit file missing"))?,
         );
+        // A Linux cgroup contains a setsid escape. A session can't once its
+        // controller is gone, so those tests only leave the process group.
+        let new_session =
+            cfg!(target_os = "linux") && args.get(4).is_none_or(|escape| escape != "setpgid");
         let mut command = std::process::Command::new(std::env::current_exe()?);
         command
             .arg(if mode == "--fixture-double-root" {
@@ -69,11 +73,12 @@ fn fixture() -> anyhow::Result<bool> {
             .arg(endpoint);
         // SAFETY: only async-signal-safe POSIX operations run between fork/exec.
         unsafe {
-            command.pre_exec(|| {
-                #[cfg(target_os = "linux")]
-                let result = libc::setsid();
-                #[cfg(not(target_os = "linux"))]
-                let result = libc::setpgid(0, 0);
+            command.pre_exec(move || {
+                let result = if new_session {
+                    libc::setsid()
+                } else {
+                    libc::setpgid(0, 0)
+                };
                 if result < 0 {
                     return Err(std::io::Error::last_os_error());
                 }

@@ -1,4 +1,4 @@
-use super::cgroup::Cgroup;
+use super::boundary::Boundary;
 use crate::{input::InputWriter, reader::OutputReader, ExitStatus};
 use anyhow::{ensure, Context, Result};
 use portable_pty::{Child, MasterPty};
@@ -11,7 +11,7 @@ use std::{
 };
 
 pub(super) struct State {
-    pub group: Option<Cgroup>,
+    pub group: Option<Boundary>,
     pub child: Option<Box<dyn Child + Send + Sync>>,
     pub pidfd: Option<File>,
     pub attached: bool,
@@ -25,12 +25,15 @@ pub(super) struct State {
     #[cfg(feature = "test-support")]
     pub inject_cleanup_failure: bool,
     logical: Option<ExitStatus>,
+    /// Seen through the pidfd. The root is reaped only once the tree is
+    /// empty: its PID names the session that a cgroup-less sweep follows.
+    exited: bool,
     root: Option<ExitStatus>,
     exit_frame: Vec<u8>,
 }
 impl State {
     pub fn new(
-        group: Cgroup,
+        group: Boundary,
         master: Box<dyn MasterPty + Send>,
         writer: InputWriter,
         output: OutputReader,
@@ -48,6 +51,7 @@ impl State {
             stopping: false,
             ready: false,
             logical: None,
+            exited: false,
             root: None,
             exit_frame: Vec::new(),
             #[cfg(feature = "test-support")]
@@ -72,10 +76,11 @@ impl State {
         Ok(pid)
     }
     pub fn attach(&mut self, pid: u32) -> Result<()> {
+        let pidfd = self.pidfd.as_ref().context("original PTY pidfd missing")?;
         self.group
             .as_mut()
-            .context("PTY cgroup missing")?
-            .attach(pid)?;
+            .context("PTY boundary missing")?
+            .attach(pid, pidfd)?;
         self.attached = true;
         Ok(())
     }
@@ -86,7 +91,7 @@ impl State {
         if self.attached {
             self.group
                 .as_mut()
-                .context("PTY cgroup missing")?
+                .context("PTY boundary missing")?
                 .terminate()?;
         } else if let Some(pidfd) = &self.pidfd {
             // Before attachment the waiting original child cannot fork/exec.
@@ -135,15 +140,28 @@ impl State {
                 }
             }
         }
-        if self.root.is_none() {
-            if let Some(child) = &mut self.child {
-                self.root = child.try_wait().context("wait original PTY controller")?;
+        if !self.exited {
+            if let Some(pidfd) = &self.pidfd {
+                self.exited = super::linux::sweep::exited(pidfd)?;
             }
         }
-        if self.logical.is_some() || self.root.is_some() || self.stopping {
+        if self.logical.is_some() || self.exited || self.stopping {
             self.begin()?;
-            if self.root.is_some() && self.group.as_mut().context("PTY cgroup missing")?.empty()? {
-                return Ok(self.logical.clone().or_else(|| self.root.clone()));
+            if self.exited
+                && self
+                    .group
+                    .as_mut()
+                    .context("PTY boundary missing")?
+                    .empty()?
+            {
+                if self.root.is_none() {
+                    if let Some(child) = &mut self.child {
+                        self.root = child.try_wait().context("wait original PTY controller")?;
+                    }
+                }
+                if self.root.is_some() {
+                    return Ok(self.logical.clone().or_else(|| self.root.clone()));
+                }
             }
         }
         Ok(None)
@@ -161,7 +179,11 @@ impl State {
             self.poll()?;
             let root_gone = self.child.is_none() || self.root.is_some();
             if root_gone
-                && self.group.as_mut().context("PTY cgroup missing")?.empty()?
+                && self
+                    .group
+                    .as_mut()
+                    .context("PTY boundary missing")?
+                    .empty()?
                 && self.writer.finished()
                 && self.output.finished()
             {
@@ -171,14 +193,14 @@ impl State {
                 Instant::now() < deadline,
                 "PTY cleanup unconfirmed; original owners retained"
             );
-            // Bounded poll: the cgroup, root and pipe workers share no wake.
+            // Bounded poll: the boundary, root and pipe workers share no wake.
             std::thread::sleep(Duration::from_millis(2));
         }
         self.writer.join()?;
         self.output.join()?;
         self.group
             .as_mut()
-            .context("PTY cgroup missing")?
+            .context("PTY boundary missing")?
             .remove()?;
         self.group = None;
         self.control = None;

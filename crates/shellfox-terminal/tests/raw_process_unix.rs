@@ -90,7 +90,18 @@ fn raw_controller_int_retains_cleanup_and_reports_actual_guest137() {
 fn lost_original_controller_never_invents_guest137_or_finish() {
     let fixture = Fixture::new();
     let socket = fixture.socket();
-    let mut process = fixture.spawn(&["unix-branch", socket.to_str().unwrap(), "idle"]);
+    // Without a cgroup nothing catches a setsid escape after a controller crash.
+    #[cfg(target_os = "linux")]
+    let escape = if shellfox_terminal::unix::containment()
+        == shellfox_terminal::unix::Containment::Session
+    {
+        "setpgid"
+    } else {
+        "setsid"
+    };
+    #[cfg(not(target_os = "linux"))]
+    let escape = "setpgid";
+    let mut process = fixture.spawn(&["unix-branch", socket.to_str().unwrap(), "idle", escape]);
     let leaf = pin_leaf(&socket);
     process.signal_controller_for_test(libc::SIGKILL).unwrap();
     let mut unconfirmed = false;
@@ -193,6 +204,13 @@ fn raw_sealed_facts_prove_same_account_non_elevating_launch() {
     let facts = evidence.facts();
     assert_eq!(facts.purpose, LaunchFactoryPurpose::RawProgram);
     assert_eq!(facts.stage, LaunchEvidenceStage::BeforeRawGoConfirmedReady);
+    if unsafe { libc::getuid() } == 0 {
+        // A root run still launches, but is never certified Normal.
+        assert_ne!(facts.privilege, LaunchPrivilege::Normal);
+        process.request_stop().unwrap();
+        assert_eq!(collect(&mut process).2, 137);
+        return;
+    }
     assert_eq!(facts.privilege, LaunchPrivilege::Normal);
     assert!(facts.unknown.is_none());
     assert!(facts.token.is_none());

@@ -1,7 +1,10 @@
 //! Unix lifecycle contracts and native ownership adapters.
 //!
-//! Linux isolates sessions and automation runs with cgroup v2. Darwin uses an
-//! original session leader and best-effort cleanup within its session ID.
+//! Linux isolates sessions and automation runs with cgroup v2 when the account
+//! has a systemd user delegation, otherwise like Darwin: an original session
+//! leader and best-effort cleanup within its session ID.
+#[cfg(target_os = "linux")]
+mod boundary;
 #[cfg(target_os = "linux")]
 mod cgroup;
 #[cfg(target_os = "macos")]
@@ -33,6 +36,10 @@ mod state;
 #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 mod tree;
 
+#[cfg(all(target_os = "linux", feature = "test-support"))]
+pub use boundary::FORCE_SESSION;
+#[cfg(target_os = "linux")]
+pub use boundary::{containment, Containment};
 pub use lifecycle::{Lifecycle, Ownership, Phase};
 pub use protocol::{Capability, ControlCommand, ControlIdentity, SupervisorStatus};
 

@@ -46,6 +46,13 @@ fn production_non_elevating_facts_are_sealed_and_inherited() {
     let mut config = fixture.shell("grep '^NoNewPrivs:' /proc/self/status; exit 0");
     config.unix_privilege = UnixPrivilegeMode::NonElevating;
     let (binding, verifier) = launch_privilege::new_launch_binding();
+    if unsafe { libc::getuid() } == 0 {
+        // Root can never be certified non-elevating, so it isn't launched.
+        let error = PtySession::spawn_bound(config, binding).unwrap_err();
+        assert!(error.take_session().is_none(), "{error:#}");
+        assert!(error.to_string().contains("non-elevating"), "{error:#}");
+        return;
+    }
     let mut session = PtySession::spawn_bound(config, binding).unwrap();
     let evidence = session.take_launch_evidence().unwrap();
     assert!(verifier.matches(&evidence));

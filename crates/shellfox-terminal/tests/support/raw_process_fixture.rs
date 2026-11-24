@@ -31,11 +31,14 @@ fn main() -> anyhow::Result<()> {
             use std::os::unix::process::CommandExt;
             let mut leaf = Command::new(std::env::current_exe()?);
             leaf.args(["unix-leaf", &args[1]]);
-            // Linux contains a setsid escape in the cgroup. A macOS session
-            // cannot, so there the leaf only leaves its parent's process group.
+            // Linux contains a setsid escape in the cgroup. A session cannot
+            // once its controller is gone, so there the leaf only leaves its
+            // parent's process group.
+            let new_session =
+                cfg!(target_os = "linux") && args.get(3).is_none_or(|escape| escape != "setpgid");
             unsafe {
-                leaf.pre_exec(|| {
-                    let left = if cfg!(target_os = "linux") {
+                leaf.pre_exec(move || {
+                    let left = if new_session {
                         libc::setsid()
                     } else {
                         libc::setpgid(0, 0)

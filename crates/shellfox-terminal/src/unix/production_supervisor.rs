@@ -1,6 +1,9 @@
 //! Dedicated original controller. Its child is waitable through actual exit;
-//! all exec'd processes inherit the already-installed kernel cgroup boundary.
+//! all exec'd processes inherit the already-installed kernel cgroup boundary,
+//! or this controller's session when there is no cgroup.
+use super::{linux::sweep::Session, Containment};
 use anyhow::{ensure, Context, Result};
+use std::fs::File;
 use std::io::{Read, Write};
 use std::os::linux::net::SocketAddrExt;
 use std::os::unix::{
@@ -35,6 +38,100 @@ pub(super) fn install_close_handlers() -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// How a closing controller ends everything it started. Opened after GO and
+/// before the guest starts, so a failure here launches nothing.
+pub(super) enum Teardown {
+    /// Our exact, already-assigned cgroup's kill file.
+    Cgroup(File),
+    /// Our own session, plus orphans reparented to us as their subreaper.
+    Session(Session),
+}
+impl Teardown {
+    pub fn open(containment: Containment) -> Result<Self> {
+        if containment == Containment::Session {
+            let session = Session::own()?;
+            ensure!(
+                unsafe {
+                    libc::prctl(
+                        libc::PR_SET_CHILD_SUBREAPER,
+                        1 as libc::c_ulong,
+                        0 as libc::c_ulong,
+                        0 as libc::c_ulong,
+                        0 as libc::c_ulong,
+                    )
+                } == 0,
+                "controller subreaper unavailable"
+            );
+            return Ok(Self::Session(session));
+        }
+        let membership = std::fs::read_to_string("/proc/self/cgroup")?;
+        let group = membership
+            .strip_prefix("0::/")
+            .and_then(|s| s.strip_suffix('\n'))
+            .context("cgroup-v2 membership missing")?;
+        let leaf = group.rsplit('/').next().context("cgroup missing")?;
+        ensure!(
+            leaf.starts_with("shellfox-")
+                && leaf.ends_with(".scope")
+                && !group.split('/').any(|s| s == ".."),
+            "not in an owned cgroup"
+        );
+        let kill = std::fs::OpenOptions::new().write(true).open(
+            std::path::Path::new("/sys/fs/cgroup")
+                .join(group)
+                .join("cgroup.kill"),
+        )?;
+        Ok(Self::Cgroup(kill))
+    }
+    /// Reaps orphans that exited while the guest runs, never the guest.
+    pub fn reap_orphans(&self, guest: u32) {
+        if matches!(self, Self::Cgroup(_)) {
+            return;
+        }
+        for _ in 0..64 {
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            // SAFETY: WNOWAIT only reports; the guest stays waitable.
+            let peeked = unsafe {
+                libc::waitid(
+                    libc::P_ALL,
+                    0,
+                    &mut info,
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            let pid = unsafe { info.si_pid() };
+            if peeked != 0 || pid <= 0 || pid as u32 == guest {
+                return;
+            }
+            unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) };
+        }
+    }
+    /// Kills everything this controller started, including itself. On
+    /// failure it stays alive and retries: returning would abandon the tree.
+    pub fn finish(self) -> ! {
+        match self {
+            Self::Cgroup(mut kill) => loop {
+                let _ = kill.write_all(b"1");
+                std::thread::sleep(Duration::from_secs(1));
+            },
+            Self::Session(session) => {
+                loop {
+                    while unsafe { libc::waitpid(-1, std::ptr::null_mut(), libc::WNOHANG) } > 0 {}
+                    if matches!(session.kill(), Ok(false)) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                // The same end as a cgroup kill, so the host sees one outcome.
+                loop {
+                    unsafe { libc::kill(libc::getpid(), libc::SIGKILL) };
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
 }
 
 pub(super) fn apply_privilege_policy(policy: &std::ffi::OsStr) -> Result<()> {
@@ -72,6 +169,7 @@ pub(crate) fn entry() -> Result<Option<u32>> {
         .parse()?;
     let policy = args.next().context("missing POSIX launch policy")?;
     apply_privilege_policy(&policy)?;
+    let containment = Containment::parse(args.next().as_deref())?;
     let program = PathBuf::from(args.next().context("missing PTY program")?);
     ensure!(
         program.is_absolute()
@@ -92,38 +190,16 @@ pub(crate) fn entry() -> Result<Option<u32>> {
     let mut go = [0; 3];
     stream.read_exact(&mut go)?;
     ensure!(&go == b"GO\n", "PTY not released");
-    // Open our exact already-assigned cgroup before creating any descendants.
-    // On owner-channel loss this controller kills that boundary, including itself.
-    let membership = std::fs::read_to_string("/proc/self/cgroup")?;
-    let group = membership
-        .strip_prefix("0::/")
-        .and_then(|s| s.strip_suffix('\n'))
-        .context("PTY cgroup-v2 membership missing")?;
-    let leaf = group.rsplit('/').next().context("PTY cgroup missing")?;
-    ensure!(
-        leaf.starts_with("shellfox-")
-            && leaf.ends_with(".scope")
-            && !group.split('/').any(|s| s == ".."),
-        "PTY not in owned cgroup"
-    );
-    let mut kill = std::fs::OpenOptions::new().write(true).open(
-        PathBuf::from("/sys/fs/cgroup")
-            .join(group)
-            .join("cgroup.kill"),
-    )?;
+    // On owner-channel loss this controller ends its boundary, including itself.
+    let teardown = Teardown::open(containment)?;
     // Cleanup must not log to the guest PTY: after hangup stderr can fail, and
     // before hangup it can block behind undrained guest output.
-    let _ = run(&mut stream, &program, args);
-    // A successful write kills this controller too. On failure stay alive with
-    // this exact cgroup descriptor and retry, even if the host channel is gone.
-    // Returning here would abandon descendants after a failed kill operation.
-    loop {
-        let _ = kill.write_all(b"1");
-        std::thread::sleep(Duration::from_secs(1));
-    }
+    let _ = run(&mut stream, &teardown, &program, args);
+    teardown.finish()
 }
 fn run(
     stream: &mut UnixStream,
+    teardown: &Teardown,
     program: &std::path::Path,
     args: impl Iterator<Item = std::ffi::OsString>,
 ) -> Result<u32> {
@@ -181,10 +257,10 @@ fn run(
     let mut sent_exit = false;
     loop {
         if CLOSE.load(Ordering::Relaxed) {
-            // Same exit as owner-channel loss: entry retains and retries the
-            // exact held cgroup.kill descriptor until termination succeeds.
+            // Same exit as owner-channel loss: entry's teardown.
             return Ok(0);
         }
+        teardown.reap_orphans(child.id());
         if !sent_exit {
             if let Some(status) = child.try_wait()? {
                 let code = status

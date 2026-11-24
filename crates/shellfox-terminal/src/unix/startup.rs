@@ -49,12 +49,14 @@ impl Gate {
         &self,
         command: &crate::PtyCommand,
         mode: crate::UnixPrivilegeMode,
+        containment: super::Containment,
     ) -> Vec<std::ffi::OsString> {
         let mut args = vec![
             FLAG.into(),
             self.name.clone().into(),
             std::process::id().to_string().into(),
             privilege_argument(mode).into(),
+            containment.argument().into(),
             command.program.clone(),
         ];
         args.extend_from_slice(&command.args);
@@ -63,12 +65,17 @@ impl Gate {
     pub fn release(&self, pid: u32, before_go: impl FnOnce() -> Result<()>) -> Result<UnixStream> {
         self.release_raw(pid, &[], before_go)
     }
-    pub fn raw_arguments(&self, mode: crate::UnixPrivilegeMode) -> Vec<std::ffi::OsString> {
+    pub fn raw_arguments(
+        &self,
+        mode: crate::UnixPrivilegeMode,
+        containment: super::Containment,
+    ) -> Vec<std::ffi::OsString> {
         vec![
             super::raw::FLAG.into(),
             self.name.clone().into(),
             std::process::id().to_string().into(),
             privilege_argument(mode).into(),
+            containment.argument().into(),
         ]
     }
     pub fn release_raw(

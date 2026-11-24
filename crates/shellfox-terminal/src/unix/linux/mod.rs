@@ -6,6 +6,7 @@ mod procfs;
 pub mod scope;
 mod stat;
 mod supervisor;
+pub(crate) mod sweep;
 
 use super::tree::{Kernel, Tree};
 use super::Ownership;

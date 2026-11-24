@@ -1,4 +1,4 @@
-use super::{cgroup::Cgroup, startup::Gate, state::State};
+use super::{boundary::Boundary, startup::Gate, state::State};
 use crate::{config::size, input::InputWriter, reader::OutputReader};
 use crate::{ExitStatus, NativeLaunchBinding, PtyConfig, PtyOutput, SpawnError};
 use anyhow::{ensure, Context, Result};
@@ -74,7 +74,7 @@ impl PtySession {
             .group
             .as_ref()
             .ok_or(Unavailable)?
-            .inspection_directory()
+            .inspection()
             .map_err(|_| Unavailable)?;
         let supervisor = state
             .pidfd
@@ -116,18 +116,12 @@ impl PtySession {
                 .as_ref()
                 .context("trusted supervisor missing")?,
         )?;
-        let group = Cgroup::create()?;
+        let group = Boundary::create()?;
         let gate = Gate::new()?;
-        let runner = super::private::helper_path(std::path::Path::new("/usr/bin/systemd-run"))?;
-        let mut argv = vec![runner.into_os_string()];
-        argv.extend(super::linux::scope::scope_arguments(
-            &super::linux::scope::fresh_nonce()?,
+        let argv = group.command_line(
             &supervisor,
-            &gate.arguments(&command, config.unix_privilege),
-        )?);
-        // The scope wrapper execs the same original child into the waiting
-        // supervisor. User command arguments must never expand in the wrapper.
-        argv.insert(1, "--expand-environment=no".into());
+            &gate.arguments(&command, config.unix_privilege, group.containment()),
+        )?;
         let mut builder = config.builder(&argv)?;
         if config.command.is_none()
             && std::path::Path::new(&command.program)
@@ -141,11 +135,10 @@ impl PtySession {
         }
         // systemd-run needs the user bus. A user tab keeps it; the supervisor
         // drops it again for an isolated one.
-        if builder.get_env("DBUS_SESSION_BUS_ADDRESS").is_none() {
-            builder.env(
-                "DBUS_SESSION_BUS_ADDRESS",
-                format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() }),
-            );
+        if group.containment() == super::Containment::Cgroup
+            && builder.get_env("DBUS_SESSION_BUS_ADDRESS").is_none()
+        {
+            builder.env("DBUS_SESSION_BUS_ADDRESS", super::boundary::user_bus());
         }
         if config.environment != crate::TerminalEnvironment::User {
             builder.env(super::production_supervisor::ISOLATED, "1");
@@ -255,7 +248,7 @@ impl PtySession {
     pub fn take_launch_evidence(&mut self) -> Option<crate::NativeLaunchEvidence> {
         self.inner.as_mut().and_then(|s| s.evidence.take())
     }
-    /// Registers the owner wake for queued output, root exit and cgroup teardown. Call once.
+    /// Registers the owner wake for queued output, root exit and tree teardown. Call once.
     pub fn set_wake(&self, wake: crate::Wake) -> Result<crate::ExitSignal> {
         let state = self.inner.as_ref().context("PTY closed")?;
         state.output.set_wake(wake.clone());
@@ -268,7 +261,7 @@ impl PtySession {
         state
             .group
             .as_ref()
-            .context("PTY cgroup missing")?
+            .context("PTY boundary missing")?
             .watch(wake)?;
         Ok(exit.with_teardown())
     }

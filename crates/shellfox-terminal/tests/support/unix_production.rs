@@ -51,6 +51,9 @@ impl Drop for Fixture {
         }
     }
 }
+pub fn session_containment() -> bool {
+    shellfox_terminal::unix::containment() == shellfox_terminal::unix::Containment::Session
+}
 pub fn helper() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_shellfox-unix-test-supervisor"))
 }
@@ -152,7 +155,7 @@ pub fn descendant(shutdown: bool, double_fork: bool, crash_controller: bool, cha
     // capability socket and does not depend on project path lengths.
     let socket = fixture.socket("leaf");
     let exit = fixture.root.join("exit");
-    let args = [
+    let mut args = vec![
         if crash_controller {
             "--fixture-crash-controller"
         } else if double_fork {
@@ -163,6 +166,10 @@ pub fn descendant(shutdown: bool, double_fork: bool, crash_controller: bool, cha
         socket.to_str().unwrap(),
         exit.to_str().unwrap(),
     ];
+    // Without a cgroup nothing catches a setsid escape after a controller crash.
+    if crash_controller && session_containment() {
+        args.push("setpgid");
+    }
     let config = fixture.config(&helper(), &args);
     let mut session = PtySession::spawn(config).unwrap();
     let mut connection = None;

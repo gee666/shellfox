@@ -34,15 +34,15 @@ impl Cgroup {
     pub fn create() -> Result<Self> {
         let uid = unsafe { libc::getuid() };
         ensure!(
-            uid != 0 && uid == unsafe { libc::geteuid() },
-            "PTY requires a non-elevated user delegation"
+            uid == unsafe { libc::geteuid() },
+            "PTY cgroup requires matching real and effective user IDs"
         );
         let path = format!("/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service");
         let parent = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
             .open(path)
-            .context("Linux PTY requires a writable cgroup-v2 systemd user delegation")?;
+            .context("no systemd user delegation")?;
         let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
         ensure!(
             unsafe { libc::fstatfs(parent.as_raw_fd(), stat.as_mut_ptr()) } == 0,

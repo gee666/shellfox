@@ -1,5 +1,6 @@
-//! Read-only process evidence for a Linux PTY. The cgroup is the membership
-//! boundary; /proc fields are used for matching agents, never for signalling.
+//! Read-only process evidence for a Linux PTY. The cgroup or the controller's
+//! session is the membership boundary; /proc fields are used for matching
+//! agents, never for signalling.
 use super::{super::tree::Record, procfs};
 use crate::inspection::{
     InspectionFailure as Error, InspectionPlatform, RawOwnedEvidence, RawProcessEvidence,
@@ -14,8 +15,14 @@ use std::{
     sync::OnceLock,
 };
 
+/// Where a PTY's processes are listed.
+pub(crate) enum Membership {
+    Cgroup(File),
+    Session(super::sweep::Session),
+}
+
 pub(crate) struct OwnedInspection {
-    group: File,
+    group: Membership,
     supervisor: File,
     pid: u32,
     uid: u32,
@@ -23,7 +30,7 @@ pub(crate) struct OwnedInspection {
 }
 
 impl OwnedInspection {
-    pub fn new(group: File, supervisor: File, pid: u32) -> Self {
+    pub fn new(group: Membership, supervisor: File, pid: u32) -> Self {
         // SAFETY: getuid is a read-only kernel query.
         Self {
             group,
@@ -46,8 +53,19 @@ impl OwnedInspection {
 
     fn members(&self) -> Result<BTreeSet<u32>, Error> {
         const MAX: u64 = (MAX_INSPECTION_PROCESSES * 12) as u64;
+        let group = match &self.group {
+            Membership::Cgroup(group) => group,
+            Membership::Session(session) => {
+                let pids = session.pids().map_err(|_| Error::Unavailable)?;
+                return if pids.len() > MAX_INSPECTION_PROCESSES {
+                    Err(Error::Bounds)
+                } else {
+                    Ok(pids)
+                };
+            }
+        };
         let mut text = String::new();
-        super::super::cgroup::open_at(&self.group, c"cgroup.procs", libc::O_RDONLY)
+        super::super::cgroup::open_at(group, c"cgroup.procs", libc::O_RDONLY)
             .map_err(|_| Error::Unavailable)?
             .take(MAX + 1)
             .read_to_string(&mut text)
