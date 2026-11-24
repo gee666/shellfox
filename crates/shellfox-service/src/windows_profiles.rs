@@ -176,6 +176,9 @@ impl WslProfiles {
             account.uid().to_string().into(),
             account.name().into(),
             guest.unwrap_or_default().into(),
+            // The guest shell loads shellfox completion through the same hooks.
+            shellfox_terminal::completion::bash_prompt_command(false, None),
+            shellfox_terminal::completion::zsh_env().into(),
         ]);
         Ok(matches!(binding, Some(WslLaunchBinding::Pending)).then(|| account.clone()))
     }

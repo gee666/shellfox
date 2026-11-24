@@ -1,5 +1,5 @@
 (
-    shellfox_status=$?
+    shellfox_status=$__shellfox_status
     LC_ALL=C
     if shellfox_cwd=$(builtin pwd -P && printf .); then
         shellfox_cwd=${shellfox_cwd%$'\n.'}

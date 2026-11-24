@@ -69,11 +69,15 @@ impl PtySession {
         let mut inspection_gate = crate::inspection_gate::InspectionGate::new(&gate.release_name)?;
         let command = match &config.command {
             Some(command) => command.clone(),
-            None => match config.profile {
-                Some(id) => crate::shell_profile(id)?,
-                None => crate::default_shell_profile()?,
+            None => {
+                let mut command = match config.profile {
+                    Some(id) => crate::shell_profile(id)?,
+                    None => crate::default_shell_profile()?,
+                }
+                .command_for(&config.environment)?;
+                crate::completion::add_powershell_completion(&mut command);
+                command
             }
-            .command_for(&config.environment)?,
         };
         let supervisor = config
             .supervisor

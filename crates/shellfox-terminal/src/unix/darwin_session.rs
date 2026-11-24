@@ -81,7 +81,14 @@ impl PtySession {
         let argv = std::iter::once(program.into_os_string())
             .chain(command.args)
             .collect::<Vec<_>>();
-        let builder = config.builder(&argv)?;
+        let mut builder = config.builder(&argv)?;
+        if config.command.is_none() {
+            crate::completion::add_unix_hooks(
+                &mut builder,
+                Path::new(&argv[0]),
+                config.environment == crate::TerminalEnvironment::User,
+            );
+        }
         let queue = darwin_kqueue::queue().context("create macOS PTY exit queue")?;
         let (reaper, receiver) = mpsc::sync_channel::<State>(1);
         std::thread::Builder::new()

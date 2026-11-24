@@ -58,8 +58,13 @@ jobs:
         run: node -e 'if (process.arch !== process.env.EXPECTED_ARCH) throw new Error("Runner architecture does not match the target")'
       - name: Install pinned Rust
         run: rustup show
-      - name: Production automation runs, user tab environment, macOS PTY
-        run: cargo test --locked -p shellfox-terminal --features test-support --test raw_process_unix --test user_environment_unix --test macos_pty --no-fail-fast
+      - name: zsh for the completion tabs
+        if: runner.os == 'Linux'
+        run: command -v zsh || { sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh; }
+      - name: Production automation runs, user tab environment, completion, macOS PTY
+        env:
+          SHELLFOX_TEST_REQUIRE_ZSH: '1'
+        run: cargo test --locked -p shellfox-terminal --features test-support --test raw_process_unix --test user_environment_unix --test completion_unix --test macos_pty --no-fail-fast
       - name: Build retained Darwin supervisor
         if: runner.os == 'macOS'
         run: |

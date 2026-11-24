@@ -1,4 +1,5 @@
 //! PTY sessions with Windows Jobs, Linux cgroups, and macOS session cleanup.
+pub mod completion;
 mod config;
 pub mod elevated;
 mod environment;
