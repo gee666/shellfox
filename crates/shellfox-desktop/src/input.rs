@@ -4,6 +4,8 @@ use shellfox_ghostty_vt::key::{
 };
 
 #[cfg(test)]
+mod layout_tests;
+#[cfg(test)]
 mod tests;
 
 /// GPUI key name to Ghostty's key. GPUI reports layout keys, not scan codes,
