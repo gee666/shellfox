@@ -17,6 +17,8 @@ import type { TerminalKey } from './protocol';
 
 interface Props {
   readOnly?: boolean;
+  /** The Keyboard toggle can be shown while input is not ready yet: the request waits for it. */
+  keyboardToggle?: boolean;
   attach?: React.ReactNode;
   bottomInset: number;
   control: boolean;
@@ -88,7 +90,7 @@ export function TerminalKeys(props: Props) {
           {!props.readOnly && props.attach}
         </KeyboardAccessoryScroll>
         {!!props.selection && button(copied ? 'Copied' : 'Copy', copy)}
-        {!props.readOnly && <AccessoryButton label="Keyboard" onPress={props.onKeyboard} active={props.systemKeyboard}>
+        {(props.keyboardToggle ?? !props.readOnly) && <AccessoryButton label="Keyboard" onPress={props.onKeyboard} active={props.systemKeyboard}>
           <KeyboardIcon active={props.systemKeyboard} />
         </AccessoryButton>}
         {!props.readOnly && <AccessoryButton label="Special keys" onPress={props.onSpecialKeyboard} active={props.specialKeyboard}>

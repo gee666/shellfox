@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { closesForIme, keyBarState, keyboardTap, specialTap, surfaceFocused, type KeyboardMode } from './key-bar-state';
+import { appliesWantedKeyboard, closesForIme, keyBarState, keyboardTap, specialTap, surfaceFocused, wantsKeyboardAfterTap,
+  type KeyboardMode } from './key-bar-state';
 import type { FocusResult } from './focus-feedback';
 
 const modes: KeyboardMode[] = ['closed', 'system', 'special'];
@@ -26,6 +27,24 @@ describe('key bar state', () => {
     expect(keyboardTap('special', false)).toBe('show');
     expect(keyboardTap('system', false)).toBe('reopen');
     for (const mode of modes) expect(keyboardTap(mode, true)).toBe('hide');
+  });
+
+  it('keeps every tap made while the IME is hidden as an open keyboard request', () => {
+    for (const mode of modes) {
+      expect(wantsKeyboardAfterTap(keyboardTap(mode, false))).toBe(true);
+      expect(wantsKeyboardAfterTap(keyboardTap(mode, true))).toBe(false);
+    }
+  });
+
+  it('asks for the keyboard again only when the terminal takes input and nothing holds the request', () => {
+    // Tapped while reattaching: waits, then applies once input is ready.
+    expect(appliesWantedKeyboard(true, 'closed', false, false)).toBe(false);
+    expect(appliesWantedKeyboard(true, 'closed', false, true)).toBe(true);
+    // Already requested from the view, shown, or never asked for.
+    expect(appliesWantedKeyboard(true, 'system', false, true)).toBe(false);
+    expect(appliesWantedKeyboard(true, 'closed', true, true)).toBe(false);
+    expect(appliesWantedKeyboard(false, 'closed', false, true)).toBe(false);
+    expect(appliesWantedKeyboard(true, 'special', false, true)).toBe(false);
   });
 
   it('toggles the Fn row by what is shown, closing it when the IME appears', () => {

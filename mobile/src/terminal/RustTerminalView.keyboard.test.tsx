@@ -86,6 +86,8 @@ async function fixture(){
 function state(value:string){fireEvent.click(screen.getByRole('button',{name:`Native state ${value}`}));}
 function keyboard(){fireEvent.click(screen.getByRole('button',{name:'Keyboard',exact:true}));}
 function focused(value:boolean){expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-focused',String(value));}
+// A fresh request: since the mark, the native view saw focused go false, then end true.
+function refocused(mark:number){const log=probe.focusLog.slice(mark);expect(log).toContain(false);expect(log.at(-1)).toBe(true);}
 function readonly(value:boolean){expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-readonly',String(value));}
 function noWork(value:Awaited<ReturnType<typeof fixture>>){
   expect(value.host.driver.open).toHaveBeenCalledTimes(1);expect(value.view.session.close).not.toHaveBeenCalled();
@@ -114,9 +116,9 @@ for(const platform of ['android','ios'] as const){
       state('recovering');readonly(true);focused(false);expect(screen.queryByRole('button',{name:'F1',exact:true})).toBeNull();
       state('ready');readonly(false);focused(false);expect(screen.getByRole('button',{name:'F1',exact:true})).toBeInTheDocument();noWork(f);
     });
-    it('does not preserve an unvalidated ownership gap or revive it on a later ready',async()=>{
+    it('drops the request over an ownership gap and asks again once the terminal takes input',async()=>{
       const f=await fixture();keyboard();f.view.ownership(false);state('recovering');state('ready');readonly(true);focused(false);
-      f.view.ownership(true);f.refresh();state('ready');readonly(false);focused(false);noWork(f);
+      f.view.ownership(true);f.refresh();state('ready');readonly(false);focused(true);noWork(f);
     });
     it('ignores visibility changes during recovery without using a show snapshot as intent',async()=>{
       const f=await fixture();f.visibility(true);focused(false);f.visibility(false);keyboard();f.visibility(true);
@@ -135,29 +137,37 @@ for(const platform of ['android','ios'] as const){
     });
     for(const next of [{controlEpoch:2},{generation:'30000000-0000-4000-8000-000000000002'},
       {tabId:'20000000-0000-4000-8000-000000000002'}]){
-      it(`cannot recertify SHOW on changed ownership ${Object.keys(next)[0]}`,async()=>{
-        const f=await fixture();keyboard();state('recovering');f.view.owner(next,true);state('ready');readonly(false);focused(false);noWork(f);
-        expect(screen.getByText(/ended: ready_context_lost/)).toBeInTheDocument();
+      it(`does not recertify SHOW on changed ownership ${Object.keys(next)[0]}, but asks again on the new owner`,async()=>{
+        const f=await fixture();keyboard();state('recovering');f.view.owner(next,true);const mark=probe.focusLog.length;
+        state('ready');readonly(false);refocused(mark);noWork(f);
       });
     }
-    for(const next of ['blocked','closed','reconnecting'] as const){
-      it(`retires desire on bridge ${next}, even if the same identity later returns`,async()=>{
+    for(const next of ['blocked','closed'] as const){
+      it(`ends the request on bridge ${next}, even if the same identity later returns`,async()=>{
         const f=await fixture();keyboard();state('recovering');f.view.bridge(next);state('ready');readonly(true);focused(false);
         f.view.bridge('attached');state('ready');readonly(false);focused(false);noWork(f);
         expect(screen.getByText(/ended: bridge_non_attached/)).toBeInTheDocument();
       });
     }
+    it('keeps a request that a reattach dropped before the IME appeared',async()=>{
+      const f=await fixture();keyboard();state('recovering');f.view.bridge('reconnecting');state('ready');readonly(true);focused(false);
+      expect(screen.getByText(/ended: bridge_non_attached/)).toBeInTheDocument();
+      f.view.bridge('attached');state('ready');readonly(false);focused(true);noWork(f);
+      f.visibility(true);f.view.bridge('reconnecting');f.visibility(false);f.view.bridge('attached');state('ready');focused(false);
+    });
     for(const next of ['bound','closed','invalid']){
-      it(`does not preserve SHOW across native ${next}`,async()=>{
-        const f=await fixture();keyboard();state(next);readonly(true);focused(false);state('ready');focused(false);noWork(f);
+      it(`does not preserve SHOW across native ${next}, but asks again once ready`,async()=>{
+        const f=await fixture();keyboard();state(next);readonly(true);focused(false);
         expect(screen.getByText(new RegExp(`ended: ${next==='invalid'?'native_readiness_invalid':'native_state_not_retained'}`))).toBeInTheDocument();
+        state('ready');focused(true);noWork(f);
       });
     }
-    it('clears desire on a matching native error and on a current session error',async()=>{
+    it('clears the mode on a matching native error or session error, and the open request asks again',async()=>{
       const f=await fixture();keyboard();const native=probe.native;expect(native).toBeDefined();
       act(()=>native?.onError?.({nativeEvent:{terminalHandle:f.view.session.handle,code:5}}));
-      expect(screen.getByText(/ended: native_error/)).toBeInTheDocument();
-      state('ready');focused(false);keyboard();f.view.error();focused(false);noWork(f);
+      expect(screen.getByText(/ended: native_error/)).toBeInTheDocument();focused(false);
+      state('ready');focused(true);const mark=probe.focusLog.length;f.view.error();refocused(mark);
+      f.visibility(true);f.view.error();focused(false);noWork(f);
       expect(screen.getByText(/ended: session_error/)).toBeInTheDocument();
     });
     it('records only the first branch and resets on a new accepted action without adding core work',async()=>{
@@ -168,7 +178,7 @@ for(const platform of ['android','ios'] as const){
       state('ready');keyboard();expect(screen.queryByText(/Historical Keyboard .* ended:/)).toBeNull();
       act(()=>probe.native?.onError?.({nativeEvent:{terminalHandle:f.view.session.handle,code:5}}));
       expect(screen.getByText(/ended: native_error/)).toBeInTheDocument();
-      state('ready');keyboard();f.view.error();expect(screen.getByText(/ended: session_error/)).toBeInTheDocument();
+      state('ready');f.visibility(true);f.view.error();expect(screen.getByText(/ended: session_error/)).toBeInTheDocument();
       expect(probe.dismiss).toHaveBeenCalledTimes(dismissals+3);noWork(f);
     });
     it('records selection close with the existing dismissal and without input or view replacement',async()=>{
@@ -184,33 +194,23 @@ for(const platform of ['android','ios'] as const){
       expect(screen.getByText('Another client is controlling this terminal')).toBeInTheDocument();
       f.unmount();expect(screen.queryByText(/Historical Keyboard .* ended:/)).toBeNull();expect(f.view.session.close).toHaveBeenCalledTimes(1);
     });
-    it('cannot revive old desire through stale native readiness or visibility on a replacement view',async()=>{
+    it('carries a request through a reconnect to the replacement view and ignores the old view',async()=>{
       const f=await fixture();keyboard();const old=probe.native;
-      await f.install({connectionEpoch:'replacement'});state('ready');readonly(false);focused(false);
-      expect(screen.queryByText(/Historical Keyboard .* ended:/)).toBeNull();expect(screen.queryByText(/Keyboard SHOW\. Snapshot/)).toBeNull();
-      act(()=>old?.onState?.({nativeEvent:{terminalHandle:f.view.session.handle,state:'ready'}}));
-      f.visibility(true);focused(false);expect(f.host.driver.open).toHaveBeenCalledTimes(2);
-      expect(f.view.session.close).toHaveBeenCalledTimes(1);expect(f.view.session.input).not.toHaveBeenCalled();
+      await f.install({connectionEpoch:'replacement'});focused(false);state('ready');readonly(false);focused(true);
+      act(()=>old?.onState?.({nativeEvent:{terminalHandle:f.view.session.handle,state:'recovering'}}));focused(true);
+      f.visibility(true);focused(true);expect(f.host.driver.open).toHaveBeenCalledTimes(2);
+      expect(f.view.session.close).toHaveBeenCalledTimes(1);for(const view of f.host.views)expect(view.session.input).not.toHaveBeenCalled();
     });
-    it('does not retarget a queued SHOW to a replacement epoch or ownership identity',async()=>{
-      const f=await fixture();const oldEpochShow=probe.keyboardPress;expect(oldEpochShow).toBeDefined();
-      await f.install({connectionEpoch:'new-epoch'});state('ready');act(()=>oldEpochShow?.());focused(false);
-      const oldOwnerShow=probe.keyboardPress;expect(oldOwnerShow).toBeDefined();
-      const current=f.host.views.at(-1);expect(current).toBeDefined();
-      current?.owner({controlEpoch:2},true);f.refresh();act(()=>oldOwnerShow?.());focused(false);
-      keyboard();focused(true);state('recovering');state('ready');focused(true);
+    it('opens the keyboard for a tap made while the terminal is still reattaching',async()=>{
+      const f=await fixture();await f.install({connectionEpoch:'reconnected'});readonly(true);
+      keyboard();focused(false);state('ready');readonly(false);focused(true);
       for(const view of f.host.views)expect(view.session.input).not.toHaveBeenCalled();
     });
-    it('does not let queued SHOW or HIDE act on a newer requested context',async()=>{
-      const f=await fixture();const oldShow=probe.keyboardPress;keyboard();const oldHide=probe.keyboardPress;
-      await f.install({connectionEpoch:'new-context'});state('ready');keyboard();focused(true);
-      const notice=screen.getByText('Keyboard SHOW. Snapshot since press: notObserved.').textContent;
-      act(()=>{oldShow?.();oldHide?.();});focused(true);readonly(false);
-      expect(screen.getByText('Keyboard SHOW. Snapshot since press: notObserved.').textContent).toBe(notice);
-      expect(screen.queryByText(/Historical Keyboard .* ended:/)).toBeNull();
-      const current=f.host.views.at(-1);expect(current).toBeDefined();const sameViewOldHide=probe.keyboardPress;
-      current?.owner({controlEpoch:2},true);f.refresh();keyboard();focused(true);
-      act(()=>sameViewOldHide?.());focused(true);f.visibility(true);keyboard();focused(false);
+    it('does not let a queued press act on another terminal',async()=>{
+      const f=await fixture();const oldShow=probe.keyboardPress;expect(oldShow).toBeDefined();
+      await f.install({tabId:'20000000-0000-4000-8000-000000000002'});state('ready');
+      act(()=>oldShow?.());readonly(false);focused(false);expect(screen.queryByText(/Keyboard SHOW/)).toBeNull();
+      keyboard();focused(true);f.visibility(true);keyboard();focused(false);
       for(const view of f.host.views)expect(view.session.input).not.toHaveBeenCalled();
     });
     it('ignores a queued local presentation callback from the retired original view',async()=>{

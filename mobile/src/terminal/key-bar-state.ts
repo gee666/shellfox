@@ -22,6 +22,21 @@ export function keyboardTap(mode: KeyboardMode, imeVisible: boolean): 'hide' | '
   return mode === 'system' ? 'reopen' : 'show';
 }
 
+/**
+ * A keyboard request waits until the terminal can take input. A tap made
+ * while it is attaching or recovering, or one dropped by a reattach before
+ * the IME appeared, is not lost. It ends when the IME appears or the user
+ * chooses something else.
+ */
+export function wantsKeyboardAfterTap(tap: 'hide' | 'show' | 'reopen'): boolean {
+  return tap !== 'hide';
+}
+
+/** Ask for the system keyboard again: the request is still open and nothing holds it. */
+export function appliesWantedKeyboard(wanted: boolean, mode: KeyboardMode, imeVisible: boolean, inputEnabled: boolean): boolean {
+  return wanted && inputEnabled && !imeVisible && mode === 'closed';
+}
+
 export function specialTap(mode: KeyboardMode, imeVisible: boolean): 'closed' | 'special' {
   return keyBarState(mode, imeVisible).specialRow ? 'closed' : 'special';
 }

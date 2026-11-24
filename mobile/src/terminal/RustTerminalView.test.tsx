@@ -132,7 +132,7 @@ describe('native terminal in the existing mobile controls', () => {
     for(const name of ['Stale focus feedback','Malformed focus feedback','Wrong-state focus feedback','Focus feedback accepted'])fireEvent.click(screen.getByRole('button',{name}));
     expect(screen.queryByText(/Snapshot since press:/)).toBeNull();expect(screen.queryByText('DO_NOT_DISPLAY')).toBeNull();
     expect(terminal).toHaveAttribute('data-readonly','true');expect(terminal).toHaveAttribute('data-focused','false');
-    expect(screen.queryByRole('button',{name:'Keyboard',exact:true})).toBeNull();expect(native.terminalInput).not.toHaveBeenCalled();expect(onError).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button',{name:'Ctrl',exact:true})).toBeNull();expect(native.terminalInput).not.toHaveBeenCalled();expect(onError).not.toHaveBeenCalled();
   });
   it('shows separate SHOW/HIDE receipts and a later successful snapshot without claiming current focus',async()=>{
     const {native}=await setup();const terminal=screen.getByLabelText('Native terminal');
@@ -178,9 +178,11 @@ describe('native terminal in the existing mobile controls', () => {
   });
   it('keeps input disabled until matching native readiness and disables it again during recovery', async () => {
     const { native } = await setup(false, new TestNative(), false);
-    for (const name of ['Ctrl', 'Keyboard', 'Special keys', 'Paste']) {
+    for (const name of ['Ctrl', 'Special keys', 'Paste']) {
       expect(screen.queryByRole('button', { name, exact: true })).toBeNull();
     }
+    // A keyboard request may be made early: it waits for readiness.
+    expect(screen.getByRole('button', { name: 'Keyboard', exact: true })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Native state bound' }));
     fireEvent.click(screen.getByRole('button', { name: 'Other terminal ready' }));
     expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-readonly', 'true');

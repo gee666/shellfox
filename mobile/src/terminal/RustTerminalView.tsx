@@ -22,7 +22,7 @@ import { TerminalOperationError } from './errors';
 import { nativeFileLink } from './native-file-link';
 import {focusFeedbackSchema,focusActionNotice,isFocusFeedback,type FocusActionObservation} from './focus-feedback';
 import {retirementNotice} from './keyboard-retirement';
-import { closesForIme, keyBarState, keyboardTap, specialTap, surfaceFocused } from './key-bar-state';
+import { appliesWantedKeyboard, closesForIme, keyBarState, keyboardTap, specialTap, surfaceFocused, wantsKeyboardAfterTap } from './key-bar-state';
 
 export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, fontSize,
   modifierReleaseDelayMs = 1000, connectionEpoch, takeoverIntent, onTakeoverIntentConsumed,
@@ -43,6 +43,13 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
     recovering: recoverKeyboardMode, ready: readyKeyboardMode, layoutPending: layoutKeyboardPending,
     layoutFinished: layoutKeyboardFinished} = useOwnedKeyboardMode(
       {view: session, current, driver, tabId, connectionEpoch, readOnly}, keyboardVisible);
+  // The user's keyboard request for this terminal. It outlives reattaches and
+  // reconnects until the IME appears (see wantsKeyboardAfterTap).
+  // A press queued from another terminal's render cannot set it.
+  const [keyboardWanted, setKeyboardWanted] = useState<{ driver: NativeViewDriver; tabId: string } | null>(null);
+  const wantsKeyboard = keyboardWanted?.driver === driver && keyboardWanted.tabId === tabId;
+  const wantKeyboard = (value: boolean) => setKeyboardWanted(value ? { driver, tabId } : null);
+  useEffect(() => setKeyboardWanted(null), [driver, tabId, readOnly]);
   const [selecting, setSelecting] = useState(false);
   const [selection, setSelection] = useState('');
   const [taking, setTaking] = useState(false);
@@ -66,6 +73,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
     const view = current.current;
     const retainKeyboard = view && presentation?.phase === 'pending' && layoutKeyboardPending(view, presentation);
     setState(next);
+    if (next === 'blocked' || next === 'closed') setKeyboardWanted(null);
     if (next !== 'attached') {
       setFocusObservation(null);setNativeReady(false); view?.nativeState('recovering'); reset(); invalidateAttachment();
       if (!retainKeyboard) clearKeyboardMode(true,'bridge_non_attached',presentation?.kind==='layoutRetired'?presentation.outcome:undefined);
@@ -123,12 +131,10 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
     imeWasVisible.current = keyboardVisible;
     if (appeared) clearKeyboardMode(false, 'ime_shown');
   }, [keyboardMode, keyboardVisible, clearKeyboardMode]);
-  // Requesting focus again needs the native view to see focused go false, then true.
-  const [reopen, setReopen] = useState(false);
+  useEffect(() => { if (keyboardVisible) setKeyboardWanted(null); }, [keyboardVisible]);
+  // Also the second half of a reopen: the native view must see focused go false, then true.
   useEffect(() => {
-    if (!reopen || keyboardMode !== 'closed') return;
-    setReopen(false);
-    chooseKeyboardMode('system', 'show');
+    if (appliesWantedKeyboard(wantsKeyboard, keyboardMode, keyboardVisible, inputEnabled)) chooseKeyboardMode('system', 'show');
   });
   const actionNotice = keyboardActionIntent===null ? null
     : focusObservation?.intent===keyboardActionIntent ? focusActionNotice(focusObservation)+(keyboardRetirement?` ${retirementNotice(keyboardRetirement)}`:'')
@@ -155,7 +161,9 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
             if(isFocusFeedback(value)){
               const feedback=focusFeedbackSchema.safeParse(value);
               // A tap on the terminal asks for the system keyboard, as the toggle does.
-              if (feedback.success && surfaceFocused(feedback.data.focusResult) && keyboardMode !== 'system') chooseKeyboardMode('system');
+              if (feedback.success && surfaceFocused(feedback.data.focusResult) && keyboardMode !== 'system') {
+                wantKeyboard(true); chooseKeyboardMode('system');
+              }
               if (!showKeyboardDiagnostics) return;
               if(feedback.success)setFocusObservation(previous=>previous?{...previous,snapshot:feedback.data.focusResult}:null);
               return; // Action feedback is never parser readiness or an ACK.
@@ -182,7 +190,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
             if (current.current !== session || !nativeReady || (state !== 'attached' && !(state === 'closed' && readOnly))) return;
             const target = nativeFileLink(nativeEvent, session.handle);
             if (!target) return;
-            clearKeyboardMode(true, 'selection_close');
+            setKeyboardWanted(null); clearKeyboardMode(true, 'selection_close');
             onFileOpen(target);
           } : undefined}
           onError={(event) => {
@@ -201,15 +209,17 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
         </View>}
       </View>
       {!blocked && attachment.panel}
-      {!blocked && <TerminalKeys readOnly={!inputEnabled} attach={inputEnabled ? attachment.button : undefined}
+      {!blocked && <TerminalKeys readOnly={!inputEnabled} keyboardToggle={!readOnly && state !== 'closed'}
+        attach={inputEnabled ? attachment.button : undefined}
         bottomInset={keyboardVisible || specialKeyboard ? 0 : insets.bottom}
         control={modifiers.ctrl} selecting={selecting} selection={selection}
         onControl={() => toggle('ctrl')} onSelect={() => {
-          setSelecting((value) => !value); setSelection(''); clearKeyboardMode(true,'selection_close');
+          setSelecting((value) => !value); setSelection(''); setKeyboardWanted(null); clearKeyboardMode(true,'selection_close');
         }} onKey={sendKey} systemKeyboard={keyboardActive}
         specialKeyboard={specialActive} onKeyboard={() => {
           const tap = keyboardTap(keyboardMode, keyboardVisible);
-          if (tap === 'reopen') { if (chooseKeyboardMode('closed')) setReopen(true); return; }
+          wantKeyboard(wantsKeyboardAfterTap(tap));
+          if (tap === 'reopen') { chooseKeyboardMode('closed'); return; }
           const next = tap === 'hide' ? 'closed' : 'system';
           // Receipt of this JS branch only. A later snapshot is not causally
           // correlated without a token, and HIDE need not yield one.
@@ -217,7 +227,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
           if (chooseKeyboardMode(next, intent) && showKeyboardDiagnostics) setFocusObservation({ intent, snapshot: null });
         }} onSpecialKeyboard={() => {
           const next = specialTap(keyboardMode, keyboardVisible);
-          chooseKeyboardMode(next); if (next === 'special') Keyboard.dismiss();
+          setKeyboardWanted(null); chooseKeyboardMode(next); if (next === 'special') Keyboard.dismiss();
         }} onPaste={paste} />}
       {!blocked && inputEnabled && specialKeyboard && <SpecialKeyboard modifiers={modifiers} onModifier={toggle}
         onKey={sendKey} bottomInset={insets.bottom} />}
