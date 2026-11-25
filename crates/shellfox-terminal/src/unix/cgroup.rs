@@ -15,6 +15,34 @@ pub(super) struct Cgroup {
     kill: File,
     events: File,
 }
+/// Names the data directory of the host that created a terminal cgroup (orphans.rs).
+pub(super) const OWNER_XATTR: &CStr = c"user.shellfox.owner";
+/// This account's systemd user delegation.
+pub(super) fn delegation() -> Result<File> {
+    let uid = unsafe { libc::getuid() };
+    ensure!(
+        uid == unsafe { libc::geteuid() },
+        "PTY cgroup requires matching real and effective user IDs"
+    );
+    let path = format!("/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service");
+    let parent = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
+        .context("no systemd user delegation")?;
+    let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
+    ensure!(
+        unsafe { libc::fstatfs(parent.as_raw_fd(), stat.as_mut_ptr()) } == 0,
+        "inspect cgroup filesystem"
+    );
+    // f_type and the magic have different integer types on gnu and musl.
+    let filesystem = i128::from(unsafe { stat.assume_init() }.f_type);
+    ensure!(
+        filesystem == i128::from(libc::CGROUP2_SUPER_MAGIC) && parent.metadata()?.uid() == uid,
+        "not an owned cgroup-v2 delegation"
+    );
+    Ok(parent)
+}
 pub(super) fn open_at(directory: &File, name: &CStr, flags: i32) -> Result<File> {
     let fd = unsafe {
         libc::openat(
@@ -32,28 +60,7 @@ pub(super) fn open_at(directory: &File, name: &CStr, flags: i32) -> Result<File>
 }
 impl Cgroup {
     pub fn create() -> Result<Self> {
-        let uid = unsafe { libc::getuid() };
-        ensure!(
-            uid == unsafe { libc::geteuid() },
-            "PTY cgroup requires matching real and effective user IDs"
-        );
-        let path = format!("/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service");
-        let parent = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-            .open(path)
-            .context("no systemd user delegation")?;
-        let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
-        ensure!(
-            unsafe { libc::fstatfs(parent.as_raw_fd(), stat.as_mut_ptr()) } == 0,
-            "inspect cgroup filesystem"
-        );
-        // f_type and the magic have different integer types on gnu and musl.
-        let filesystem = i128::from(unsafe { stat.assume_init() }.f_type);
-        ensure!(
-            filesystem == i128::from(libc::CGROUP2_SUPER_MAGIC) && parent.metadata()?.uid() == uid,
-            "not an owned cgroup-v2 delegation"
-        );
+        let parent = delegation()?;
         let name = CString::new(format!(
             "shellfox-{}.scope",
             super::private::random_token()?
@@ -65,6 +72,24 @@ impl Cgroup {
         );
         let opened = (|| {
             let directory = open_at(&parent, &name, libc::O_RDONLY | libc::O_DIRECTORY)?;
+            if let Some(owner) = super::orphans::owner() {
+                // SAFETY: a held directory, a NUL-terminated name and a valid buffer.
+                let set = unsafe {
+                    libc::fsetxattr(
+                        directory.as_raw_fd(),
+                        OWNER_XATTR.as_ptr(),
+                        owner.as_ptr().cast(),
+                        owner.len(),
+                        0,
+                    )
+                };
+                // Without it the group still works; only the orphan sweep skips it.
+                static REPORTED: std::sync::Once = std::sync::Once::new();
+                if set != 0 {
+                    let error = std::io::Error::last_os_error();
+                    REPORTED.call_once(|| eprintln!("Terminal group owner not recorded: {error}"));
+                }
+            }
             let procs = open_at(&directory, c"cgroup.procs", libc::O_WRONLY)?;
             let kill = open_at(&directory, c"cgroup.kill", libc::O_WRONLY)?;
             let events = open_at(&directory, c"cgroup.events", libc::O_RDONLY)?;

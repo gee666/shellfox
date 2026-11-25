@@ -136,6 +136,9 @@ impl LocalBootstrap {
         ready: impl FnOnce(),
     ) -> Result<()> {
         let mut bootstrap = Self::plan(data, helper, digest)?;
+        // Ends terminals a previous host of this directory left without an owner.
+        #[cfg(target_os = "linux")]
+        shellfox_terminal::unix::orphans::adopt(data);
         let clean = std::cell::Cell::new(false);
         let ready = std::cell::Cell::new(Some(ready));
         let report = |report: LocalBootReport| {

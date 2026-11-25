@@ -20,6 +20,8 @@ pub(crate) mod environment;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod handshake;
 mod lifecycle;
+#[cfg(target_os = "linux")]
+pub mod orphans;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod private;
 #[cfg(target_os = "linux")]
