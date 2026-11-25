@@ -356,8 +356,9 @@ impl Service {
     /// A tab created here starts its shell at once, as in 0.9 and on the peer
     /// route, so CLI and automation can write to it. Restored tabs still start
     /// on their first attach, like 0.9's sessions after a restart. The start
-    /// doesn't block the owner: an attach waits for it on the owner's start
-    /// route. A start that fails at once is reported here; the saved tab stays.
+    /// doesn't block the owner: the owner holds this reply until the shell is
+    /// open (owner/launching.rs). A failed start is LAUNCH_FAILED; the saved
+    /// tab stays, as in 0.9.
     fn start_new_tab(&mut self, before: &Snapshot, after: Snapshot) -> anyhow::Result<Snapshot> {
         let existed = |id: TabId| {
             before
@@ -374,7 +375,12 @@ impl Service {
         let Some(tab) = created else {
             return Ok(after);
         };
-        self.begin_start(tab)?;
+        if self
+            .begin_start(tab)
+            .map_err(|error| crate::owner::launching::failure(&error))?
+        {
+            self.launch_begun = Some(tab);
+        }
         Ok(self.host().snapshot()?)
     }
 }

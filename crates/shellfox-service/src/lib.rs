@@ -121,6 +121,9 @@ pub struct Service {
     runtime_handle: Option<tokio::runtime::Handle>,
     /// When this host opened its data, as RFC 3339 UTC.
     started_at: String,
+    /// The start a create or addTab began; its reply waits in launch_replies.
+    launch_begun: Option<TabId>,
+    launch_replies: Vec<(TabId, owner::launching::LaunchReply)>,
     // Last: Host/SQLite and every deferred resource owner drop before this guard.
     // Original directory lifetime only, not path/VFS confinement.
     _root_lifetime: Option<shellfox_transport::RootLifetimeGuard>,

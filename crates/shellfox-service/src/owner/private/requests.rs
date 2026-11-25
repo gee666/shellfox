@@ -155,12 +155,14 @@ impl PrivateOwner {
                 }
                 let detach = matches!(request, LocalApiRequest::Detach {});
                 let result = service
-                    .with_grant_recipient(cancel, |service| service.execute(request, controller))
-                    .and_then(encode);
+                    .with_grant_recipient(cancel, |service| service.execute(request, controller));
                 if detach && result.is_ok() {
                     controllers.remove(&client_id);
                 }
-                let _ = reply.send(result);
+                service.reply_after_launch(
+                    result,
+                    Box::new(move |result| drop(reply.send(result.and_then(encode)))),
+                );
             }
             PrivateRequest::DesktopLaunch(request) if request.is_attached_renderer() => {
                 let result = self

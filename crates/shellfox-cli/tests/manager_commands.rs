@@ -92,6 +92,11 @@ fn run(host: &Fixture) -> Result<()> {
         "{session}"
     );
     ensure!(session["window"]["state"] == "unsupported" && session["controlReason"].is_string());
+    // As in 0.9, the reply comes once the new shell is open.
+    ensure!(
+        session["tabs"][0]["lifecycle"] == "open" && session["tabs"][0]["generation"].is_string(),
+        "{session}"
+    );
 
     // list, inspect: 0.9 tables in plain mode, records with live status in JSON.
     let list = host.json(&["session", "list", "--json"])?;
@@ -154,9 +159,12 @@ fn run(host: &Fixture) -> Result<()> {
     host.json(&[
         "tm", "create", "--id", id, "--title", "Two", "--cwd", project, "--json",
     ])?;
-    ensure!(created["tabs"]
-        .as_array()
-        .is_some_and(|t| t.len() == before + 1));
+    ensure!(
+        created["tabs"]
+            .as_array()
+            .is_some_and(|t| t.len() == before + 1 && t.iter().all(|t| t["lifecycle"] == "open")),
+        "{created}"
+    );
     let tabs = host.json(&["terminals", "list", id, "--json"])?;
     let ids: Vec<String> = tabs
         .as_array()

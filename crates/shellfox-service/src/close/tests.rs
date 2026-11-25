@@ -146,7 +146,9 @@ async fn owner_with<D: crate::OwnerDispatcher + 'static>(
     owner
 }
 async fn session(client: &crate::OwnerClient, data: &std::path::Path) -> (SessionId, TabId) {
-    let crate::local_api::LocalApiResponse::Snapshot(created) = client
+    // The test binary is no PTY supervisor, so the create's shell start fails
+    // and leaves a failed runtime, which the close must still stop.
+    let _ = client
         .execute(LocalApiRequest::CreateSession {
             input: CreateSession {
                 request_id: SessionId::new(),
@@ -155,8 +157,9 @@ async fn session(client: &crate::OwnerClient, data: &std::path::Path) -> (Sessio
                 profile_id: default_catalog_profile(),
             },
         })
-        .await
-        .unwrap()
+        .await;
+    let crate::local_api::LocalApiResponse::Snapshot(created) =
+        client.execute(LocalApiRequest::Snapshot {}).await.unwrap()
     else {
         panic!("snapshot")
     };
@@ -246,11 +249,12 @@ async fn shutdown_answers_requests_held_behind_a_close_and_commits_none() {
 }
 
 #[tokio::test]
-async fn an_attach_routed_through_a_start_reports_a_failed_start() {
+async fn a_create_reports_a_failed_start_once() {
     let data = scratch();
     let mut owner = owner_with(data.path(), ()).await;
     let client = owner.client(uuid::Uuid::new_v4());
-    let crate::local_api::LocalApiResponse::Snapshot(created) = client
+    // The create's reply waits for its shell, so the failed start is its error.
+    let error = client
         .execute(LocalApiRequest::CreateSession {
             input: CreateSession {
                 request_id: SessionId::new(),
@@ -264,18 +268,19 @@ async fn an_attach_routed_through_a_start_reports_a_failed_start() {
             },
         })
         .await
-        .unwrap()
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .starts_with("The shell could not be started"),
+        "{error:#}"
+    );
+    let crate::local_api::LocalApiResponse::Snapshot(saved) =
+        client.execute(LocalApiRequest::Snapshot {}).await.unwrap()
     else {
         panic!("snapshot")
     };
-    let tab = created.sessions[0].tabs[0].id;
-    assert!(client
-        .execute(LocalApiRequest::Attach {
-            tab,
-            takeover: false
-        })
-        .await
-        .is_err());
+    let tab = saved.sessions[0].tabs[0].id;
     // Reported once; the failed owner stays registered until a close confirms it.
     client
         .execute(LocalApiRequest::CloseTab { id: tab })

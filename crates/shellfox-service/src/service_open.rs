@@ -38,6 +38,8 @@ impl Service {
             event_wake: None,
             runtime_signal: Default::default(),
             runtime_handle: None,
+            launch_begun: None,
+            launch_replies: Vec::new(),
             _root_lifetime: None,
             started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         })

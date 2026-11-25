@@ -35,6 +35,7 @@ use controller::controller_id;
 mod task;
 use task::Task;
 pub(crate) mod approvals;
+pub(crate) mod launching;
 mod native_reply;
 mod private;
 mod private_client;
@@ -161,6 +162,13 @@ impl ServiceOwner {
                             }
                         }))
                         .unwrap_or(false)
+                    {
+                        break;
+                    }
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        service.finish_launches()
+                    }))
+                    .is_err()
                     {
                         break;
                     }
@@ -297,7 +305,10 @@ impl ServiceOwner {
                                     if detach && result.is_ok() {
                                         controllers.remove(&client_id);
                                     }
-                                    let _ = reply.send(result);
+                                    service.reply_after_launch(
+                                        result,
+                                        Box::new(move |result| drop(reply.send(result))),
+                                    );
                                 }
                                 Err(_) => {
                                     let _ = reply.send(Err(anyhow::anyhow!(

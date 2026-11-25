@@ -1,5 +1,5 @@
-//! While an attach waits for its new shell to start, the host keeps
-//! answering other requests: a snapshot sent after it returns first.
+//! While a create or an attach waits for its new shell to start, the host
+//! keeps answering other requests: a snapshot sent after it returns first.
 // Windows only: a ConPTY start outlasts the 5 ms the test waits before its
 // second request; a macOS shell is often up before then.
 #![cfg(windows)]
@@ -9,9 +9,10 @@ mod support;
 use support::OwnedHost;
 
 use anyhow::{ensure, Context, Result};
-use shellfox_core::{CreateSession, ProfileId, SessionId};
+use shellfox_core::{AddTab, CreateSession, ProfileId, SessionId, TabId};
+use shellfox_host::HostRequest;
 use shellfox_service::{
-    local::LocalClient,
+    local::{DesktopReply, DesktopRequest, LocalClient},
     local_api::{LocalApiRequest as Request, LocalApiResponse as Response},
 };
 use std::{
@@ -67,11 +68,30 @@ fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
             cwd: data.to_string_lossy().into_owned(),
             profile_id: ProfileId::new(if cfg!(windows) { "cmd" } else { "login-shell" })?,
         };
-        let Response::Snapshot(created) = client.execute(Request::CreateSession { input }).await?
-        else {
+        // The create's reply waits for its shell; a snapshot meanwhile doesn't.
+        let started = Instant::now();
+        let (created, snapshot) = tokio::join!(
+            async {
+                let reply = client.execute(Request::CreateSession { input }).await;
+                (reply, started.elapsed())
+            },
+            async {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                let reply = client.execute(Request::Snapshot {}).await;
+                (reply, started.elapsed())
+            },
+        );
+        let Response::Snapshot(created_snapshot) = created.0? else {
             anyhow::bail!("Host did not return the created session.");
         };
-        let tab = created.sessions[0].tabs[0].id;
+        snapshot.0?;
+        ensure!(
+            snapshot.1 < created.1,
+            "the snapshot waited for the create's shell"
+        );
+        let session = created_snapshot.sessions[0].id;
+        // A tab added like the desktop does starts on its first attach.
+        let tab = pending_tab(&client, session, &data).await?;
         let started = Instant::now();
         let (attached, snapshot) = tokio::join!(
             async {
@@ -116,13 +136,13 @@ fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
         else {
             anyhow::bail!("Host did not return the created session.");
         };
-        let tab = created
+        let session = created
             .sessions
             .iter()
             .find(|s| s.title == "detached early")
             .context("session")?
-            .tabs[0]
             .id;
+        let tab = pending_tab(&client, session, &data).await?;
         let (attached, detached) = tokio::join!(
             client.execute(Request::Attach {
                 tab,
@@ -143,4 +163,26 @@ fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
     });
     let _ = host.wait(Duration::from_secs(20));
     result
+}
+
+/// A tab added through desktop metadata, which starts on its first attach.
+async fn pending_tab(client: &LocalClient, session: SessionId, cwd: &Path) -> Result<TabId> {
+    let request = DesktopRequest::Metadata(HostRequest::AddTab {
+        session_id: session,
+        input: AddTab {
+            title: None,
+            cwd: Some(cwd.to_string_lossy().into_owned()),
+            profile_id: ProfileId::new(if cfg!(windows) { "cmd" } else { "login-shell" })?,
+        },
+    });
+    let DesktopReply::Snapshot(snapshot) = client.request(&request).await? else {
+        anyhow::bail!("Host did not return the added tab.");
+    };
+    snapshot
+        .sessions
+        .iter()
+        .find(|s| s.id == session)
+        .and_then(|s| s.tabs.last())
+        .map(|t| t.id)
+        .context("added tab")
 }
