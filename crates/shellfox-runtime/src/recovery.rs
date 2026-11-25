@@ -152,11 +152,11 @@ fn bounded_active_buffer_ansi(
 }
 
 #[cfg(test)]
+#[path = "recovery_color_tests.rs"]
+mod color_tests;
+#[cfg(test)]
 #[path = "recovery_resize_tests.rs"]
 mod resize_tests;
 #[cfg(test)]
 #[path = "recovery_tests.rs"]
 mod tests;
-#[cfg(test)]
-#[path = "recovery_color_tests.rs"]
-mod color_tests;
