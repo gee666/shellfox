@@ -87,6 +87,20 @@ impl Desktop {
         shellfox_service::crash_report::logs_dir(&self.data)
     }
 
+    /// Whether any host serves this data dir.
+    pub fn host_answers(&self) -> bool {
+        runtime().block_on(async {
+            let connect = LocalClient::connect(&self.data, &self.helper, self.digest);
+            match tokio::time::timeout(Duration::from_secs(5), connect).await {
+                Ok(Ok(client)) => {
+                    let _ = client.disconnect().await;
+                    true
+                }
+                _ => false,
+            }
+        })
+    }
+
     pub fn registered(&self) -> bool {
         let probe = async {
             let client = LocalClient::connect(&self.data, &self.helper, self.digest)

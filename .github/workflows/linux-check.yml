@@ -88,6 +88,11 @@ jobs:
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}
         timeout-minutes: 5
         run: env -u WAYLAND_DISPLAY SHELLFOX_X11_KEYS=1 xvfb-run -a cargo test --locked -p shellfox-desktop --test x11_keys -- --nocapture
+      # A window manager's close (WM_DELETE_WINDOW) quits as 0.9.15 did; no crash, no relaunch.
+      - name: Desktop window close under X11
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        timeout-minutes: 5
+        run: env -u WAYLAND_DISPLAY SHELLFOX_X11_CLOSE=1 xvfb-run -a cargo test --locked -p shellfox-desktop --test x11_close -- --nocapture
       # 2,000 keys typed at xdotool's full speed all reach `cat`, in order.
       - name: Desktop fast typing under X11
         if: ${{ !cancelled() && steps.check.outcome == 'success' }}

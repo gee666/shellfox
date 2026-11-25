@@ -133,10 +133,25 @@ pub(crate) fn open(
             root.update(cx, |root, cx| root.track_window_bounds(tracker, window, cx));
         }
         let close = root.downgrade();
+        // GPUI calls this from inside its platform event handler. On X11 that
+        // handler holds the client state borrowed, so the close work, which
+        // asks for the window's display, panicked there. Run it on the next
+        // turn of the event loop instead, the same way on every OS.
         window.on_window_should_close(cx, move |window, cx| {
-            close
-                .update(cx, |root, cx| root.close(window, cx))
-                .unwrap_or(false)
+            let close = close.clone();
+            window
+                .spawn(cx, async move |cx| {
+                    let _ = cx.update(|window, cx| {
+                        if close
+                            .update(cx, |root, cx| root.close(window, cx))
+                            .unwrap_or(false)
+                        {
+                            window.remove_window();
+                        }
+                    });
+                })
+                .detach();
+            false
         });
         let shown = root.clone();
         window.defer(cx, move |window, cx| {
