@@ -51,6 +51,7 @@ struct Options {
     helper: Option<PathBuf>,
     digest: Option<OsString>,
     incompatible: bool,
+    json: bool,
 }
 
 /// Parse SSH before host-only startup arguments and helper checks. `ssh --help`
@@ -66,6 +67,7 @@ pub fn dispatch(arguments: &[OsString]) -> Option<Result<i32>> {
         }
         if flag == "--json" {
             opts.incompatible = true;
+            opts.json = true;
             rest = tail;
             continue;
         }
@@ -86,6 +88,7 @@ pub fn dispatch(arguments: &[OsString]) -> Option<Result<i32>> {
     while let [flag, tail @ ..] = rest {
         if flag == "--json" {
             opts.incompatible = true;
+            opts.json = true;
             rest = tail;
         } else if flag == "--host" {
             let [host, next @ ..] = tail else {
@@ -104,8 +107,14 @@ pub fn dispatch(arguments: &[OsString]) -> Option<Result<i32>> {
 fn run(opts: Options, action: Option<Action>) -> Result<i32> {
     let terminal = Terminal::new();
     if opts.incompatible {
-        eprintln!("SSH is interactive and local. It does not support --json or a remote --host.");
-        return Ok(2);
+        if opts.json {
+            crate::output::set_mode(crate::output::Mode::Json);
+        } else {
+            crate::output::set_mode(crate::output::Mode::Human);
+        }
+        return Err(crate::output::CliError::usage(
+            "SSH is interactive and local. It does not support --json or a remote --host.",
+        ));
     }
     let Some(action) = action else {
         terminal.line(&terminal.style("31", "invalid ssh arguments"))?;

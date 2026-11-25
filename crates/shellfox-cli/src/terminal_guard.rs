@@ -1,11 +1,13 @@
 //! Shared TTY admission and cleanup for local and native-peer attach.
 use crate::presentation;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use crossterm::{event::EnableBracketedPaste, execute, terminal};
 use std::io::{self, IsTerminal, Write};
 pub fn require_terminal() -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        bail!("attach requires terminal stdin and stdout; redirected output is not supported.");
+        return Err(crate::output::CliError::usage(
+            "Interactive attach requires a TTY on stdin and stdout.",
+        ));
     }
     Ok(())
 }

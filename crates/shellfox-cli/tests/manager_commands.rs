@@ -148,6 +148,23 @@ fn run(host: &Fixture) -> Result<()> {
         code(&host.reply(&["terminals", "write", &ids[0], "x", "--json"])?) == ("NOT_FOUND", 1)
     );
 
+    // 0.9 usage errors: JSON records with VALIDATION and exit 2.
+    for words in [
+        &["ssh", "x", "--json"][..],
+        &["settings", "update", "--input", "[1]", "--json"],
+        &["approvals", "approve", "not a peer", "--json"],
+        &["session", "--json"],
+    ] {
+        ensure!(code(&host.reply(words)?) == ("VALIDATION", 2), "{words:?}");
+    }
+    let attach = host.output(&["terminals", "attach", first])?;
+    ensure!(
+        attach.status.code() == Some(2)
+            && String::from_utf8_lossy(&attach.stderr)
+                .contains("Interactive attach requires a TTY on stdin and stdout."),
+        "{attach:?}"
+    );
+
     // profiles and path helpers.
     ensure!(host.json(&["profiles", "--json"])?["profiles"].is_array());
     ensure!(host.json(&["path", "home", "--json"])?["cwd"].is_string());

@@ -352,7 +352,6 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
             install: false,
             startup: false,
         },
-        [namespace] if session(namespace) => Action::Help(Some("session".into())),
         [namespace, "create", rest @ ..] if session(namespace) => create_session(rest)?,
         [namespace, "attach", _] if terminal(namespace) && json => {
             return Err(CliError::usage(
@@ -375,7 +374,17 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
             ))
         }
         ["settings", "read"] => host(&["settings", "get"]),
-        ["settings", "update", "--input", input] => host(&["settings", "set", &read_input(input)?]),
+        ["settings", "update", "--input", input] => {
+            let input = read_input(input)?;
+            let object = serde_json::from_str::<serde_json::Value>(&input)
+                .map_err(|_| CliError::usage("Invalid JSON input."))?
+                .is_object();
+            if !object {
+                return Err(CliError::usage("Settings input must be a JSON object."));
+            }
+            host(&["settings", "set", &input])
+        }
+        ["settings", "update", ..] => return Err(CliError::usage("Provide --input with JSON.")),
         ["network", "status"] => host(&["host", "network", "status"]),
         ["network", "enable"] => host(&["host", "network", "on"]),
         ["network", "enable", "--hostname", name] => {
@@ -409,6 +418,12 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
         ["completion", shell] => Action::Completion(Some((*shell).to_owned())),
         ["completion", ..] => return Err(CliError::usage(crate::completion::HELP.trim())),
         ["cmd" | "commands", rest @ ..] => Action::Commands(words(rest)),
+        ["machines", "connect" | "disconnect" | "forget", peer]
+        | ["approvals", "approve" | "revoke" | "reject", peer]
+            if !valid_peer(peer) =>
+        {
+            return Err(CliError::usage("Invalid peer ID."))
+        }
         ["machines", "list"] => Action::Machines,
         ["machines", op @ ("connect" | "disconnect"), peer] => {
             host(&["host", "network", "peer", peer, op])
@@ -435,8 +450,39 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
         ["runs"] | ["runs", "list"] => host(&["runs", "list"]),
         ["runs", "show", id] => host(&["runs", "show", id]),
         ["runs", "stop", id] => confirm(format!("Stop run {id}"), &["runs", "stop", id]),
+        [namespace, ..] if session(namespace) => {
+            return Err(CliError::usage(
+                "Unknown session operation. Run shellfox session --help.",
+            ))
+        }
+        [namespace, ..] if terminal(namespace) => {
+            return Err(CliError::usage("Unknown terminals operation."))
+        }
+        ["host", "keep-awake", ..] => {
+            return Err(CliError::usage("Usage: shellfox host keep-awake [on|off]"))
+        }
+        // `host power|network` and `settings get|set` are development commands.
+        ["host"] | ["host", "run" | "status" | "stop", ..] => {
+            return Err(CliError::usage("Usage: shellfox host run|status|stop"))
+        }
+        ["settings"] | ["settings", "read", ..] => {
+            return Err(CliError::usage(
+                "Usage: shellfox settings read|update --input <JSON>",
+            ))
+        }
+        [namespace @ ("network" | "machines" | "approvals"), ..] => {
+            return Err(CliError::usage(format!("Unknown {namespace} operation.")))
+        }
         _ => Action::Unknown(args.to_vec()),
     })
+}
+
+/// 0.9's remotePeerIdSchema.
+fn valid_peer(peer: &str) -> bool {
+    (1..=200).contains(&peer.len())
+        && peer
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
 }
 
 /// Flag names with their values, in order.

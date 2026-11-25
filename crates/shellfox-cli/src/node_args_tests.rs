@@ -38,7 +38,41 @@ fn service_unit_command_lines_from_0_9_keep_working() {
 fn namespaces_and_aliases_translate_to_host_commands() {
     assert!(matches!(action(&["ss", "list"]), Action::Manager(_)));
     assert!(matches!(action(&["tm", "list"]), Action::Manager(_)));
-    assert_eq!(action(&["session"]), Action::Help(Some("session".into())));
+    // 0.9 usage errors for a bare or unknown operation, never a fallback.
+    for (words, message) in [
+        (
+            &["session"][..],
+            "Unknown session operation. Run shellfox session --help.",
+        ),
+        (&["tm"][..], "Unknown terminals operation."),
+        (&["host"][..], "Usage: shellfox host run|status|stop"),
+        (
+            &["host", "keep-awake", "maybe"][..],
+            "Usage: shellfox host keep-awake [on|off]",
+        ),
+        (
+            &["settings"][..],
+            "Usage: shellfox settings read|update --input <JSON>",
+        ),
+        (&["settings", "update"][..], "Provide --input with JSON."),
+        (
+            &["settings", "update", "--input", "[1]"][..],
+            "Settings input must be a JSON object.",
+        ),
+        (
+            &["approvals", "approve", "not a peer"][..],
+            "Invalid peer ID.",
+        ),
+        (&["machines", "frob"][..], "Unknown machines operation."),
+    ] {
+        let error = parse_words(words).unwrap_err();
+        let error = error.downcast_ref::<crate::output::CliError>().unwrap();
+        assert!(
+            error.code == "VALIDATION" && error.message == message,
+            "{words:?}: {}",
+            error.message
+        );
+    }
     assert_eq!(
         action(&["session", "pin", "--help"]),
         Action::Help(Some("session".into()))
