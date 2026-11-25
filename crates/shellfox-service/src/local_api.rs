@@ -243,7 +243,9 @@ impl Service {
         let response = match request {
             Snapshot {} => LocalApiResponse::Snapshot(self.host().snapshot()?),
             CreateSession { input } => {
-                LocalApiResponse::Snapshot(self.create_application_session(input)?)
+                let before = self.host().snapshot()?;
+                let after = self.create_application_session(input)?;
+                LocalApiResponse::Snapshot(self.start_new_tab(&before, after)?)
             }
             RenameSession { id, title } => {
                 LocalApiResponse::Snapshot(self.host().rename_session(id, &title)?)
@@ -251,7 +253,11 @@ impl Service {
             DeleteSession { .. } | CloseTab { .. } => {
                 anyhow::bail!("Closes run on the owner's close route.")
             }
-            AddTab { id, input } => LocalApiResponse::Snapshot(self.host().add_tab(id, input)?),
+            AddTab { id, input } => {
+                let before = self.host().snapshot()?;
+                let after = self.host().add_tab(id, input)?;
+                LocalApiResponse::Snapshot(self.start_new_tab(&before, after)?)
+            }
             RenameTab { id, title } => {
                 LocalApiResponse::Snapshot(self.host().rename_tab(id, &title)?)
             }
@@ -344,6 +350,32 @@ impl Service {
         };
         response.validate()?;
         Ok(response)
+    }
+}
+impl Service {
+    /// A tab created here starts its shell at once, as in 0.9 and on the peer
+    /// route, so CLI and automation can write to it. Restored tabs still start
+    /// on their first attach, like 0.9's sessions after a restart. The start
+    /// doesn't block the owner: an attach waits for it on the owner's start
+    /// route. A start that fails at once is reported here; the saved tab stays.
+    fn start_new_tab(&mut self, before: &Snapshot, after: Snapshot) -> anyhow::Result<Snapshot> {
+        let existed = |id: TabId| {
+            before
+                .sessions
+                .iter()
+                .any(|s| s.tabs.iter().any(|t| t.id == id))
+        };
+        let created = after
+            .sessions
+            .iter()
+            .flat_map(|s| &s.tabs)
+            .map(|t| t.id)
+            .find(|id| !existed(*id));
+        let Some(tab) = created else {
+            return Ok(after);
+        };
+        self.begin_start(tab)?;
+        Ok(self.host().snapshot()?)
     }
 }
 fn owner(attachment: &Attachment, controller: u64) -> anyhow::Result<()> {

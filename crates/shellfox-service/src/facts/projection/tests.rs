@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    local_api::{LocalApiRequest, LocalApiResponse},
-    Service,
-};
+use crate::Service;
 use shellfox_core::{CreateSession, ProfileId, SessionId};
 
 fn fixture() -> (tempfile::TempDir, Service) {
@@ -13,22 +10,15 @@ fn fixture() -> (tempfile::TempDir, Service) {
 #[test]
 fn actual_app_creation_projects_without_invented_runtime() {
     let (data, mut service) = fixture();
-    let LocalApiResponse::Snapshot(snapshot) = service
-        .execute(
-            LocalApiRequest::CreateSession {
-                input: CreateSession {
-                    request_id: SessionId::new(),
-                    title: None,
-                    cwd: data.path().to_string_lossy().into_owned(),
-                    profile_id: crate::tests::default_catalog_profile(),
-                },
-            },
-            1,
-        )
-        .unwrap()
-    else {
-        panic!("snapshot");
-    };
+    // The application creation itself, before its shell starts.
+    let snapshot = service
+        .create_application_session(CreateSession {
+            request_id: SessionId::new(),
+            title: None,
+            cwd: data.path().to_string_lossy().into_owned(),
+            profile_id: crate::tests::default_catalog_profile(),
+        })
+        .unwrap();
     service.pump_activity();
     let source = crate::activity::integration::read_source(&service.source_facts_watch()).unwrap();
     let result = project_session_facts(&source).unwrap();

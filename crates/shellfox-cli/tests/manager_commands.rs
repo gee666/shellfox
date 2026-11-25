@@ -73,17 +73,17 @@ fn run(host: &Fixture) -> Result<()> {
         .contains("settled At"));
     ensure!(host.json(&["session", "clear-error", id, "--json"])?["id"] == id);
     ensure!(host.json(&["session", "refresh", id, "--json"])?["id"] == id);
-    ensure!(code(&host.reply(&["session", "focus", id, "--json"])?) == ("TARGET_LOST", 1));
+    ensure!(host.json(&["session", "focus", id, "--json"])?["focused"] == true);
 
     // stats and processes: one fresh read, filtered and laid out like control-cli.
     let stats = host.json(&["session", "stats", id, "--json"])?;
     ensure!(
-        stats["sessions"][0]["env"] == serde_json::json!([]) && stats["tabs"].is_array(),
+        stats["sessions"][0]["env"] == serde_json::json!([])
+            && stats["tabs"][0]["tabId"] == session["tabs"][0]["id"],
         "{stats}"
     );
-    ensure!(host
-        .plain(&["session", "processes", "--all"])?
-        .contains("RSS n/a"));
+    let processes = host.plain(&["session", "processes", "--all"])?;
+    ensure!(processes.contains("PID "), "{processes}");
     let none = host.reply(&["session", "stats", "--json"])?;
     ensure!(
         code(&none) == ("VALIDATION", 2)
@@ -109,7 +109,10 @@ fn run(host: &Fixture) -> Result<()> {
         .map(|t| t["id"].as_str().unwrap_or_default().to_owned())
         .collect();
     ensure!(
-        ids.len() == before + 2 && tabs[0]["lifecycle"] == "closed",
+        ids.len() == before + 2
+            && tabs.as_array().is_some_and(|t| t
+                .iter()
+                .all(|t| t["lifecycle"] == "open" && t["generation"].is_string())),
         "{tabs}"
     );
     ensure!(host.plain(&["terminals", "list"])?.contains("SESSION"));
@@ -122,13 +125,27 @@ fn run(host: &Fixture) -> Result<()> {
     words.push("--json");
     let reordered = host.json(&words)?;
     ensure!(reordered["tabs"][0]["id"] == ids[ids.len() - 1].as_str());
-    // Neither closing nor writing starts a shell that isn't running.
+    // As in 0.9, created terminals run at once: a script can write right away.
+    let written = host.json(&["terminals", "write", &ids[0], "echo cli-write\r", "--json"])?;
+    ensure!(
+        written == serde_json::json!({ "written": true }),
+        "{written}"
+    );
+    let first = session["tabs"][0]["id"].as_str().context("first tab")?;
+    ensure!(session["tabs"][0]["generation"].is_string(), "{session}");
+    let mut stdin = host
+        .command(&["terminals", "write", first, "--stdin", "--json"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()?;
+    std::io::Write::write_all(&mut stdin.stdin.take().context("stdin")?, b"echo piped\r")?;
+    let piped: Value = serde_json::from_slice(&stdin.wait_with_output()?.stdout)?;
+    ensure!(piped["value"]["written"] == true, "{piped}");
+    ensure!(code(&host.reply(&["terminals", "close", &ids[0], "--json"])?) == ("VALIDATION", 2));
+    host.json(&["terminals", "close", &ids[0], "--yes", "--json"])?;
+    // A closed terminal is never restarted by a write.
     ensure!(
         code(&host.reply(&["terminals", "write", &ids[0], "x", "--json"])?) == ("NOT_FOUND", 1)
-    );
-    ensure!(code(&host.reply(&["terminals", "close", &ids[0], "--json"])?) == ("VALIDATION", 2));
-    ensure!(
-        code(&host.reply(&["terminals", "close", &ids[0], "--yes", "--json"])?) == ("NOT_FOUND", 1)
     );
 
     // profiles and path helpers.
