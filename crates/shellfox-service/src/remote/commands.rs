@@ -314,10 +314,10 @@ impl RemoteService<'_> {
                 checked(self.session(&snapshot, input.session_id)?)
             }
             GetSessionStats(input) => self.statistics(input),
-            BeginTerminalUpload(_)
+            command @ (BeginTerminalUpload(_)
             | WriteTerminalUpload(_)
             | FinishTerminalUpload(_)
-            | CancelTerminalUpload(_) => Err(capability_unavailable("legacy terminal uploads")),
+            | CancelTerminalUpload(_)) => self.terminal_upload(actor, command),
         }
     }
     fn tab_member(&self, session: SessionId, tab: shellfox_core::TabId) -> Result<(), AppError> {

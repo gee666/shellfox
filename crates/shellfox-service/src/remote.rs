@@ -23,6 +23,7 @@ mod dispatcher;
 mod files;
 mod privacy;
 mod stats;
+mod uploads;
 mod v1_activity;
 mod v1_delivery;
 pub(crate) use v1_delivery::screen_chunks;
@@ -89,6 +90,8 @@ pub struct RemoteState {
     pub home: Option<wire::Directory>,
     views: HashMap<String, View>,
     transfers: Option<shellfox_remote::RemoteTransfers>,
+    /// Opened at the first terminal upload.
+    uploads: Option<shellfox_remote::terminal_upload::UploadInbox>,
     #[cfg(windows)]
     wsl_transfers: wsl_files::Transfers,
     visibility_dirty: bool,
@@ -112,6 +115,7 @@ impl RemoteState {
             home,
             views: HashMap::new(),
             transfers: None,
+            uploads: None,
             #[cfg(windows)]
             wsl_transfers: Default::default(),
             visibility_dirty: false,
@@ -248,6 +252,9 @@ impl ServiceHost for RemoteService<'_> {
                 if let Some(transfers) = &mut self.state.transfers {
                     transfers.cancel_actor(&key);
                 }
+                if let Some(uploads) = &mut self.state.uploads {
+                    let _ = uploads.cancel_actor(&key);
+                }
                 let controller = self.service.allocate_viewer_id().map_err(|_| {
                     failure(
                         ErrorCode::Internal,
@@ -289,6 +296,9 @@ impl ServiceHost for RemoteService<'_> {
                     self.state.wsl_transfers.cancel_actor(&actor);
                     if let Some(transfers) = &mut self.state.transfers {
                         transfers.cancel_actor(&key(&actor));
+                    }
+                    if let Some(uploads) = &mut self.state.uploads {
+                        let _ = uploads.cancel_actor(&key(&actor));
                     }
                 }
                 Ok(serde_json::json!({"disconnected":true}))

@@ -168,7 +168,7 @@ impl RemoteService<'_> {
         }
     }
 
-    fn terminal_lease(
+    pub(super) fn terminal_lease(
         &self,
         actor: &Actor,
         tab: TabId,
@@ -205,6 +205,19 @@ impl RemoteService<'_> {
         match command {
             RemoteCommand::AttachTerminal(input) => self.attach_terminal(actor, input, false),
             RemoteCommand::TakeTerminalControl(input) => {
+                // As in 0.9, the owner taking control again keeps its epoch.
+                let owned = self
+                    .state
+                    .views
+                    .get(&key(actor))
+                    .and_then(|view| view.terminals.get(&input.tab_id))
+                    .is_some_and(|delivery| {
+                        delivery.lease.generation == input.generation
+                            && self.service.lease(input.tab_id, &delivery.lease).is_ok()
+                    });
+                if owned {
+                    return checked(wire::Taken { taken: true });
+                }
                 self.attach_terminal(
                     actor,
                     wire::AttachTerminal {

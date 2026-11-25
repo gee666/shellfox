@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Result } from '../../../src/shared/contracts';
 import { RemoteClient } from './client';
@@ -62,6 +62,15 @@ async function main() {
     assert(last !== undefined);
     unwrap(await client.acknowledgeTerminal({ ...identity, sequence: last }));
     unwrap(await client.resizeTerminal({ ...identity, cols: 93, rows: 27 }));
+    // The owner taking control again keeps its epoch, as 0.9 did.
+    unwrap(await client.takeTerminalControl({ tabId, generation: identity.generation }));
+    const upload = unwrap(await client.beginTerminalUpload({ ...identity, fileName: 'phone photo.txt', size: 6 }));
+    unwrap(await client.writeTerminalUpload({ ...identity, uploadId: upload.uploadId, offset: 0, data: Buffer.from('upload').toString('base64') }));
+    const saved = unwrap(await client.finishTerminalUpload({ ...identity, uploadId: upload.uploadId }));
+    assert.equal(saved.fileName, 'phone photo.txt');
+    assert.equal(await readFile(saved.path, 'utf8'), 'upload');
+    const dropped = unwrap(await client.beginTerminalUpload({ ...identity, fileName: 'dropped.txt', size: 3 }));
+    unwrap(await client.cancelTerminalUpload({ ...identity, uploadId: dropped.uploadId }));
     unwrap(await client.detachTerminal({ tabId, generation: identity.generation }));
     const reattached = unwrap(await client.attachTerminal({ tabId }));
     assert(reattached.control === 'owned' && reattached.snapshot && reattached.truncated);
