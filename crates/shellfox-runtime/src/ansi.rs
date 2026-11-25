@@ -13,6 +13,9 @@ pub(crate) fn visible_screen(screen: &Screen) -> Result<Vec<u8>, RuntimeError> {
         return Err(RuntimeError::validation("invalid screen dimensions"));
     }
     let mut out = String::from("\x1b[0m\x1b[?25l\x1b[2J\x1b[H");
+    // SGR survives cursor moves, so a run of equally styled cells is written
+    // once: the text stays plain text, and the replay a fraction of the size.
+    let mut current = None;
     for y in 0..screen.rows {
         let _ = write!(out, "\x1b[{};1H", y + 1);
         for x in 0..screen.cols {
@@ -20,27 +23,11 @@ pub(crate) fn visible_screen(screen: &Screen) -> Result<Vec<u8>, RuntimeError> {
             if cell.width == 0 {
                 continue;
             }
-            let fg = cell.foreground;
-            let bg = cell.background;
-            let _ = write!(
-                out,
-                "\x1b[0;38;2;{};{};{};48;2;{};{};{}",
-                fg.r, fg.g, fg.b, bg.r, bg.g, bg.b
-            );
-            for (enabled, sgr) in [
-                (cell.bold, 1),
-                (cell.faint, 2),
-                (cell.italic, 3),
-                (cell.underline, 4),
-                (cell.inverse, 7),
-                (cell.invisible, 8),
-                (cell.strikethrough, 9),
-            ] {
-                if enabled {
-                    let _ = write!(out, ";{sgr}");
-                }
+            let style = sgr(cell);
+            if current.as_ref() != Some(&style) {
+                out.push_str(&style);
+                current = Some(style);
             }
-            out.push('m');
             if cell.text.is_empty() {
                 out.push(' ');
             } else {
@@ -59,6 +46,30 @@ pub(crate) fn visible_screen(screen: &Screen) -> Result<Vec<u8>, RuntimeError> {
         if screen.cursor.visible { 'h' } else { 'l' }
     );
     Ok(out.into_bytes())
+}
+
+/// The complete style of one cell, from a reset.
+fn sgr(cell: &shellfox_ghostty_vt::Cell) -> String {
+    let (fg, bg) = (cell.foreground, cell.background);
+    let mut style = format!(
+        "\x1b[0;38;2;{};{};{};48;2;{};{};{}",
+        fg.r, fg.g, fg.b, bg.r, bg.g, bg.b
+    );
+    for (enabled, code) in [
+        (cell.bold, 1),
+        (cell.faint, 2),
+        (cell.italic, 3),
+        (cell.underline, 4),
+        (cell.inverse, 7),
+        (cell.invisible, 8),
+        (cell.strikethrough, 9),
+    ] {
+        if enabled {
+            let _ = write!(style, ";{code}");
+        }
+    }
+    style.push('m');
+    style
 }
 
 #[cfg(test)]
@@ -91,5 +102,9 @@ mod tests {
         };
         assert_eq!(normalize(restored.cells), normalize(screen.cells));
         assert_eq!(restored.cursor, screen.cursor);
+        // Equally styled cells form one run of plain text, as a shell prompt.
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(text.contains("hello") && text.contains("world"), "{text}");
+        assert_eq!(text.matches("\x1b[0;38;2;").count(), 2, "{text}");
     }
 }
