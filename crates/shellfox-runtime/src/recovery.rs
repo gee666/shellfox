@@ -150,5 +150,8 @@ fn bounded_active_buffer_ansi(
 }
 
 #[cfg(test)]
+#[path = "recovery_resize_tests.rs"]
+mod resize_tests;
+#[cfg(test)]
 #[path = "recovery_tests.rs"]
 mod tests;
