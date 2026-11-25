@@ -66,6 +66,15 @@ pub(super) fn snapshot_chunks(
     chunks
 }
 
+/// The chunks of one complete ANSI screen, as a v1 snapshot sends them.
+pub(crate) fn screen_chunks(
+    tab_id: TabId,
+    generation: shellfox_core::Generation,
+    bytes: &[u8],
+) -> Vec<wire::TerminalData> {
+    snapshot_chunks(tab_id, generation, &Utf8Stream::default().decode(bytes))
+}
+
 impl Delivery {
     pub fn snapshot(
         lease: Attachment,

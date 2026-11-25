@@ -387,14 +387,7 @@ impl<'a> Local<'a> {
                 }
                 Ok(json!({ "sessions": sessions, "tabs": tabs }))
             }
-            command => Err(CliError::coded(
-                "UNSUPPORTED",
-                format!(
-                    "{} is not available from the local CLI. Use the matching shellfox command.",
-                    command.method_name()
-                ),
-                false,
-            )),
+            command => self.terminal_call(command).await,
         }
     }
 }

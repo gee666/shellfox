@@ -25,6 +25,7 @@ mod privacy;
 mod stats;
 mod v1_activity;
 mod v1_delivery;
+pub(crate) use v1_delivery::screen_chunks;
 mod v1_launch;
 mod v1_privilege;
 #[cfg(unix)]

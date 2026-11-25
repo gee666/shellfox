@@ -78,6 +78,11 @@ pub enum LocalApiRequest {
         tab: TabId,
         attachment: Attachment,
     },
+    /// 0.9 `api attachTerminal`: joins a running terminal only if no other view
+    /// controls it, and answers with the v1 snapshot.
+    ManagerAttach {
+        tab: TabId,
+    },
     Detach {},
     Stop {},
 }
@@ -102,6 +107,7 @@ pub enum LocalApiResponse {
     TerminalExited {
         last_sequence: u64,
     },
+    ManagerAttachment(Box<shellfox_protocol::TerminalAttachment>),
     Done {},
 }
 impl Validate for LocalApiRequest {
@@ -189,6 +195,7 @@ impl Validate for LocalApiResponse {
                 )?;
             }
             Self::Recovery { bytes, .. } => ensure(bytes.len() <= 2 * 1024 * 1024)?,
+            Self::ManagerAttachment(attachment) => attachment.validate()?,
             Self::Done {} | Self::RecoveryRequired {} | Self::TerminalExited { .. } => {}
         }
         Ok(())
@@ -323,6 +330,9 @@ impl Service {
                     _ => LocalApiResponse::Output(output),
                 }
             }
+            ManagerAttach { tab } => LocalApiResponse::ManagerAttachment(Box::new(
+                self.manager_attachment(tab, controller)?,
+            )),
             Detach {} => {
                 self.detach_controller(controller);
                 LocalApiResponse::Done {}

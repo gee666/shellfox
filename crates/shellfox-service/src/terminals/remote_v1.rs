@@ -56,6 +56,76 @@ impl Service {
         self.install_recovery_cut(tab, last_sequence)?;
         Ok((bytes, last_sequence, cols, rows))
     }
+    /// 0.9 `attachTerminal` for a local CLI call: the same snapshot a peer gets.
+    /// It joins only a running terminal no other view controls, so it never
+    /// starts a shell or takes control from the desktop.
+    pub(crate) fn manager_attachment(
+        &mut self,
+        tab: TabId,
+        controller: u64,
+    ) -> Result<shellfox_protocol::TerminalAttachment> {
+        use shellfox_protocol::{
+            OwnedAttachment, ScreenState, TerminalAttachment, TerminalLifetime,
+        };
+        let snapshot = self.host().snapshot()?;
+        let session = snapshot
+            .sessions
+            .iter()
+            .find(|s| s.tabs.iter().any(|t| t.id == tab))
+            .context("Terminal tab not found.")?;
+        let terminal = self
+            .terminals
+            .get(&tab)
+            .context("Terminal is not running.")?;
+        let generation = terminal.runtime.identity().generation;
+        let control_epoch = terminal.control_epoch.max(1);
+        let offer = match self.attach_manager(tab, controller, false) {
+            Ok(offer) => offer,
+            Err(error)
+                if matches!(error.downcast_ref::<crate::grant::requests::GrantFailure>(),
+                Some(crate::grant::requests::GrantFailure::Rejected(error)) if error.code == shellfox_runtime::ErrorCode::ControlRequired) =>
+            {
+                return Ok(TerminalAttachment::Blocked {
+                    tab_id: tab,
+                    session_id: session.id,
+                    generation,
+                    control_epoch,
+                });
+            }
+            Err(error) => return Err(error),
+        };
+        let attachment = self.adopt_controller_grant(offer)?;
+        let (bytes, _, cols, rows) = match self.remote_v1_recover(tab, &attachment) {
+            Ok(recovered) => recovered,
+            Err(error) => {
+                let _ = self.detach_attachment(tab, &attachment);
+                return Err(error);
+            }
+        };
+        let chunks = crate::remote::screen_chunks(tab, attachment.generation, &bytes);
+        let state = if self.terminals[&tab].runtime.phase() == shellfox_runtime::Phase::Closed {
+            ScreenState::Closed
+        } else {
+            ScreenState::Open
+        };
+        Ok(TerminalAttachment::Owned(OwnedAttachment {
+            tab_id: tab,
+            session_id: session.id,
+            generation: attachment.generation,
+            control_epoch: attachment.epoch,
+            first_sequence: 1,
+            last_sequence: chunks.len() as u64,
+            chunks,
+            truncated: true,
+            snapshot: Some(true),
+            state,
+            exit_code: None,
+            cols,
+            rows,
+            lifetime: TerminalLifetime::AppOwned,
+            settled_at: Some(session.settled_at.clone()),
+        }))
+    }
     /// What a v1 poll would see for this attachment, without consuming it.
     /// An error means the lease is gone, which the poll reports as Blocked.
     pub(crate) fn remote_v1_status(
