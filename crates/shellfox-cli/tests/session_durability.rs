@@ -96,7 +96,7 @@ fn session_changes_survive_a_killed_host() -> Result<()> {
     json(&["session", "delete", gone, "--yes", "--json"])?;
     // No graceful shutdown: the host gets no chance to flush anything.
     host.0.kill()?;
-    host.0.wait()?;
+    host.wait(Duration::from_secs(20))?;
 
     let store = open_after_kill(&data)?;
     let sessions = store.snapshot()?.sessions;
