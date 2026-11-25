@@ -354,12 +354,12 @@ fn a_detached_lease_is_releasing_until_the_runtime_revokes_it() {
         epoch: 2,
     };
     let kind = GrantKind::Controller(4);
-    assert!(!ledger.releasing(identity, kind));
+    assert!(!ledger.releasing_control(identity));
     ledger
         .retire_owned(identity, RequestId(1), ActualGrant::Controller(lease))
         .unwrap();
-    assert!(ledger.releasing(identity, kind));
-    assert!(!ledger.releasing(identity, GrantKind::Controller(5)));
+    assert!(ledger.releasing_control(identity));
+    assert!(!ledger.releasing_control(self::identity()));
     ledger.record_revocation(
         identity,
         &Event::ControllerRevoked {
@@ -367,7 +367,7 @@ fn a_detached_lease_is_releasing_until_the_runtime_revokes_it() {
             reason: ControllerRevocation::Released,
         },
     );
-    assert!(!ledger.releasing(identity, kind));
+    assert!(!ledger.releasing_control(identity));
     ledger
         .reserve(identity, RequestId(2), kind, CancellationToken::new())
         .unwrap();

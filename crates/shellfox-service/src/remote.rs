@@ -28,6 +28,7 @@ mod v1_activity;
 mod v1_delivery;
 pub(crate) use v1_delivery::screen_chunks;
 mod v1_launch;
+mod v1_one_shot;
 mod v1_privilege;
 #[cfg(unix)]
 pub(crate) use v1_privilege::host_account;

@@ -257,11 +257,11 @@ impl GrantCustody {
             .find(|entry| entry.ticket == ticket)
             .map(|entry| (entry.cancel.clone(), entry.removed.clone()))
     }
-    /// True while a granted lease of `kind` still awaits its release.
-    pub fn releasing(&self, identity: Identity, kind: GrantKind) -> bool {
+    /// True while a granted controller lease still awaits its release.
+    pub fn releasing_control(&self, identity: Identity) -> bool {
         self.entries.iter().any(|entry| {
             entry.ticket.identity == identity
-                && entry.kind == kind
+                && matches!(entry.kind, GrantKind::Controller(_))
                 && entry.actual.is_some()
                 && !entry.retired
                 && entry.rejected.is_none()

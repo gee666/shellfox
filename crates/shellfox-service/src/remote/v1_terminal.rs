@@ -10,7 +10,7 @@ pub(super) fn lost() -> AppError {
     )
 }
 
-fn accessible(terminal: &crate::terminals::OwnedTerminal) -> bool {
+pub(super) fn accessible(terminal: &crate::terminals::OwnedTerminal) -> bool {
     terminal.runtime.source_kind() == SourceKind::OwnedPty
         && !super::v1_privilege::explicitly_elevated(&terminal.runtime.launch_privilege_facts())
 }
@@ -85,14 +85,8 @@ impl RemoteService<'_> {
             ));
         }
         let generation = runtime.runtime.identity().generation;
-        let controller = self
-            .state
-            .views
-            .get(&key(actor))
-            .ok_or_else(lost)?
-            .controller;
-        // This view's own lease from an earlier detach must be released first.
-        self.service.settle_controller_release(tab, controller);
+        // A lease from an earlier detach must be released first.
+        self.service.settle_control_release(tab);
         let view = self.state.views.get_mut(&key(actor)).ok_or_else(lost)?;
         view.check_capacity(tab)?;
         let offer = match self.service.attach_manager(tab, view.controller, takeover) {
@@ -198,6 +192,13 @@ impl RemoteService<'_> {
         Ok(lease.clone())
     }
 
+    /// True when this view attached `tab` and still delivers it.
+    fn attached(&self, actor: &Actor, tab: TabId) -> bool {
+        self.state.views.get(&key(actor)).is_some_and(|view| {
+            view.terminals.contains_key(&tab) || view.replays.contains_key(&tab)
+        })
+    }
+
     pub(super) fn terminal_operation(
         &mut self,
         actor: &Actor,
@@ -231,25 +232,30 @@ impl RemoteService<'_> {
                 checked(wire::Taken { taken: true })
             }
             RemoteCommand::WriteTerminal(input) => {
-                let lease = self.terminal_lease(
-                    actor,
-                    input.tab_id,
-                    input.generation,
-                    input.control_epoch,
-                )?;
+                let (tab, generation) = (input.tab_id, input.generation);
+                if !self.attached(actor, tab) {
+                    self.with_borrowed_control(actor, tab, generation, |service, lease| {
+                        service.remote_v1_input(input, lease)
+                    })?;
+                    return checked(wire::Written { written: true });
+                }
+                let lease = self.terminal_lease(actor, tab, generation, input.control_epoch)?;
                 self.service.remote_v1_input(input, &lease)?;
                 checked(wire::Written { written: true })
             }
             RemoteCommand::ResizeTerminal(input) => {
-                let lease = self.terminal_lease(
-                    actor,
-                    input.tab_id,
-                    input.generation,
-                    input.control_epoch,
-                )?;
-                self.service
-                    .resize(input.tab_id, &lease, input.cols, input.rows)
-                    .map_err(|_| lost())?;
+                let (tab, generation) = (input.tab_id, input.generation);
+                let resize = |service: &mut Service, lease: &Attachment| {
+                    service
+                        .resize(tab, lease, input.cols, input.rows)
+                        .map_err(|_| lost())
+                };
+                if !self.attached(actor, tab) {
+                    self.with_borrowed_control(actor, tab, generation, resize)?;
+                    return checked(wire::Resized { resized: true });
+                }
+                let lease = self.terminal_lease(actor, tab, generation, input.control_epoch)?;
+                resize(self.service, &lease)?;
                 checked(wire::Resized { resized: true })
             }
             RemoteCommand::AcknowledgeTerminal(input) => {
@@ -260,6 +266,11 @@ impl RemoteService<'_> {
                     .and_then(|view| view.replays.get(&input.tab_id))
                 {
                     replay.acknowledge(self.service, &input)?;
+                    return checked(wire::Acknowledged { acknowledged: true });
+                }
+                if !self.attached(actor, input.tab_id) {
+                    // A one-shot view has no output in flight to acknowledge.
+                    self.running(input.tab_id, input.generation)?;
                     return checked(wire::Acknowledged { acknowledged: true });
                 }
                 self.terminal_lease(actor, input.tab_id, input.generation, input.control_epoch)?;

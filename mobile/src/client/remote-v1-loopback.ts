@@ -22,7 +22,7 @@ async function main() {
   assert(address && secret && cwd);
   const peer = Buffer.from(JSON.stringify({ id: 'n-mobile-loopback', hostname: 'loopback-phone' })).toString('base64url');
   let clock = 0;
-  const client = new RemoteClient('n-host', {
+  const transport: ConstructorParameters<typeof RemoteClient>[1] = {
     async request(_peer, path, body) {
       clock = Math.max(Date.now(), clock + 1);
       const digest = createHash('sha256').update(body).digest('hex');
@@ -35,7 +35,10 @@ async function main() {
       });
       return response.text();
     },
-  }, { createClientId: randomUUID, approvalRetryMs: 50 });
+  };
+  const client = new RemoteClient('n-host', transport, { createClientId: randomUUID, approvalRetryMs: 50 });
+  // A second view of the same device, as each one-shot `shellfox --host` call is.
+  const oneShot = new RemoteClient('n-host', transport, { createClientId: randomUUID, approvalRetryMs: 50 });
   const received: { data: string; sequence: number }[] = [];
   const settlements: (string | null)[] = [];
   const remove = client.subscribeTerminal(event => {
@@ -103,7 +106,27 @@ async function main() {
     unwrap(await client.request('finishFileWrite', { transferId: write.transferId }));
     const result = unwrap(await client.request('readFile', { path: join(cwd, 'uploaded.txt') }));
     assert(result.kind === 'text' && result.text === 'mobile transfer');
+    oneShot.connect();
+    await until(() => oneShot.getState().status === 'connected');
+    const borrowed = { tabId, generation: reattached.generation, controlEpoch: reattached.controlEpoch };
+    const blocked = await oneShot.writeTerminal({ ...borrowed, data: 'echo blocked\r' });
+    assert(!blocked.ok && blocked.error.code === 'TERMINAL_CONTROL_REQUIRED');
     unwrap(await client.detachTerminal({ tabId, generation: reattached.generation }));
+    // Nobody controls the terminal now: the other view's write goes through and hands control back.
+    const marker2 = `mobile_v1_${randomUUID()}`;
+    unwrap(await oneShot.writeTerminal({ ...borrowed, data: command.replaceAll(marker.slice(0, 14), marker2.slice(0, 14)).replaceAll(marker.slice(14), marker2.slice(14)) }));
+    unwrap(await oneShot.resizeTerminal({ ...borrowed, cols: 91, rows: 26 }));
+    unwrap(await oneShot.acknowledgeTerminal({ ...borrowed, sequence: 0 }));
+    let echoed = false;
+    for (let attempt = 0; attempt < 40 && !echoed; attempt++) {
+      const view = unwrap(await client.attachTerminal({ tabId }));
+      assert(view.control === 'owned');
+      echoed = view.chunks.map(chunk => chunk.data).join('').includes(marker2);
+      unwrap(await client.detachTerminal({ tabId, generation: view.generation }));
+      if (!echoed) await delay(250);
+    }
+    assert(echoed, 'one-shot write output missing');
+    oneShot.stop();
     await writeFile(join(cwd, 'revoke-device'), '');
     await until(() => client.getState().status !== 'connected');
     assert.equal((await client.getSnapshot()).ok, false);
