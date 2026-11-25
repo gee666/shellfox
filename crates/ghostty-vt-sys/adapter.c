@@ -132,6 +132,25 @@ static int color(SfVt *vt, GhosttyRenderStateRowCellsData key,
     return 0;
 }
 
+int sf_cell_style(GhosttyCell cell, GhosttyStyle style, GhosttyStyle *out) {
+    GhosttyCellContentTag content;
+    TRY(ghostty_cell_get(cell, GHOSTTY_CELL_DATA_CONTENT_TAG, &content));
+    if (content == GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE) {
+        style.bg_color.tag = GHOSTTY_STYLE_COLOR_PALETTE;
+        TRY(ghostty_cell_get(cell, GHOSTTY_CELL_DATA_COLOR_PALETTE, &style.bg_color.value.palette));
+    } else if (content == GHOSTTY_CELL_CONTENT_BG_COLOR_RGB) {
+        style.bg_color.tag = GHOSTTY_STYLE_COLOR_RGB;
+        TRY(ghostty_cell_get(cell, GHOSTTY_CELL_DATA_COLOR_RGB, &style.bg_color.value.rgb));
+    }
+    *out = style;
+    return 0;
+}
+
+void sf_color_source(GhosttyStyleColor color, uint8_t *tag, uint8_t *index) {
+    *tag = color.tag;
+    *index = color.tag == GHOSTTY_STYLE_COLOR_PALETTE ? color.value.palette : 0;
+}
+
 /* Only public getters are used. Packed GhosttyCell bits are not stable ABI. */
 int sf_cell(SfVt *vt, SfCell *out) {
     if (vt->callback_error) return vt->callback_error;
@@ -163,6 +182,9 @@ int sf_cell(SfVt *vt, SfCell *out) {
     GhosttyCell raw;
     GhosttyCellWide wide;
     TRY(ghostty_render_state_row_cells_get(vt->cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW, &raw));
+    TRY(sf_cell_style(raw, style, &style));
+    sf_color_source(style.fg_color, &out->fg_tag, &out->fg_index);
+    sf_color_source(style.bg_color, &out->bg_tag, &out->bg_index);
     TRY(ghostty_cell_get(raw, GHOSTTY_CELL_DATA_WIDE, &wide));
     out->width = wide == GHOSTTY_CELL_WIDE_WIDE ? 2 : wide == GHOSTTY_CELL_WIDE_NARROW ? 1 : 0;
     bool selected = false, has_hyperlink = false;

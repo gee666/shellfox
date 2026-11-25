@@ -217,19 +217,14 @@ int sf_presentation_cell(SfVt *vt, SfPresentation *v, SfPresentationCell *out) {
     }
     if (r) return r;
     out->codepoints = v->codepoints; out->len = len;
-    GhosttyCell cell; GhosttyStyle style; GhosttyCellWide wide; GhosttyCellContentTag content;
-    TRY(ghostty_grid_ref_cell(&ref, &cell)); TRY(ghostty_grid_ref_style(&ref, &style));
+    GhosttyCell cell; GhosttyStyle own, style; GhosttyCellWide wide;
+    TRY(ghostty_grid_ref_cell(&ref, &cell)); TRY(ghostty_grid_ref_style(&ref, &own));
     TRY(ghostty_cell_get(cell, GHOSTTY_CELL_DATA_WIDE, &wide));
-    TRY(ghostty_cell_get(cell, GHOSTTY_CELL_DATA_CONTENT_TAG, &content));
-    if (content == GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE) {
-        style.bg_color.tag = GHOSTTY_STYLE_COLOR_PALETTE;
-        TRY(ghostty_cell_get(cell, GHOSTTY_CELL_DATA_COLOR_PALETTE, &style.bg_color.value.palette));
-    } else if (content == GHOSTTY_CELL_CONTENT_BG_COLOR_RGB) {
-        style.bg_color.tag = GHOSTTY_STYLE_COLOR_RGB;
-        TRY(ghostty_cell_get(cell, GHOSTTY_CELL_DATA_COLOR_RGB, &style.bg_color.value.rgb));
-    }
+    TRY(sf_cell_style(cell, own, &style));
     TRY(resolve_color(v, style.fg_color, v->foreground, out->fg));
     TRY(resolve_color(v, style.bg_color, v->background, out->bg));
+    sf_color_source(style.fg_color, &out->fg_tag, &out->fg_index);
+    sf_color_source(style.bg_color, &out->bg_tag, &out->bg_index);
     out->flags = style.flags;
     out->width = wide == GHOSTTY_CELL_WIDE_WIDE ? 2 : wide == GHOSTTY_CELL_WIDE_NARROW ? 1 : 0;
     bool contains = false, link = false, wrap = false, continuation = false;

@@ -8,10 +8,12 @@ pub(crate) const MAX_RECOVERY_BYTES: usize = 4 * 1024 * 1024;
 // history, margins and modes. Do not complete an old OSC with ST: that could
 // execute a clipboard request left in the receiver's parser.
 const RESET: &[u8] = b"\x18\x1bc";
-// Public vt-1.0.1 formatter extras, excluding process-controlled OSC 7 metadata.
+// Public vt-1.0.1 formatter extras, excluding process-controlled OSC 7 metadata
+// and the palette: OSC 4 would overwrite the receiver's own theme with the
+// host's, while cells already carry their palette indexes and defaults.
 // Cell hyperlinks remain untrusted metadata; the client must apply its normal
 // link policy. Cursor hyperlinks are restored for subsequent live output.
-const FORMATTER_EXTRAS: u32 = FORMAT_EXTRAS_ALL & !(1 << 4);
+const FORMATTER_EXTRAS: u32 = FORMAT_EXTRAS_ALL & !(1 << 4) & !(1 << 0);
 
 /// Builds FormattedActiveBufferV1 from public getters only, without replaying history
 /// into any parser or draining the authoritative terminal's pending PTY replies.
@@ -65,7 +67,7 @@ pub(crate) fn remote_v1_ansi(terminal: &mut Terminal) -> Result<Vec<u8>, Runtime
 }
 
 /// Formats the active buffer keeping only the newest rows that fit `budget`.
-/// The formatter writes a preamble (palette, tab stops, home), then rows joined
+/// The formatter writes a preamble (tab stops, home), then rows joined
 /// by CRLF that each start from a reset pen, then a trailer that places the
 /// cursor and restores modes. Dropping whole leading rows therefore leaves a
 /// valid stream: no escape sequence or wide character spans a row boundary.
@@ -155,3 +157,6 @@ mod resize_tests;
 #[cfg(test)]
 #[path = "recovery_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "recovery_color_tests.rs"]
+mod color_tests;

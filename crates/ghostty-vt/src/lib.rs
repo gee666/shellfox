@@ -76,6 +76,18 @@ impl From<[u8; 3]> for Rgb {
         Self { r, g, b }
     }
 }
+/// How a cell color was set, so a replay keeps the receiver's own theme:
+/// the terminal default, a palette index, or explicit RGB. The resolved
+/// color is in the cell's foreground/background either way.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum ColorSource {
+    Default,
+    Palette(u8),
+    /// Also what a cell from a peer that doesn't send the source means.
+    #[default]
+    Rgb,
+}
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Cell {
@@ -94,6 +106,10 @@ pub struct Cell {
     pub selected: bool,
     /// Whether Ghostty associates OSC 8 metadata with this cell.
     pub has_hyperlink: bool,
+    #[serde(default)]
+    pub foreground_source: ColorSource,
+    #[serde(default)]
+    pub background_source: ColorSource,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

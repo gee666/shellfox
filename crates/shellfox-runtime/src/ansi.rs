@@ -1,5 +1,5 @@
 use crate::{RuntimeError, MAX_SCREEN_CELLS};
-use shellfox_ghostty_vt::Screen;
+use shellfox_ghostty_vt::{ColorSource, Rgb, Screen};
 use std::fmt::Write;
 
 const MAX_ANSI_BYTES: usize = 4 * 1024 * 1024;
@@ -48,13 +48,12 @@ pub(crate) fn visible_screen(screen: &Screen) -> Result<Vec<u8>, RuntimeError> {
     Ok(out.into_bytes())
 }
 
-/// The complete style of one cell, from a reset.
+/// The complete style of one cell, from a reset. Default and palette colors
+/// stay default and palette, so the receiver's own theme shows them.
 fn sgr(cell: &shellfox_ghostty_vt::Cell) -> String {
-    let (fg, bg) = (cell.foreground, cell.background);
-    let mut style = format!(
-        "\x1b[0;38;2;{};{};{};48;2;{};{};{}",
-        fg.r, fg.g, fg.b, bg.r, bg.g, bg.b
-    );
+    let mut style = String::from("\x1b[0");
+    color(&mut style, cell.foreground_source, cell.foreground, 30);
+    color(&mut style, cell.background_source, cell.background, 40);
     for (enabled, code) in [
         (cell.bold, 1),
         (cell.faint, 2),
@@ -70,6 +69,16 @@ fn sgr(cell: &shellfox_ghostty_vt::Cell) -> String {
     }
     style.push('m');
     style
+}
+/// `base` is 30 for the foreground, 40 for the background.
+fn color(style: &mut String, source: ColorSource, rgb: Rgb, base: u8) {
+    let _ = match source {
+        ColorSource::Default => write!(style, ";{}", base + 9),
+        ColorSource::Palette(index @ 0..=7) => write!(style, ";{}", base + index),
+        ColorSource::Palette(index @ 8..=15) => write!(style, ";{}", base + 60 + index - 8),
+        ColorSource::Palette(index) => write!(style, ";{};5;{index}", base + 8),
+        ColorSource::Rgb => write!(style, ";{};2;{};{};{}", base + 8, rgb.r, rgb.g, rgb.b),
+    };
 }
 
 #[cfg(test)]
@@ -105,6 +114,79 @@ mod tests {
         // Equally styled cells form one run of plain text, as a shell prompt.
         let text = String::from_utf8(bytes).unwrap();
         assert!(text.contains("hello") && text.contains("world"), "{text}");
-        assert_eq!(text.matches("\x1b[0;38;2;").count(), 2, "{text}");
+        assert_eq!(text.matches("\x1b[0;").count(), 2, "{text}");
+    }
+
+    #[test]
+    fn default_and_palette_colors_stay_default_and_palette() {
+        let mut source = Terminal::new(40, 2).unwrap();
+        source
+            .feed(b"plain\x1b[31mred\x1b[38;5;200;44mmix\x1b[0m\x1b[38;2;1;2;3;48;2;4;5;6mrgb\x1b[0m\x1b[97;100mbright")
+            .unwrap();
+        let bytes = visible_screen(&source.render().unwrap()).unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        for run in [
+            "\x1b[0;39;49mplain",
+            "\x1b[0;31;49mred",
+            "\x1b[0;38;5;200;44mmix",
+            "\x1b[0;38;2;1;2;3;48;2;4;5;6mrgb",
+            "\x1b[0;97;100mbright",
+        ] {
+            assert!(text.contains(run), "{run:?} in {text:?}");
+        }
+        // A receiver with its own theme shows it, and keeps every source.
+        let mut client = Terminal::new(40, 2).unwrap();
+        let mut palette = [Rgb {
+            r: 10,
+            g: 10,
+            b: 10,
+        }; 256];
+        palette[1] = Rgb { r: 250, g: 1, b: 1 };
+        client
+            .set_colors(&shellfox_ghostty_vt::TerminalColors {
+                foreground: Rgb {
+                    r: 200,
+                    g: 201,
+                    b: 202,
+                },
+                background: Rgb {
+                    r: 20,
+                    g: 21,
+                    b: 22,
+                },
+                cursor: None,
+                palette: Some(palette),
+            })
+            .unwrap();
+        client.feed(&bytes).unwrap();
+        let restored = client.render().unwrap();
+        let at = |x: usize| &restored.cells[x];
+        assert_eq!(at(0).foreground_source, ColorSource::Default);
+        assert_eq!(at(0).background_source, ColorSource::Default);
+        assert_eq!(
+            at(0).foreground,
+            Rgb {
+                r: 200,
+                g: 201,
+                b: 202
+            }
+        );
+        assert_eq!(
+            at(0).background,
+            Rgb {
+                r: 20,
+                g: 21,
+                b: 22
+            }
+        );
+        assert_eq!(at(5).foreground_source, ColorSource::Palette(1));
+        assert_eq!(at(5).foreground, Rgb { r: 250, g: 1, b: 1 });
+        assert_eq!(at(8).foreground_source, ColorSource::Palette(200));
+        assert_eq!(at(8).background_source, ColorSource::Palette(4));
+        assert_eq!(at(11).foreground_source, ColorSource::Rgb);
+        assert_eq!(at(11).foreground, Rgb { r: 1, g: 2, b: 3 });
+        assert_eq!(at(11).background, Rgb { r: 4, g: 5, b: 6 });
+        assert_eq!(at(14).foreground_source, ColorSource::Palette(15));
+        assert_eq!(at(14).background_source, ColorSource::Palette(8));
     }
 }

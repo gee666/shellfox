@@ -28,6 +28,8 @@ typedef struct {
     uint8_t fg[3], bg[3];
     uint16_t flags;
     uint8_t width, selected, has_hyperlink;
+    /* GhosttyStyleColorTag of each color, and its palette index. */
+    uint8_t fg_tag, fg_index, bg_tag, bg_index;
 } SfCell;
 typedef struct {
     uint32_t action, button, mods, cell_width, cell_height;
@@ -44,6 +46,10 @@ typedef struct {
     uint16_t cols, rows;
     uint8_t alternate, pending_wrap;
 } SfRecoveryInfo;
+/* The cell's style, with a background stored in the cell itself. */
+int sf_cell_style(GhosttyCell cell, GhosttyStyle style, GhosttyStyle *out);
+/* A style color's tag and palette index; RGB values come from the resolved color. */
+void sf_color_source(GhosttyStyleColor color, uint8_t *tag, uint8_t *index);
 int sf_metadata_register(SfVt *vt);
 void sf_metadata_free(SfVt *vt);
 int sf_metadata_peek(SfVt *vt, SfMetadataView *out);

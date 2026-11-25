@@ -20,6 +20,8 @@ fn screen() -> Screen {
         width,
         selected: false,
         has_hyperlink: false,
+        foreground_source: Default::default(),
+        background_source: Default::default(),
     };
     Screen {
         cols: 4,

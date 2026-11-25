@@ -14,6 +14,7 @@ typedef struct {
     uint8_t fg[3], bg[3];
     uint16_t flags;
     uint8_t width, selected, has_hyperlink, soft_wrapped, wrap_continuation;
+    uint8_t fg_tag, fg_index, bg_tag, bg_index;
 } SfPresentationCell;
 typedef struct {
     uint16_t x, y;

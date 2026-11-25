@@ -60,6 +60,10 @@ struct NativeCell {
     has_hyperlink: u8,
     soft_wrapped: u8,
     wrap_continuation: u8,
+    fg_tag: u8,
+    fg_index: u8,
+    bg_tag: u8,
+    bg_index: u8,
 }
 #[repr(C)]
 #[derive(Default, Debug, Clone, Copy)]
@@ -275,6 +279,8 @@ impl Engine {
                 width: cell.width,
                 selected: cell.selected != 0,
                 has_hyperlink: cell.has_hyperlink != 0,
+                fg_color: crate::StyleColor::from_tag(cell.fg_tag, cell.fg_index)?,
+                bg_color: crate::StyleColor::from_tag(cell.bg_tag, cell.bg_index)?,
             });
             if index % usize::from(frame.cols) == 0 {
                 metadata.push(RowMetadata {

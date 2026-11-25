@@ -64,6 +64,15 @@ impl CursorVisual {
         self
     }
 }
+impl From<sys::StyleColor> for crate::ColorSource {
+    fn from(color: sys::StyleColor) -> Self {
+        match color {
+            sys::StyleColor::Default => Self::Default,
+            sys::StyleColor::Palette(index) => Self::Palette(index),
+            sys::StyleColor::Rgb => Self::Rgb,
+        }
+    }
+}
 impl Cell {
     pub(crate) fn from_native(cell: sys::Cell) -> Self {
         Self {
@@ -80,6 +89,8 @@ impl Cell {
             width: cell.width,
             selected: cell.selected,
             has_hyperlink: cell.has_hyperlink,
+            foreground_source: cell.fg_color.into(),
+            background_source: cell.bg_color.into(),
         }
     }
 }

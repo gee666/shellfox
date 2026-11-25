@@ -25,6 +25,8 @@ pub(super) fn cell(text: &str, width: u8) -> Cell {
         width,
         selected: false,
         has_hyperlink: false,
+        foreground_source: Default::default(),
+        background_source: Default::default(),
     }
 }
 pub(super) fn frame(cols: u16, cells: Vec<Cell>) -> ViewFrame {

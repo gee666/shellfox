@@ -50,6 +50,29 @@ struct CellView {
     width: u8,
     selected: u8,
     has_hyperlink: u8,
+    fg_tag: u8,
+    fg_index: u8,
+    bg_tag: u8,
+    bg_index: u8,
+}
+/// How a cell color was set: the terminal default, a palette index, or RGB.
+/// The resolved RGB is in the cell's fg/bg either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyleColor {
+    Default,
+    Palette(u8),
+    Rgb,
+}
+impl StyleColor {
+    /// GhosttyStyleColorTag: none, palette or rgb.
+    pub(crate) fn from_tag(tag: u8, index: u8) -> Result<Self> {
+        match tag {
+            0 => Ok(Self::Default),
+            1 => Ok(Self::Palette(index)),
+            2 => Ok(Self::Rgb),
+            _ => Err(-6),
+        }
+    }
 }
 #[derive(Debug, Clone)]
 pub struct Cell {
@@ -60,6 +83,8 @@ pub struct Cell {
     pub width: u8,
     pub selected: bool,
     pub has_hyperlink: bool,
+    pub fg_color: StyleColor,
+    pub bg_color: StyleColor,
 }
 unsafe extern "C" {
     fn sf_status(vt: *mut c_void) -> i32;
@@ -240,6 +265,8 @@ impl Engine {
                 width: view.width,
                 selected: view.selected != 0,
                 has_hyperlink: view.has_hyperlink != 0,
+                fg_color: StyleColor::from_tag(view.fg_tag, view.fg_index)?,
+                bg_color: StyleColor::from_tag(view.bg_tag, view.bg_index)?,
             });
         }
         Ok((cells, cursor))

@@ -72,3 +72,31 @@ fn application_color_overrides_and_resets_follow_ghostty() -> Result<(), Box<dyn
     assert_ne!(terminal.render()?.cells[1].foreground, rgb(40, 41, 42));
     Ok(())
 }
+
+#[test]
+fn cells_report_how_each_color_was_set() -> Result<(), Box<dyn std::error::Error>> {
+    use shellfox_ghostty_vt::ColorSource::{Default, Palette, Rgb as Explicit};
+    let mut terminal = Terminal::new(10, 2)?;
+    // ECH with a palette background stores the color in the erased cells.
+    terminal.feed(b"A\x1b[31;48;5;200mB\x1b[38;2;1;2;3;49mC\x1b[0m\x1b[44m\x1b[2X")?;
+    let expect = |cells: &[shellfox_ghostty_vt::Cell]| {
+        let sources: Vec<_> = cells[..5]
+            .iter()
+            .map(|c| (c.foreground_source, c.background_source))
+            .collect();
+        assert_eq!(
+            sources,
+            [
+                (Default, Default),
+                (Palette(1), Palette(200)),
+                (Explicit, Default),
+                (Default, Palette(4)),
+                (Default, Palette(4)),
+            ]
+        );
+    };
+    expect(&terminal.render()?.cells);
+    let mut view = terminal.new_presentation_view()?;
+    expect(&terminal.view_render(&mut view)?.screen.cells);
+    Ok(())
+}
