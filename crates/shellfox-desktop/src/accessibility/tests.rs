@@ -131,6 +131,32 @@ fn action_queue_is_bounded_and_revalidates_disabled_or_removed_targets() {
 }
 
 #[test]
+fn a_press_follows_the_same_control_across_repaints_but_not_a_new_meaning() {
+    let mut bridge = bridge::Bridge::default();
+    bridge.replace(tree());
+    bridge.do_action(click());
+    let mut moved = tree();
+    let button = moved.nodes.get_mut(&SemanticId(2)).unwrap();
+    button.set_bounds(Rect::new(10., 10., 90., 30.));
+    button.set_description("Creates a session");
+    bridge.replace(moved);
+    assert_eq!(bridge.drain().len(), 1);
+    assert!(!bridge.needs_full.load(std::sync::atomic::Ordering::Acquire));
+
+    bridge.do_action(click());
+    let mut renamed = tree();
+    renamed
+        .nodes
+        .get_mut(&SemanticId(2))
+        .unwrap()
+        .set_label("Close session");
+    bridge.replace(renamed);
+    assert!(bridge.drain().is_empty());
+    // A dropped press asks for a full tree so assistive technology re-reads it.
+    assert!(bridge.needs_full.load(std::sync::atomic::Ordering::Acquire));
+}
+
+#[test]
 fn rejects_unsupported_actions_and_wrong_tree_or_payload() {
     let mut bridge = bridge::Bridge::default();
     bridge.replace(tree());

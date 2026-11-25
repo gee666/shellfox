@@ -92,20 +92,80 @@ impl Bridge {
         };
         pending
             .into_iter()
-            .filter(|pending| {
-                let valid = tree.is_exposed(pending.action.target)
-                    && tree.node(pending.action.target) == Some(&pending.expected)
-                    && pending
-                        .text_runs
-                        .iter()
-                        .all(|(id, node)| tree.node(*id) == Some(node));
-                if !valid && pending.action.terminal_stamp.is_some() {
+            .filter(|pending| match Self::stale(tree, pending) {
+                None => true,
+                Some(reason) => {
+                    // The OS already reported success, so log the drop and resend
+                    // the tree to make assistive technology re-read the control.
+                    eprintln!(
+                        "Accessibility: dropped {:?} on node {}: {reason}",
+                        pending.action.kind, pending.action.target.0
+                    );
                     self.needs_full.store(true, Ordering::Release);
+                    false
                 }
-                valid
             })
             .map(|pending| pending.action)
             .collect()
+    }
+
+    /// Node IDs are stable per semantic key, so a control keeps its identity
+    /// across repaints that move it or change its state. A press still applies
+    /// to the same enabled control. Text edits and terminal actions apply to
+    /// the exact content the request was made against.
+    fn stale(tree: &SemanticTree, pending: &Pending) -> Option<&'static str> {
+        let target = pending.action.target;
+        let Some(node) = tree.node(target).filter(|_| tree.is_exposed(target)) else {
+            return Some("the control is gone or hidden");
+        };
+        if !pending
+            .text_runs
+            .iter()
+            .all(|(id, run)| tree.node(*id) == Some(run))
+        {
+            return Some("the text changed after the request");
+        }
+        if node == &pending.expected {
+            return None;
+        }
+        let exact = pending.action.terminal_stamp.is_some()
+            || matches!(
+                pending.action.kind,
+                SemanticActionKind::SetValue(_)
+                    | SemanticActionKind::ReplaceSelectedText(_)
+                    | SemanticActionKind::SetTextSelection(_)
+                    | SemanticActionKind::SetNumericValue(_)
+                    | SemanticActionKind::Increment
+                    | SemanticActionKind::Decrement
+            );
+        if exact {
+            return Some("the content changed after the request");
+        }
+        if node.role() != pending.expected.role() || node.label() != pending.expected.label() {
+            return Some("the control changed meaning");
+        }
+        if node.is_disabled() || !node.supports_action(Self::native_action(&pending.action.kind)) {
+            return Some("the control no longer accepts the action");
+        }
+        None
+    }
+
+    fn native_action(kind: &SemanticActionKind) -> Action {
+        match kind {
+            SemanticActionKind::Focus => Action::Focus,
+            SemanticActionKind::Click => Action::Click,
+            SemanticActionKind::SetValue(_) | SemanticActionKind::SetNumericValue(_) => {
+                Action::SetValue
+            }
+            SemanticActionKind::ReplaceSelectedText(_) => Action::ReplaceSelectedText,
+            SemanticActionKind::SetTextSelection(_) => Action::SetTextSelection,
+            SemanticActionKind::ShowContextMenu => Action::ShowContextMenu,
+            SemanticActionKind::Expand => Action::Expand,
+            SemanticActionKind::Collapse => Action::Collapse,
+            SemanticActionKind::Increment => Action::Increment,
+            SemanticActionKind::Decrement => Action::Decrement,
+            SemanticActionKind::ScrollIntoView => Action::ScrollIntoView,
+        }
     }
 
     fn translate(tree: &SemanticTree, request: ActionRequest) -> Option<SemanticAction> {
