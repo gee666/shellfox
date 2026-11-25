@@ -137,6 +137,9 @@ SfmStatus sfm_terminal_hyperlink(SfmHandle handle, uint16_t x, uint16_t y,
 SfmStatus sfm_terminal_file_link(SfmHandle handle, uint16_t x, uint16_t y,
                                 SfmBytesFn target, void *context);
 SfmStatus sfm_terminal_mouse_tracking(SfmHandle handle, uint8_t *out);
+/* Whether wheel steps go to the application: mouse reports, or Up/Down keys
+ * in the alternate screen. Otherwise scroll with sfm_terminal_scroll. */
+SfmStatus sfm_terminal_wheel_reporting(SfmHandle handle, uint8_t *out);
 /* The wrapper currently exposes cursor position/visibility, not shape or blink.
  * Render a steady block cursor until that public contract is extended. */
 #ifdef __cplusplus

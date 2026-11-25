@@ -83,10 +83,10 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
   NSUInteger modifiers = self.modifiers, binding = _binding;
   __weak SFTerminalView *weakSelf = self;
   [self withTerminal:^(SFTerminal *terminal) {
-    uint8_t tracking = 0;
-    SfmStatus status = sfm_terminal_mouse_tracking(terminal.handle, &tracking);
+    uint8_t reporting = 0;
+    SfmStatus status = sfm_terminal_wheel_reporting(terminal.handle, &reporting);
     if (status != SFM_OK) { [terminal.sink terminalFailed:terminal.identifier status:status]; return; }
-    if (!tracking || terminal.readOnly || (modifiers & 1)) {
+    if (!reporting || terminal.readOnly || (modifiers & 1)) {
       status = sfm_terminal_scroll(terminal.handle, rows);
       if (status == SFM_OK) terminal.dirty = YES;
       else [terminal.sink terminalFailed:terminal.identifier status:status];

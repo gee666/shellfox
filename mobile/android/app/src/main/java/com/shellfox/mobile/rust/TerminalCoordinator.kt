@@ -247,7 +247,7 @@ internal object TerminalCoordinator {
   fun scroll(id: String, sink: TerminalSink, rows: Int, x: Float, y: Float, cw: Int, ch: Int, reportMouse: Boolean) = command(id, sink) { entry ->
     if (entry.recovering) return@command
     flushAccepted(id, entry)
-    if (reportMouse && RustBindings.mouseTracking(entry.handle)) {
+    if (reportMouse && RustBindings.wheelReporting(entry.handle)) {
       val event = JSONObject().put("type", "mouse").put("action", "press")
         .put("button", if (rows < 0) "wheelUp" else "wheelDown").put("x", x).put("y", y)
         .put("cellWidth", cw).put("cellHeight", ch).put("anyButtonPressed", false)

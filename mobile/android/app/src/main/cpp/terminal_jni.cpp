@@ -103,6 +103,10 @@ extern "C" JNIEXPORT jboolean JNICALL JNI(mouseTracking)(JNIEnv* env, jobject, j
   uint8_t enabled = 0;
   return status(env, sfm_terminal_mouse_tracking(static_cast<SfmHandle>(handle), &enabled)) && enabled;
 }
+extern "C" JNIEXPORT jboolean JNICALL JNI(wheelReporting)(JNIEnv* env, jobject, jlong handle) {
+  uint8_t enabled = 0;
+  return status(env, sfm_terminal_wheel_reporting(static_cast<SfmHandle>(handle), &enabled)) && enabled;
+}
 extern "C" JNIEXPORT jlong JNICALL JNI(create)(JNIEnv* env, jobject, jint cols, jint rows) {
   if (sfm_abi_version() != SFM_ABI_VERSION || cols < 1 || rows < 1 || cols > 512 || rows > 512) {
     fail(env, "Unsupported terminal configuration"); return 0;

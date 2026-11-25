@@ -24,4 +24,5 @@ internal object RustBindings {
   external fun hyperlink(handle: Long, x: Int, y: Int): ByteArray
   external fun fileLink(handle: Long, x: Int, y: Int): ByteArray
   external fun mouseTracking(handle: Long): Boolean
+  external fun wheelReporting(handle: Long): Boolean
 }

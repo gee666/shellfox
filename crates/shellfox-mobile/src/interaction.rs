@@ -47,6 +47,15 @@ pub(crate) fn mouse_tracking(handle: u64) -> engine::Result<bool> {
         owned.terminal.mouse_tracking().map_err(map_error)
     })
 }
+/// Wheel steps go to the application: mouse reports, or cursor keys in the
+/// alternate screen.
+fn wheel_reporting(handle: u64) -> engine::Result<bool> {
+    engine::with_engine(handle, |owned| {
+        let terminal = &mut owned.terminal;
+        Ok(terminal.mouse_tracking().map_err(map_error)?
+            || terminal.alternate_scroll().map_err(map_error)?)
+    })
+}
 #[no_mangle]
 pub extern "C" fn sfm_terminal_scroll(handle: u64, rows: i32) -> i32 {
     boundary(|| scroll(handle, rows))
@@ -142,6 +151,22 @@ pub unsafe extern "C" fn sfm_terminal_mouse_tracking(handle: u64, out: *mut u8) 
         // SAFETY: caller promises writable storage.
         unsafe {
             out.write(u8::from(tracking));
+        }
+        Ok(())
+    })
+}
+/// # Safety
+/// out must point to one writable byte.
+#[no_mangle]
+pub unsafe extern "C" fn sfm_terminal_wheel_reporting(handle: u64, out: *mut u8) -> i32 {
+    boundary(|| {
+        if out.is_null() {
+            return Err(Status::Invalid);
+        }
+        let reporting = wheel_reporting(handle)?;
+        // SAFETY: caller promises writable storage.
+        unsafe {
+            out.write(u8::from(reporting));
         }
         Ok(())
     })

@@ -126,6 +126,24 @@ fn mouse_hover_is_passive_while_drag_click_release_and_wheel_are_active() {
 }
 
 #[test]
+fn alternate_screen_takes_the_wheel_as_cursor_keys() {
+    let mut terminal = Terminal::new();
+    let reporting = |terminal: &Terminal| {
+        let mut out = 2;
+        assert_eq!(
+            unsafe { sfm_terminal_wheel_reporting(terminal.handle, &mut out) },
+            0
+        );
+        out
+    };
+    assert_eq!(reporting(&terminal), 0);
+    terminal.feed(b"\x1b[?1049h");
+    assert_eq!(reporting(&terminal), 1);
+    let wheel = r#"{"type":"mouse","action":"press","button":"wheelUp","x":8,"y":16,"cellWidth":8,"cellHeight":16,"anyButtonPressed":false}"#;
+    assert_eq!(terminal.expect_hint(wheel, 1), b"\x1b[A");
+}
+
+#[test]
 fn editor_reset_and_empty_encoder_output_never_call_the_forwarder() {
     let mut terminal = Terminal::new();
     for json in [
