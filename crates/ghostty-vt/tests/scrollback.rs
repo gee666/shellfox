@@ -32,3 +32,33 @@ fn history_stays_bounded() -> TestResult {
     );
     Ok(())
 }
+
+/// Bytes Windows ConPTY sent for `1..60` typed into an interactive PowerShell
+/// at 80x24: a screen clear, then plain CRLF lines at the bottom row.
+#[test]
+fn conpty_output_reaches_scrollback() -> TestResult {
+    let mut stream =
+        b"\x1b[?9001h\x1b[?1004h\x1b[?25l\x1b[2J\x1b[m\x1b[HPS C:\\Users\\user>\x1b[1C\
+        \x1b]0;powershell.exe\x07\x1b[?25h\x1b[?25l\x1b[1;17H> \x1b[97m1\x1b[90m..\x1b[97m60\r\n\
+        \x1b[?25h\x1b[m"
+            .to_vec();
+    for line in 1..=60 {
+        stream.extend_from_slice(format!("{line}\r\n").as_bytes());
+    }
+    stream.extend_from_slice(b"PS C:\\Users\\user> ");
+    let mut terminal = Terminal::new(80, 24)?;
+    terminal.feed(&stream)?;
+    let mut view = terminal.new_presentation_view()?;
+    let frame = terminal.view_render(&mut view)?;
+    assert_eq!(frame.total_rows, 62);
+    assert_eq!(frame.top_row, 38);
+    terminal.view_scroll(&mut view, -38)?;
+    let frame = terminal.view_render(&mut view)?;
+    assert_eq!(frame.top_row, 0);
+    let first: String = frame.screen.cells[..23]
+        .iter()
+        .map(|c| c.text.as_str())
+        .collect();
+    assert!(first.starts_with("PS C:\\Users\\user> 1..60"), "{first:?}");
+    Ok(())
+}
