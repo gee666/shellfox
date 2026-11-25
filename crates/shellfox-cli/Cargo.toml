@@ -23,6 +23,7 @@ shellfox-host = { path = "../shellfox-host" }
 shellfox-ghostty-vt = { path = "../ghostty-vt" }
 shellfox-protocol = { path = "../shellfox-protocol" }
 shellfox-client = { path = "../shellfox-client" }
+shellfox-remote = { path = "../shellfox-remote" }
 shellfox-mobile = { path = "../shellfox-mobile" }
 shellfox-service = { path = "../shellfox-service" }
 shellfox-terminal = { path = "../shellfox-terminal" }

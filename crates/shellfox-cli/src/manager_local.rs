@@ -387,6 +387,14 @@ impl<'a> Local<'a> {
                 }
                 Ok(json!({ "sessions": sessions, "tabs": tabs }))
             }
+            R::SetVisibleSessions(input) => {
+                self.desktop(DesktopRequest::SetVisibleSessions(input))
+                    .await?;
+                Ok(json!({ "configured": true }))
+            }
+            R::ListFiles(input) => self.list_files(input).await,
+            R::ReadFile(input) => self.read_file(input).await,
+            R::WriteFile(input) => self.write_file(input).await,
             command => self.terminal_call(command).await,
         }
     }
@@ -428,15 +436,5 @@ fn directory(path: &str, operation: Directory) -> Result<Value> {
             .complete_directory_with_context(&location, Some(&context))
             .map(|r| json!({ "matches": r.matches })),
     };
-    result.map_err(|error| {
-        let code = match error.code {
-            shellfox_files::ErrorCode::NotFound => "NOT_FOUND",
-            shellfox_files::ErrorCode::Unsupported => "UNSUPPORTED",
-            shellfox_files::ErrorCode::AccessDenied => "ACCESS_DENIED",
-            shellfox_files::ErrorCode::StorageFailed => "STORAGE_FAILED",
-            shellfox_files::ErrorCode::FileConflict => "FILE_CONFLICT",
-            shellfox_files::ErrorCode::Validation => "VALIDATION",
-        };
-        CliError::coded(code, error.message, false)
-    })
+    result.map_err(crate::manager_local_files::file_failure)
 }
