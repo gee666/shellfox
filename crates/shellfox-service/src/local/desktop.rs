@@ -22,6 +22,8 @@ pub use provider::DesktopProviderRequest;
 )]
 pub enum DesktopRequest {
     Status,
+    /// Sessions as 0.9's v1 records, for the CLI.
+    SessionRecords,
     TerminalProfiles,
     TabStats,
     ReadWindowState,
@@ -122,7 +124,7 @@ macro_rules! native_actions {
         }
     };
 }
-native_actions!(Status, TerminalProfiles, TabStats, ReadWindowState, ReadTabActivity, SetVisibleSessions: visibility, SaveWindowState: state,
+native_actions!(Status, SessionRecords, TerminalProfiles, TabStats, ReadWindowState, ReadTabActivity, SetVisibleSessions: visibility, SaveWindowState: state,
     Metadata: request, Settings: request, CreationRequestReceipt { request_id }, SelectTab { tab },
     SetSettled { session, settled }, ClearSessionError { session }, ChangedSince { revision },
     CloseTab { tab }, CloseTerminal: identity, DeleteSession { session }, Attach { tab, takeover }, Detach { tab, attachment },
@@ -156,6 +158,7 @@ impl LocalRequest for DesktopRequest {
 )]
 pub enum DesktopReply {
     Status(NativeStatus),
+    SessionRecords(Vec<shellfox_protocol::SessionDto>),
     WindowState(Option<WindowState>),
     TabActivity(Vec<crate::NativeTabActivity>),
     TerminalProfiles(Box<NativeLaunchCatalog>),
@@ -187,6 +190,7 @@ impl TryFrom<NativeResponse> for DesktopReply {
     fn try_from(value: NativeResponse) -> anyhow::Result<Self> {
         Ok(match value {
             NativeResponse::Status(value) => Self::Status(value),
+            NativeResponse::SessionRecords(value) => Self::SessionRecords(value),
             NativeResponse::WindowState(value) => Self::WindowState(value),
             NativeResponse::TabActivity(value) => Self::TabActivity(value),
             NativeResponse::TerminalProfiles(value) => Self::TerminalProfiles(value),
@@ -220,6 +224,7 @@ impl From<DesktopReply> for NativeResponse {
     fn from(value: DesktopReply) -> Self {
         match value {
             DesktopReply::Status(value) => Self::Status(value),
+            DesktopReply::SessionRecords(value) => Self::SessionRecords(value),
             DesktopReply::WindowState(value) => Self::WindowState(value),
             DesktopReply::TabActivity(value) => Self::TabActivity(value),
             DesktopReply::TerminalProfiles(value) => Self::TerminalProfiles(value),

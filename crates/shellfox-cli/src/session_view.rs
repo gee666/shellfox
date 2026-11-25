@@ -12,7 +12,8 @@ use shellfox_service::{
     NativeTabActivity,
 };
 
-/// A local session with the live status 0.9 printed: `status`, `activityStatus`
+/// The fallback record when the host has no v1 record for a session (an older
+/// host, or a session the v1 shape omits): 0.9's live `status`, `activityStatus`
 /// and `counts`, and each tab's `lifecycle`, `status` and `generation`.
 /// The host reports whether a tab has agents, not how many, so `agents` is 0 or 1.
 pub fn record(session: &Session, activity: &[NativeTabActivity]) -> Value {

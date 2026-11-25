@@ -80,15 +80,28 @@ impl<'a> Local<'a> {
             .iter()
             .find(|s| s.id == id)
             .ok_or_else(|| not_found("Session not found."))?;
-        Ok(session_view::record(session, &self.activity().await?))
+        let mut records = self.records_of(std::slice::from_ref(session)).await?;
+        records.pop().ok_or_else(|| not_found("Session not found."))
     }
     async fn records(&self, snapshot: &Snapshot) -> Result<Vec<Value>> {
-        let activity = self.activity().await?;
-        Ok(snapshot
-            .sessions
-            .iter()
-            .map(|s| session_view::record(s, &activity))
-            .collect())
+        self.records_of(&snapshot.sessions).await
+    }
+    /// The host's 0.9 v1 records, as a peer reads them. A session the v1 shape
+    /// can't represent, or a host from before SessionRecords, keeps the
+    /// local record.
+    async fn records_of(&self, sessions: &[shellfox_core::Session]) -> Result<Vec<Value>> {
+        let records = match self.desktop(DesktopRequest::SessionRecords).await {
+            Ok(DesktopReply::SessionRecords(records)) => records,
+            _ => Vec::new(),
+        };
+        let mut out = Vec::with_capacity(sessions.len());
+        for session in sessions {
+            out.push(match records.iter().find(|r| r.id == session.id) {
+                Some(record) => serde_json::to_value(record)?,
+                None => session_view::record(session, &self.activity().await?),
+            });
+        }
+        Ok(out)
     }
     /// The open terminal's current generation, or None when it isn't running.
     pub async fn live(&self, tab: TabId) -> Result<Option<shellfox_core::Generation>> {

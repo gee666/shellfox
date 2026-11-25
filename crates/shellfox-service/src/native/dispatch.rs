@@ -44,6 +44,7 @@ impl crate::Service {
             NativeAction::TabStats => {
                 anyhow::bail!("Tab stats are captured on their own worker route.")
             }
+            NativeAction::SessionRecords => NativeResponse::SessionRecords(self.session_records()?),
             NativeAction::Status => NativeResponse::Status(NativeStatus {
                 active_terminals: self.active_terminals(),
                 pid: std::process::id(),

@@ -37,6 +37,62 @@ fn run(host: &Fixture) -> Result<()> {
         "{session}"
     );
 
+    // The 0.9 v1 record, in 0.9 key order, locally as from a peer.
+    let keys = |value: &Value| -> Vec<String> {
+        value
+            .as_object()
+            .map_or_else(Vec::new, |o| o.keys().cloned().collect())
+    };
+    ensure!(
+        keys(&session)
+            == [
+                "id",
+                "title",
+                "cwd",
+                "adapterId",
+                "shellId",
+                "createdAt",
+                "updatedAt",
+                "settledAt",
+                "pinnedAt",
+                "status",
+                "activityStatus",
+                "counts",
+                "tabs",
+                "env",
+                "window",
+                "canFocus",
+                "canAddTab",
+                "controlReason",
+                "error",
+                "terminalLifetime",
+                "shellSurvival",
+            ],
+        "{session}"
+    );
+    ensure!(
+        keys(&session["tabs"][0])
+            == [
+                "id",
+                "sessionId",
+                "title",
+                "cwd",
+                "ordinal",
+                "createdAt",
+                "lifecycle",
+                "status",
+                "agents",
+                "monitoringReason",
+                "error",
+                "generation",
+                "terminalKind",
+                "profileId",
+                "exitCode",
+            ],
+        "{session}"
+    );
+    ensure!(session["window"]["state"] == "unsupported" && session["controlReason"].is_string());
+
     // list, inspect: 0.9 tables in plain mode, records with live status in JSON.
     let list = host.json(&["session", "list", "--json"])?;
     ensure!(list.as_array().is_some_and(|s| s

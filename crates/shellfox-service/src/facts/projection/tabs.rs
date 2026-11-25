@@ -69,7 +69,8 @@ pub(super) fn project(
         error,
         generation,
         terminal_kind,
-        exit_code: None,
+        // 0.9 sent null for a shell tab.
+        exit_code: Some(None),
     })
 }
 fn runtime_state(

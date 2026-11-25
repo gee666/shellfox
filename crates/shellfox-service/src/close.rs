@@ -374,7 +374,12 @@ impl Service {
     pub(crate) fn native_flows(&self, action: &NativeAction) -> bool {
         use NativeAction::*;
         match action {
-            Status | ReadWindowState | ReadTabActivity | ChangedSince { .. } | TabStats => true,
+            Status
+            | SessionRecords
+            | ReadWindowState
+            | ReadTabActivity
+            | ChangedSince { .. }
+            | TabStats => true,
             Frame { tab, .. }
             | AcceptFrame { tab, .. }
             | ObserverFrame { tab, .. }

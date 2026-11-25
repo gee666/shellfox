@@ -156,10 +156,23 @@ fn project_session(
     let facts = SessionFacts {
         adapter_id,
         shell_id,
-        window: None,
+        window: Some(wire::SessionWindow {
+            state: wire::WindowState::Unsupported,
+            can_reopen: false,
+            can_register: false,
+            reason:
+                "Embedded tabs do not use native window ownership or external shell registration."
+                    .into(),
+        }),
         can_focus: embedded,
         can_add_tab: embedded && !replay,
-        control_reason: replay.then(|| "Automation replay is read-only.".into()),
+        control_reason: Some(if replay {
+            "Automation replay is read-only.".into()
+        } else if embedded {
+            LIFETIME_NOTICE.into()
+        } else {
+            "Legacy external terminals are not controlled. Activating this task starts a separate embedded shell.".into()
+        }),
         error: startup_error,
         terminal_lifetime: owned.then_some(wire::TerminalLifetime::AppOwned),
         shell_survival: owned.then_some(false),
@@ -169,6 +182,9 @@ fn project_session(
         .map_err(AppError::from)?;
     Ok(facts)
 }
+
+/// 0.9's LIFETIME_NOTICE (src/main/terminal/service.ts).
+const LIFETIME_NOTICE: &str = "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands.";
 
 fn adapter(value: shellfox_core::SettingsAdapter) -> wire::AdapterId {
     match value {

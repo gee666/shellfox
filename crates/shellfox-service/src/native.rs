@@ -44,6 +44,8 @@ pub struct NativeInputContext {
 #[derive(Debug, Clone)]
 pub enum NativeAction {
     Status,
+    /// Sessions as 0.9's v1 records, for the CLI.
+    SessionRecords,
     ReadWindowState,
     ReadTabActivity,
     SetVisibleSessions(shellfox_protocol::SetVisibleSessions),
@@ -206,6 +208,7 @@ pub struct NativeStatus {
 #[derive(Debug)]
 pub enum NativeResponse {
     Status(NativeStatus),
+    SessionRecords(Vec<shellfox_protocol::SessionDto>),
     WindowState(Option<shellfox_core::window_state::WindowState>),
     TabActivity(Vec<crate::NativeTabActivity>),
     Power(crate::power::PowerReport),
