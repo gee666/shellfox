@@ -8,8 +8,11 @@
 //! it stops the host; EOF without it means the UI died, and the host starts it
 //! again with the N relaunch arguments, unless this host is stopping. A
 //! relaunched UI that exits with an error is started again, up to 3 times in
-//! 5 minutes (relaunch.rs). If the login session ended (logout, display gone) it stops instead, as a
-//! logout ended 0.9.x and its shells. Later UIs attach on their own.
+//! 5 minutes (relaunch.rs). Past that, an idle host stops, and one with shells
+//! tells the user through an OS notification (notice.rs). If the login session
+//! ended (logout, display gone) it stops instead, as a logout ended 0.9.x and
+//! its shells. Later UIs attach on their own.
+mod notice;
 mod relaunch;
 
 use anyhow::{ensure, Context, Result};
@@ -124,6 +127,27 @@ impl Serving {
         })
         .is_some_and(|routed| routed.unwrap_or(false))
     }
+    /// No UI comes back by itself: an idle host stops, and the user learns
+    /// about the shells of a busy one instead of them running unseen.
+    fn without_ui(&self) {
+        let terminals = self.ask(async |client| {
+            match client
+                .request(&shellfox_service::local::DesktopRequest::Status)
+                .await?
+            {
+                shellfox_service::local::DesktopReply::Status(status) => {
+                    Ok(status.active_terminals)
+                }
+                _ => anyhow::bail!("Host returned an invalid status response."),
+            }
+        });
+        match terminals {
+            Some(Ok(0)) => self.stop(),
+            Some(Ok(terminals)) => notice::show(terminals),
+            Some(Err(error)) => eprintln!("Shellfox host status failed: {error:#}"),
+            None => eprintln!("Shellfox host status timed out"),
+        }
+    }
     /// The same orderly stop as `host stop`: the shells end with the host.
     fn stop(&self) {
         let stopped = self.ask(async |client| {
@@ -133,7 +157,7 @@ impl Serving {
             anyhow::Ok(())
         });
         if let Some(Err(error)) = stopped {
-            eprintln!("Shellfox host stop after session end failed: {error:#}");
+            eprintln!("Shellfox host stop without a UI failed: {error:#}");
         }
     }
     /// None if the host did not answer in time.
@@ -212,7 +236,7 @@ fn watch_ui(
             let report = shellfox_service::crash_report::ui_exit(since);
             let Some(wait) = relaunches.next(std::time::Instant::now()) else {
                 eprintln!("Shellfox UI crashed too often; it is not relaunched");
-                return;
+                return serving.without_ui();
             };
             std::thread::sleep(wait);
             since = std::time::SystemTime::now();
@@ -231,7 +255,10 @@ fn watch_ui(
                 .env_remove("XDG_ACTIVATION_TOKEN");
             let status = match command.spawn().and_then(|mut child| child.wait()) {
                 Ok(status) => status,
-                Err(error) => return eprintln!("Shellfox UI relaunch failed: {error:#}"),
+                Err(error) => {
+                    eprintln!("Shellfox UI relaunch failed: {error:#}");
+                    return serving.without_ui();
+                }
             };
             eprintln!("Shellfox relaunched UI ended: {status}");
             // A relaunched UI quits with its host and exits 0; anything else is a crash.
