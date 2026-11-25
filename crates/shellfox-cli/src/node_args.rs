@@ -375,16 +375,14 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
                 false,
             ))
         }
-        ["settings", "read"] => host(&["settings", "get"]),
+        ["settings", "read"] => Action::Manager(crate::manager_args::ManagerCommand::Settings),
         ["settings", "update", "--input", input] => {
-            let input = read_input(input)?;
-            let object = serde_json::from_str::<serde_json::Value>(&input)
-                .map_err(|_| CliError::usage("Invalid JSON input."))?
-                .is_object();
-            if !object {
+            let patch = serde_json::from_str::<serde_json::Value>(&read_input(input)?)
+                .map_err(|_| CliError::usage("Invalid JSON input."))?;
+            if !patch.is_object() {
                 return Err(CliError::usage("Settings input must be a JSON object."));
             }
-            host(&["settings", "set", &input])
+            Action::Manager(crate::manager_args::ManagerCommand::SaveSettings(patch))
         }
         ["settings", "update", ..] => return Err(CliError::usage("Provide --input with JSON.")),
         ["network", "status"] => host(&["host", "network", "status"]),

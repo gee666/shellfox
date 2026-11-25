@@ -229,6 +229,48 @@ fn run(host: &Fixture) -> Result<()> {
         "{awake}"
     );
 
+    // settings read/update: 0.9 key order, pythonPath, terminalProfileId, whole hours.
+    let updated = host.json(&[
+        "settings",
+        "update",
+        "--input",
+        r#"{"historyPageSize":30}"#,
+        "--json",
+    ])?;
+    ensure!(
+        keys(&updated)
+            == [
+                "version",
+                "terminalEnv",
+                "autoUpdate",
+                "pythonPath",
+                "accentColor",
+                "backgroundColor",
+                "adapterId",
+                "shellId",
+                "shellExecutable",
+                "terminalProfileId",
+                "processRules",
+                "historyPageSize",
+                "sessionSettleHours",
+                "sessionDeleteHours",
+            ]
+            && updated["historyPageSize"] == 30
+            && updated["sessionSettleHours"].is_i64()
+            && updated["terminalProfileId"].is_string(),
+        "{updated}"
+    );
+    if cfg!(windows) {
+        ensure!(
+            !updated["shellExecutable"]
+                .as_str()
+                .unwrap_or_default()
+                .contains('/'),
+            "{updated}"
+        );
+    }
+    ensure!(keys(&host.json(&["settings", "read", "--json"])?) == keys(&updated));
+
     // 0.9 usage errors: JSON records with VALIDATION and exit 2.
     for words in [
         &["ssh", "x", "--json"][..],

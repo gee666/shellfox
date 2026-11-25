@@ -49,7 +49,13 @@ pub fn settings(
     );
     let reply: serde_json::Value = serde_json::from_slice(&bytes)?;
     ensure!(reply["ok"] == true, "Settings CLI command failed: {reply}");
-    let settings: shellfox_core::Settings = serde_json::from_value(reply["value"].clone())?;
+    let mut value = reply["value"].clone();
+    // 0.9 printed pythonPath, which the Rust settings no longer keep.
+    ensure!(
+        value.as_object_mut().and_then(|v| v.remove("pythonPath")) == Some(serde_json::Value::Null),
+        "0.9 settings carry pythonPath: {value}"
+    );
+    let settings: shellfox_core::Settings = serde_json::from_value(value)?;
     settings.validate()?;
     Ok(settings)
 }

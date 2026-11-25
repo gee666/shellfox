@@ -168,6 +168,7 @@ pub(crate) async fn execute(
             host.call(call("createSession", payload)?).await?
         }
         ManagerCommand::Settings => snapshot(host).await?["settings"].take(),
+        ManagerCommand::SaveSettings(patch) => host.call(call("saveSettings", patch)?).await?,
         ManagerCommand::Profiles => host.call(call("getTerminalProfiles", json!({}))?).await?,
         ManagerCommand::Path(op) => {
             let (method, path) = match op {

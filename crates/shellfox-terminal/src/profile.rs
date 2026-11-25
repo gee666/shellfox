@@ -143,7 +143,7 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
         let pwsh = std::env::var_os("ProgramFiles")
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
-            .map(|p| p.join("PowerShell/7/pwsh.exe"))
+            .map(|p| p.join(r"PowerShell\7\pwsh.exe"))
             .filter(|p| p.is_file())
             .or_else(|| {
                 crate::environment::installed_path()
@@ -153,7 +153,7 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
             });
         Ok(vec![
             local(Pwsh, "PowerShell", pwsh),
-            local(WindowsPowerShell, "Windows PowerShell", Some(system.join("WindowsPowerShell/v1.0/powershell.exe"))),
+            local(WindowsPowerShell, "Windows PowerShell", Some(system.join(r"WindowsPowerShell\v1.0\powershell.exe"))),
             local(Cmd, "Command Prompt", Some(system.join("cmd.exe"))),
             ShellProfile { id: Wsl, label: "WSL", executable: None,
                 unavailable_reason: Some("Guest process ownership is not implemented; a Windows Job cannot safely own WSL descendants.") },

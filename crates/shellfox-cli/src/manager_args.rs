@@ -27,8 +27,10 @@ pub enum ManagerCommand {
         title: Option<String>,
         request_id: SessionId,
     },
-    /// `settings read` on a remote host: its manager snapshot settings.
+    /// `settings read`: the manager snapshot's settings.
     Settings,
+    /// `settings update` on the local host: a validated saveSettings patch.
+    SaveSettings(Value),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

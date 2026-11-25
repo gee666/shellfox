@@ -9,6 +9,16 @@ pub struct SettingsProfile {
     pub available: bool,
     pub elevation: bool,
 }
+/// Windows paths match whatever their separators or case: earlier builds
+/// saved "PowerShell/7/pwsh.exe", 0.9 and discovery "PowerShell\7\pwsh.exe".
+fn same_executable(saved: &str, discovered: &str) -> bool {
+    if cfg!(windows) {
+        let normal = |path: &str| path.replace('/', "\\").to_lowercase();
+        normal(saved) == normal(discovered)
+    } else {
+        saved == discovered
+    }
+}
 /// Mirrors src/main/terminal/service.ts::saveSettings. The adapter must validate
 /// Linux Python separately and provide CURRENT discovery, not client-supplied facts.
 pub fn normalize_settings_profile(
@@ -37,7 +47,7 @@ pub fn normalize_settings_profile(
                         && candidate
                             .shell_executable
                             .as_ref()
-                            .is_none_or(|exe| exe == &p.executable)
+                            .is_none_or(|exe| same_executable(exe, &p.executable))
                 })
                 .map(|p| p.id.as_str())
         })
@@ -57,7 +67,7 @@ pub fn normalize_settings_profile(
         candidate
             .shell_executable
             .as_ref()
-            .is_none_or(|exe| exe == &selected.executable)
+            .is_none_or(|exe| same_executable(exe, &selected.executable))
             || unchanged_executable,
         "Arbitrary shell executables are not allowed.",
     )?;
@@ -67,4 +77,18 @@ pub fn normalize_settings_profile(
     candidate.shell_executable = Some(selected.executable.clone());
     candidate.validate()?;
     Ok(candidate)
+}
+
+#[cfg(test)]
+mod executable_tests {
+    #[test]
+    fn saved_windows_paths_match_across_separators() {
+        let discovered = r"C:\Program Files\PowerShell\7\pwsh.exe";
+        assert_eq!(
+            super::same_executable(r"C:\Program Files\PowerShell/7/pwsh.exe", discovered),
+            cfg!(windows)
+        );
+        assert!(super::same_executable(discovered, discovered));
+        assert!(!super::same_executable(r"C:\other\pwsh.exe", discovered));
+    }
 }

@@ -69,7 +69,13 @@ impl<'a> Local<'a> {
             .execute(LocalApiRequest::Settings { request })
             .await?
         {
-            LocalApiResponse::Settings(settings) => Ok(serde_json::to_value(settings)?),
+            LocalApiResponse::Settings(settings) => {
+                let saved = self.snapshot().await?.preferences.default_profile_id;
+                Ok(settings_record(
+                    serde_json::to_value(settings)?,
+                    saved.as_str(),
+                ))
+            }
             _ => Err(unexpected()),
         }
     }
@@ -411,6 +417,52 @@ impl<'a> Local<'a> {
             command => self.terminal_call(command).await,
         }
     }
+}
+
+/// 0.9's settings record: its key order, `pythonPath` (no longer used) and
+/// the selected `terminalProfileId`.
+fn settings_record(mut settings: Value, default_profile: &str) -> Value {
+    let Some(fields) = settings.as_object_mut() else {
+        return settings;
+    };
+    fields.entry("pythonPath").or_insert(Value::Null);
+    // 0.9 wrote whole hours as integers.
+    for key in ["sessionSettleHours", "sessionDeleteHours"] {
+        if let Some(hours) = fields
+            .get(key)
+            .and_then(Value::as_f64)
+            .filter(|h| h.fract() == 0.0)
+        {
+            fields.insert(key.into(), json!(hours as i64));
+        }
+    }
+    if fields.get("terminalProfileId").is_none_or(Value::is_null) {
+        fields.insert("terminalProfileId".into(), json!(default_profile));
+    }
+    const ORDER: [&str; 14] = [
+        "version",
+        "terminalEnv",
+        "autoUpdate",
+        "pythonPath",
+        "accentColor",
+        "backgroundColor",
+        "adapterId",
+        "shellId",
+        "shellExecutable",
+        "terminalProfileId",
+        "processRules",
+        "historyPageSize",
+        "sessionSettleHours",
+        "sessionDeleteHours",
+    ];
+    let mut ordered = serde_json::Map::new();
+    for key in ORDER {
+        if let Some(value) = fields.remove(key) {
+            ordered.insert(key.into(), value);
+        }
+    }
+    ordered.extend(std::mem::take(fields));
+    Value::Object(ordered)
 }
 
 fn home() -> Result<String> {
