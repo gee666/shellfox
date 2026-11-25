@@ -55,7 +55,16 @@ try {
     const image = path.join(directory, `${stem}.dmg`);
     const mount = path.join(work, 'disk image');
     mkdirSync(mount);
-    run('/usr/bin/hdiutil', ['attach', '-readonly', '-nobrowse', '-noautoopen', '-mountpoint', mount, image]);
+    // hdiutil can briefly report the image device busy on CI runners.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        run('/usr/bin/hdiutil', ['attach', '-readonly', '-nobrowse', '-noautoopen', '-mountpoint', mount, image]);
+        break;
+      } catch (error) {
+        if (attempt === 4 || !/Resource (temporarily unavailable|busy)/.test(error.message)) throw error;
+        await delay(attempt * 5_000);
+      }
+    }
     try {
       const diskApp = path.join(mount, 'Shellfox.app');
       assert.equal(fileHash(path.join(diskApp, 'Contents/MacOS/Shellfox')), fileHash(path.join(app, 'Contents/MacOS/Shellfox')));
