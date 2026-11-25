@@ -4,6 +4,9 @@ use shellfox_client::ConnectionStatus;
 use shellfox_protocol::{HostEvent, TerminalEvent};
 use std::{sync::Arc, time::Duration};
 
+/// Bounds what a peer host can make the sidebar remember.
+const MAX_ACTIVITY: usize = 4096;
+
 impl Root {
     pub(crate) fn peer_tab_busy(&self, peer: &AuthenticatedPeerId, tab: TabId) -> Option<bool> {
         self.peer_ui.v1_activity.get(&(peer.clone(), tab)).copied()
@@ -216,24 +219,6 @@ impl Root {
     ) {
         let mut tabs = HashMap::<_, Vec<_>>::new();
         let mut activity_changed = false;
-        let selected = self
-            .peers
-            .selected_peer()
-            .and_then(|(id, state)| (id == peer).then_some(state.selected_tab).flatten());
-        let known: HashSet<_> = self
-            .peers
-            .peers
-            .get(peer)
-            .and_then(|state| state.snapshot.as_ref())
-            .into_iter()
-            .flat_map(|snapshot| &snapshot.sessions)
-            .flat_map(|session| session.tabs.iter().map(|tab| tab.id))
-            .collect();
-        self.peer_ui.v1_activity.retain(|(id, tab), _| {
-            let keep = id != peer || known.contains(tab);
-            activity_changed |= !keep;
-            keep
-        });
         for event in events {
             let HostEvent::Terminal { event } = event else {
                 continue;
@@ -248,11 +233,14 @@ impl Root {
             };
             let tab = *tab;
             match &event {
+                // Hosts report busy tabs right after pairing, often before the
+                // catalog arrives, and then only changes: keep every report.
+                // The sidebar reads only the tabs it lists.
                 TerminalEvent::Activity { busy, .. } => {
                     let key = (peer.clone(), tab);
-                    let detached =
-                        self.peer_ui.v1_views.contains_key(&key) && selected != Some(tab);
-                    if !detached && known.contains(&tab) {
+                    if self.peer_ui.v1_activity.len() < MAX_ACTIVITY
+                        || self.peer_ui.v1_activity.contains_key(&key)
+                    {
                         activity_changed |=
                             self.peer_ui.v1_activity.insert(key, *busy) != Some(*busy);
                     }
@@ -287,16 +275,9 @@ impl Root {
         key: Option<&(AuthenticatedPeerId, TabId)>,
         cx: &mut Context<Self>,
     ) {
-        let mut changed = false;
         for (id, view) in &self.peer_ui.v1_views {
             let visible = Some(id) == key;
-            if !visible {
-                changed |= self.peer_ui.v1_activity.remove(id).is_some();
-            }
             view.update(cx, |view, cx| view.set_peer_visible(visible, cx));
-        }
-        if changed {
-            cx.notify();
         }
     }
 
