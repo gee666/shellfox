@@ -5,6 +5,7 @@ pub(crate) mod close;
 pub(crate) mod focus;
 pub(crate) mod menu;
 pub(crate) mod pane;
+pub(crate) mod pending;
 pub(crate) mod profile_menu;
 pub(crate) mod reorder;
 pub(crate) mod scroll;
@@ -27,4 +28,6 @@ pub(crate) struct TabsState {
     pub(crate) menu: Option<TabMenu>,
     pub(crate) activity: activity::TabActivity,
     pub(crate) profile_menu: Option<profile_menu::ProfileMenu>,
+    /// Keys typed while the selected tab attaches.
+    pub(crate) pending: Option<pending::PendingInput>,
 }

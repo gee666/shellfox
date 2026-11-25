@@ -122,6 +122,10 @@ impl Root {
         if read_only && takeover {
             return;
         }
+        if self.selected_tab() == Some(id) && !self.settings.open && self.dialogs.current.is_none()
+        {
+            self.hold_input(id, window, cx);
+        }
         let focus_before = window.focused(cx);
         self.tabs.attaching.insert(id);
         if recovery != Some(TerminalRecovery::TakeControl) {
@@ -163,13 +167,17 @@ impl Root {
                             focus_moved: window.focused(cx) != focus_before,
                         };
                         match landing(facts) {
-                            Landing::Detach => detach(client.clone(), id, attachment, cx),
+                            Landing::Detach => {
+                                root.take_pending_input(id);
+                                detach(client.clone(), id, attachment, cx)
+                            }
                             Landing::Keep { focus } => {
                                 root.admit_view(id, client.clone(), attachment, focus, window, cx)
                             }
                         }
                     }
                     Err(error) => {
+                        root.take_pending_input(id);
                         let mut failure = StartupError::from(error);
                         failure.generation = root.terminal_generation(id);
                         root.tabs.failures.insert(id, failure);
@@ -191,6 +199,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let pending = self.take_pending_input(id);
         let opened = match &attachment {
             NativeViewAttachment::Controller(handle) => {
                 TerminalView::open_attached(client.clone(), id, handle.clone(), window, cx)
@@ -261,6 +270,9 @@ impl Root {
                 },
             )
             .detach();
+        }
+        if let Some(pending) = pending {
+            view.update(cx, |view, _| pending.replay(view));
         }
         self.tabs.failures.remove(&id);
         self.tabs.views.insert(id, view);

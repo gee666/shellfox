@@ -86,7 +86,24 @@ impl Root {
                 }
             } else {
                 // Attaching, or about to: the render hook starts it.
-                area = area.child(crate::renderer::terminal_loading(palette.accent));
+                let loading = crate::renderer::terminal_loading(palette.accent);
+                area = match self
+                    .tabs
+                    .pending
+                    .as_ref()
+                    .filter(|pending| pending.tab == id)
+                {
+                    Some(pending) => area.child(
+                        div()
+                            .size_full()
+                            .track_focus(&pending.focus)
+                            .on_key_down(
+                                cx.listener(|root, event, _, cx| root.pending_key(event, cx)),
+                            )
+                            .child(loading),
+                    ),
+                    None => area.child(loading),
+                };
             }
         } else {
             area = area.child(self.empty_workspace(palette, window));
