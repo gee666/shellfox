@@ -14,6 +14,7 @@ mod headless_package;
 mod headless_update;
 mod help;
 mod host_service;
+mod host_status;
 mod human;
 mod human_text;
 mod keys;

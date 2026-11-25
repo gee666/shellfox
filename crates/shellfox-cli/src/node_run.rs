@@ -101,14 +101,22 @@ pub fn run(
         Action::HostStatus => {
             let (runtime, target) = (runtime()?, target()?);
             if let Ok(client) = runtime.block_on(target.connect()) {
+                let status = runtime.block_on(crate::host_status::status(&client));
                 let _ = runtime.block_on(client.disconnect());
-                print_value(&serde_json::json!({ "running": true }))?;
+                print_value(&status?)?;
             } else {
                 let legacy = legacy_host(&runtime).ok_or_else(unavailable)?;
                 let status = runtime.block_on(legacy.status());
                 runtime.block_on(legacy.close());
                 print_value(&status?)?;
             }
+        }
+        Action::KeepAwake(active) => {
+            let (runtime, target) = (runtime()?, target()?);
+            let client = runtime.block_on(target.connect()).map_err(|_| unavailable())?;
+            let state = runtime.block_on(crate::host_status::keep_awake(&client, active));
+            let _ = runtime.block_on(client.disconnect());
+            print_value(&state?)?;
         }
         Action::HostStop => {
             confirm(json, yes, "Stop the host and all its terminals")?;

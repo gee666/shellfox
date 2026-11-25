@@ -39,6 +39,7 @@ impl Service {
             runtime_signal: Default::default(),
             runtime_handle: None,
             _root_lifetime: None,
+            started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         })
     }
     /// Retains the original producer chain through SQLite close, including

@@ -46,6 +46,12 @@ impl crate::Service {
             }
             NativeAction::Status => NativeResponse::Status(NativeStatus {
                 active_terminals: self.active_terminals(),
+                pid: std::process::id(),
+                started_at: self.started_at.clone(),
+                desktop: self
+                    .system_native_handler
+                    .as_ref()
+                    .is_some_and(|system| system.desktop_actions()),
             }),
             NativeAction::ReadWindowState => {
                 NativeResponse::WindowState(self.host().window_state()?)

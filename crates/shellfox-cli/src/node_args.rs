@@ -26,6 +26,8 @@ pub enum Action {
     HostRun,
     HostStatus,
     HostStop,
+    /// `host keep-awake [on|off]`; None reads it.
+    KeepAwake(Option<bool>),
     Service {
         install: bool,
         startup: bool,
@@ -338,8 +340,8 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
         ["host", "run" | "serve"] => Action::HostRun,
         ["host", "status"] => Action::HostStatus,
         ["host", "stop"] => Action::HostStop,
-        ["host", "keep-awake"] => host(&["host", "power", "status"]),
-        ["host", "keep-awake", state @ ("on" | "off")] => host(&["host", "power", state]),
+        ["host", "keep-awake"] => Action::KeepAwake(None),
+        ["host", "keep-awake", state @ ("on" | "off")] => Action::KeepAwake(Some(*state == "on")),
         ["host", "service", "install"] => Action::Service {
             install: true,
             startup: false,

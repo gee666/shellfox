@@ -188,11 +188,19 @@ pub struct NativeFrame {
     pub working_directory: Option<Arc<str>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeStatus {
     /// Actual owners retained by the common service, never a UI view count.
     pub active_terminals: usize,
+    /// The host process and when it opened its data, for `host status`.
+    #[serde(default)]
+    pub pid: u32,
+    #[serde(default)]
+    pub started_at: String,
+    /// A desktop-owned host, which opens folders and links for its UI.
+    #[serde(default)]
+    pub desktop: bool,
 }
 
 #[derive(Debug)]

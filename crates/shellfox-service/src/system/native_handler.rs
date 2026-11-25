@@ -57,6 +57,10 @@ impl SystemNativeHandler {
             guard,
         })
     }
+    /// Whether this host may open folders and links: a desktop-owned host.
+    pub(crate) fn desktop_actions(&self) -> bool {
+        self.backend.policy.allow_open
+    }
     /// All methods are synchronous. Execute under the original local/native
     /// owner authority; never call from a remote wire dispatcher or mobile API.
     /// External writes are not retried if ownership/reply is lost after admission.

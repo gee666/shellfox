@@ -119,6 +119,8 @@ pub struct Service {
     runtime_signal: std::sync::Arc<owner::wait::RuntimeSignal>,
     /// The runtime that started the owner, for small async watchers.
     runtime_handle: Option<tokio::runtime::Handle>,
+    /// When this host opened its data, as RFC 3339 UTC.
+    started_at: String,
     // Last: Host/SQLite and every deferred resource owner drop before this guard.
     // Original directory lifetime only, not path/VFS confinement.
     _root_lifetime: Option<shellfox_transport::RootLifetimeGuard>,

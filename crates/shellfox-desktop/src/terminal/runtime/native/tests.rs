@@ -32,17 +32,15 @@ fn controller_input_uses_checked_service_attachment_and_ghostty_key_data() {
         matches!(action, NativeAction::Terminal { attachment, command: NativeCommand::Key(event), .. }
         if attachment.controller == lease.controller && event.modifiers == KeyModifiers::CONTROL && event.physical == PhysicalKey::KeyC)
     );
-    assert!(
-        access
-            .action(
-                tab,
-                Command::Paste {
-                    lease: Lease { epoch: 3, ..lease },
-                    text: "not accepted".into()
-                }
-            )
-            .is_err()
-    );
+    assert!(access
+        .action(
+            tab,
+            Command::Paste {
+                lease: Lease { epoch: 3, ..lease },
+                text: "not accepted".into()
+            }
+        )
+        .is_err());
 }
 #[test]
 fn closing_a_view_detaches_and_never_requests_pty_cleanup() {
@@ -61,20 +59,18 @@ fn observer_does_not_claim_or_send_control_input() {
     let access = Access::Observer(attachment.clone());
     let tab = TabId::new();
     assert!(access.lease().is_none());
-    assert!(
-        access
-            .action(
-                tab,
-                Command::Paste {
-                    lease: Lease {
-                        controller: 9,
-                        epoch: 4
-                    },
-                    text: "forbidden".into()
-                }
-            )
-            .is_err()
-    );
+    assert!(access
+        .action(
+            tab,
+            Command::Paste {
+                lease: Lease {
+                    controller: 9,
+                    epoch: 4
+                },
+                text: "forbidden".into()
+            }
+        )
+        .is_err());
     assert!(
         matches!(access.action(tab, Command::RetryClose).unwrap(), NativeAction::Unobserve { attachment: a, .. } if a == attachment)
     );
@@ -125,23 +121,21 @@ fn observer_presentation_is_private_and_does_not_require_input_context_or_claim(
             matches!(result, NativeAction::Presentation { attachment: NativeViewAttachment::Observer(ref a), .. } if a == &attachment)
         );
     }
-    assert!(
-        access
-            .action_with_input(
-                tab,
-                Command::Presentation {
-                    view: shellfox_runtime::PresentationLease::Observer(
-                        shellfox_runtime::ObserverLease {
-                            viewer: 19,
-                            epoch: 5
-                        }
-                    ),
-                    action: shellfox_runtime::PresentationAction::Copy
-                },
-                None
-            )
-            .is_err()
-    );
+    assert!(access
+        .action_with_input(
+            tab,
+            Command::Presentation {
+                view: shellfox_runtime::PresentationLease::Observer(
+                    shellfox_runtime::ObserverLease {
+                        viewer: 19,
+                        epoch: 5
+                    }
+                ),
+                action: shellfox_runtime::PresentationAction::Copy
+            },
+            None
+        )
+        .is_err());
 }
 
 #[test]
@@ -230,12 +224,10 @@ fn full_returns_exact_unsent_mutation_but_post_admission_failures_never_retry() 
     assert!(
         matches!(retained, NativeAction::Terminal { command: NativeCommand::Paste(ref text), .. } if text == "retained native intent")
     );
-    assert!(
-        retry(anyhow::anyhow!(
-            "Service owner queue is full; action was not accepted."
-        ))
-        .is_err()
-    );
+    assert!(retry(anyhow::anyhow!(
+        "Service owner queue is full; action was not accepted."
+    ))
+    .is_err());
     assert!(
         retry(NativeAdmissionError::Stopped(Box::new(NativeAction::DetachAll)).into()).is_err()
     );
@@ -283,14 +275,13 @@ fn non_input_responses_keep_their_existing_meaning() {
         terminal_response(NativeResponse::Terminal(Response::Text(None))).unwrap(),
         Response::Text(None)
     ));
-    assert!(
-        terminal_response(NativeResponse::Status(
-            shellfox_service::native::NativeStatus {
-                active_terminals: 2
-            }
-        ))
-        .is_err()
-    );
+    assert!(terminal_response(NativeResponse::Status(
+        shellfox_service::native::NativeStatus {
+            active_terminals: 2,
+            ..Default::default()
+        }
+    ))
+    .is_err());
 }
 
 #[test]

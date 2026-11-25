@@ -148,6 +148,23 @@ fn run(host: &Fixture) -> Result<()> {
         code(&host.reply(&["terminals", "write", &ids[0], "x", "--json"])?) == ("NOT_FOUND", 1)
     );
 
+    // host status and keep-awake keep 0.9 shapes.
+    let status = host.json(&["host", "status", "--json"])?;
+    ensure!(
+        status["mode"] == "headless"
+            && status["pid"] == host.host_pid().context("host pid")?
+            && status["startedAt"].is_string()
+            && status["capabilities"]["desktopActions"] == false
+            && status["capabilities"]["administrator"] == false
+            && status["capabilities"]["keepAwake"].is_boolean(),
+        "{status}"
+    );
+    let awake = host.json(&["host", "keep-awake", "--json"])?;
+    ensure!(
+        awake["active"].is_boolean() && awake.as_object().is_some_and(|o| o.len() == 1),
+        "{awake}"
+    );
+
     // 0.9 usage errors: JSON records with VALIDATION and exit 2.
     for words in [
         &["ssh", "x", "--json"][..],

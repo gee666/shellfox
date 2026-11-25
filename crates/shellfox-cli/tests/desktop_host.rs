@@ -169,6 +169,27 @@ fn a_ui_that_quits_is_not_relaunched() -> Result<()> {
         drop(pipe);
         tokio::time::sleep(Duration::from_secs(2)).await;
         ensure!(!fixture.marker.exists(), "A quitting UI was relaunched.");
+        // host status reports the desktop owner, as in 0.9.
+        let hex: String = fixture.digest.iter().map(|b| format!("{b:02x}")).collect();
+        let output = Command::new(env!("CARGO_BIN_EXE_shellfox-cli"))
+            .arg("--data-dir")
+            .arg(&fixture.data)
+            .arg("--helper")
+            .arg(&fixture.helper)
+            .args(["--helper-sha256", &hex, "host", "status", "--json"])
+            .stdin(Stdio::null())
+            .output()?;
+        let status: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        let value = &status["value"];
+        ensure!(
+            value["mode"] == "desktop"
+                && value["pid"] == fixture.host.0.id()
+                && value["capabilities"]["desktopActions"] == true
+                && value["startedAt"]
+                    .as_str()
+                    .is_some_and(|t| t.ends_with('Z')),
+            "{status}"
+        );
         let watcher = fixture.client().await?;
         stop(&fixture.client().await?).await?;
         ensure!(

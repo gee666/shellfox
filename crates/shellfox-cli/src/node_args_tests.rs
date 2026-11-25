@@ -87,8 +87,8 @@ fn namespaces_and_aliases_translate_to_host_commands() {
         ["host", "network", "peer", "P", "approve"]
     );
     assert_eq!(
-        host_words(&["host", "keep-awake", "on"]),
-        ["host", "power", "on"]
+        action(&["host", "keep-awake", "on"]),
+        Action::KeepAwake(Some(true))
     );
     assert_eq!(
         host_words(&["network", "login", "--auth-key-file=/k"]),

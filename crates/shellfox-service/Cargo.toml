@@ -16,7 +16,7 @@ url = "=2.5.8"
 roxmltree = "=0.20.0"
 cap-std = "=3.4.6"
 cap-fs-ext = "=3.4.6"
-chrono = { version = "0.4", default-features = false }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 log = "0.4"
 tempfile = "3"
 shellfox-core = { path = "../shellfox-core" }
