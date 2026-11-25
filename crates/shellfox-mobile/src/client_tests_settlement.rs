@@ -232,3 +232,30 @@ fn output_polled_during_an_attach_follows_the_snapshot_without_a_reattach() {
         assert_eq!(shared.queue.lock().unwrap().accepted, 3);
     }
 }
+#[test]
+fn a_gap_reattaches_for_the_whole_screen_not_only_newer_output() {
+    let mut h = Harness::new();
+    h.connect();
+    let view = binding(&h);
+    attachment(&h);
+    let attach = h.request();
+    assert_eq!(h.complete(&attach, &response(None)), 0);
+    let event = h.event();
+    reset_for_event(&h, view.0, &event);
+    crate::engine::with_engine(view.0, crate::engine::pump).unwrap();
+    let mut operation = 0;
+    assert_eq!(unsafe { sfm_client_poll(h.handle, &mut operation) }, 0);
+    let poll = h.request();
+    // Sequence 2 never arrived. The engine resets on the next attachment, so
+    // only output after sequence 1 would leave a TUI's redraws on a blank grid.
+    assert_eq!(h.complete(&poll, &data(3, "!")), 0);
+    let events = h.event()["result"]["value"]["events"].clone();
+    let request = &events[0]["request"];
+    assert_eq!(events[0]["type"], "reattach", "{events}");
+    assert_eq!(request["tabId"], TAB);
+    assert_eq!(
+        request["generation"],
+        "30000000-0000-4000-8000-000000000001"
+    );
+    assert!(request.get("afterSequence").is_none(), "{request}");
+}

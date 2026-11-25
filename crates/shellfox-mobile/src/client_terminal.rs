@@ -195,6 +195,14 @@ pub(super) fn attachment(mobile: &Mobile, value: &TerminalAttachment) -> Result<
     metadata.as_object_mut().ok_or(PROTOCOL)?.remove("chunks");
     Ok(metadata)
 }
+/// Every attachment resets the engine, so a reattach asks for the whole screen.
+/// An Electron host answers `afterSequence` with only the newer output, and a
+/// TUI's cursor-relative redraws replayed onto a blank grid land in the wrong rows.
+pub(super) fn reattach_request(cursor: &ViewCursor, connection: u64) -> Result<AttachTerminal> {
+    let mut request = cursor.recovery_request(connection).map_err(|_| STALE)?;
+    request.after_sequence = None;
+    Ok(request)
+}
 pub(super) fn poll_ready(mobile: &Mobile) -> Result<()> {
     let s = mobile.state.lock().map_err(|_| PANIC)?;
     for b in s.bindings.values() {
@@ -253,7 +261,7 @@ pub(super) fn events(mobile: &Mobile, response: PollResponse) -> Result<serde_js
                     EventDisposition::Reattach => {
                         b.lane.fence();
                         b.uploads.fence();
-                        coarse.push(serde_json::json!({"type":"reattach","request":cursor.recovery_request(connection).map_err(|_| STALE)?}));
+                        coarse.push(serde_json::json!({"type":"reattach","request":reattach_request(cursor, connection)?}));
                         continue;
                     }
                     EventDisposition::Blocked => {

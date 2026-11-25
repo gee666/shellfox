@@ -94,7 +94,9 @@ pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json:
             .values_mut()
             .filter_map(|b| {
                 let wanted = b.lane.take_reattach() && b.attaching.is_none();
-                wanted.then(|| b.cursor.as_ref()?.recovery_request(connection).ok())?
+                wanted.then(|| {
+                    super::super::terminal::reattach_request(b.cursor.as_ref()?, connection).ok()
+                })?
             })
             .collect();
         let recovery_ready: Vec<_> = s

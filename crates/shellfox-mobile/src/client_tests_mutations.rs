@@ -244,6 +244,8 @@ fn lost_control_asks_js_to_reattach_and_input_resumes_after_it() {
     assert_eq!(h.complete(&first, br#"{"ok":false,"error":{"code":"TERMINAL_CONTROL_REQUIRED","message":"Take control first.","retryable":false}}"#), 0);
     let event = h.event();
     assert_eq!(event["reattach"][0]["tabId"], TAB);
+    // The attachment resets the engine: ask for the whole screen.
+    assert!(event["reattach"][0].get("afterSequence").is_none());
     assert_eq!(write(&h, &view, b"before-reattach"), (STALE, 0));
     // The reattach failed: the next keystroke asks again.
     assert_eq!(
