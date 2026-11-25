@@ -75,6 +75,8 @@ if [ "\${1:-}" = configure ] && [ -f "$profile" ] && [ ! -L "$profile" ] && grep
 fi
 `);
   chmodSync(path.join(control, 'postinst'), 0o755);
+  // Stops this package's hosts on removal or a move back to Electron.
+  copy(path.join(root, 'resources/linux/shellfox-prerm'), path.join(control, 'prerm'), 0o755);
   // These are the standard deb members; no dpkg installation or root is needed to build them.
   const owner = ['--owner=0', '--group=0', '--numeric-owner'];
   writeFileSync(path.join(work, 'debian-binary'), '2.0\n');

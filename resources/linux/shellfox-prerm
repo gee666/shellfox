@@ -1,0 +1,77 @@
+#!/bin/sh
+# Shellfox/linux-v1
+# Ends this package's running hosts, and so their terminals, when the package
+# is removed or replaced by Electron Shellfox (below 0.10), which cannot see
+# them: they would keep running unseen from deleted files. An upgrade to
+# another Rust version leaves them to the new UI, which offers to stop them.
+set -u
+lib=${SHELLFOX_PACKAGE_LIB:-/usr/lib/shellfox}
+case "${1:-}" in
+  remove | --after) ;;
+  upgrade) dpkg --compare-versions "${2:-0}" lt 0.10~ || exit 0 ;;
+  *) exit 0 ;;
+esac
+
+# Once dpkg is done, this package's files are the deleted ones.
+deleted_only=
+ours() {
+  case "$(readlink "/proc/$1/exe" 2>/dev/null)" in
+    "$lib/$2 (deleted)") return 0 ;;
+    "$lib/$2") [ -z "$deleted_only" ] ;;
+    *) return 1 ;;
+  esac
+}
+# The UI, and hosts: `--desktop-host` or `host run|serve`. Terminal
+# controllers (`--shellfox-*`), whose user command may contain those words,
+# and other CLI calls are left to their host.
+targets() {
+  for proc in /proc/[0-9]*; do
+    pid=${proc#/proc/}
+    if ours "$pid" shellfox; then
+      echo "$pid"
+    elif ours "$pid" shellfox-cli && tr '\0' '\n' < "$proc/cmdline" 2>/dev/null \
+      | awk '/^--shellfox-/ { controller = 1 } /^--desktop-host$/ || (previous == "host" && /^(run|serve)$/) { host = 1 } { previous = $0 } END { exit controller || !host }'; then
+      echo "$pid"
+    fi
+  done
+}
+# True if this script runs inside a Shellfox terminal of this package.
+inside() {
+  pid=$$
+  while [ "$pid" -gt 1 ] 2>/dev/null; do
+    ours "$pid" shellfox-cli && return 0
+    pid=$(awk '{ sub(/^.*\) /, ""); print $2 }' "/proc/$pid/stat" 2>/dev/null) || return 1
+  done
+  return 1
+}
+stop() {
+  pids=$(targets)
+  [ -n "$pids" ] || return 0
+  # SIGTERM is an orderly stop: the host ends its terminals and the UI quits.
+  kill -TERM $pids 2>/dev/null
+  tries=0
+  while [ "$tries" -lt 100 ] && [ -n "$(targets)" ]; do
+    tries=$((tries + 1))
+    sleep 0.1
+  done
+  # A host that hangs is killed; its terminal controllers then end their terminals.
+  left=$(targets)
+  [ -z "$left" ] || kill -KILL $left 2>/dev/null
+  echo "Shellfox: stopped $(echo $pids | wc -w) running Shellfox process(es); their terminals ended."
+}
+
+if [ "$1" = --after ]; then
+  rm -f -- "$0"
+  deleted_only=1
+  while kill -0 "$2" 2>/dev/null; do sleep 1; done
+  stop
+elif inside; then
+  # Stopping now would end the terminal running this install. A copy stops
+  # them once dpkg exits; dpkg deletes this script before that.
+  copy=$(mktemp /run/shellfox-prerm.XXXXXX) && cat "$0" > "$copy" || exit 0
+  setsid sh "$copy" --after "$PPID" </dev/null >/dev/null 2>&1 &
+  echo "Shellfox: running Shellfox terminals, including this one, end when this install finishes."
+else
+  stop
+fi
+exit 0
