@@ -103,7 +103,7 @@ only actual coarse state changes:
 
 - Compare the connection status, permission, connection ID and retry/error state
   with the last delivered state. Repeated metadata is not another JS event.
-- Forward changed/control/exit/error/reattach events from the poll result. An empty
+- Forward changed/activity/control/exit/error/reattach events from the poll result. An empty
   `result.value.events` array is an output-only poll completion, not a JS event.
 - Deduplicate reset instructions by the current reset ticket, not handle alone.
   The owner still queries the live ticket before resetting, as described below.

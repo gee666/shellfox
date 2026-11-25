@@ -221,6 +221,11 @@ pub(super) fn events(mobile: &Mobile, response: PollResponse) -> Result<serde_js
             HostEvent::Changed { event } => {
                 coarse.push(serde_json::json!({"type":"changed","event":event}))
             }
+            // Activity is tab status for the session lists, not terminal output:
+            // it has no generation and needs no attached view.
+            HostEvent::Terminal {
+                event: event @ TerminalEvent::Activity { .. },
+            } => coarse.push(serde_json::json!({"type":"terminal","event":event})),
             HostEvent::Terminal { event } => {
                 let tab = match &event {
                     TerminalEvent::Data { tab_id, .. }

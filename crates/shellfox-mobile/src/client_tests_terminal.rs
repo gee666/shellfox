@@ -256,3 +256,16 @@ fn caller_cannot_forge_ack_credit() {
     assert_eq!(h.operation(json!({"method":"acknowledgeTerminal","payload":{
         "tabId":TAB,"generation":"30000000-0000-4000-8000-000000000001","controlEpoch":1,"sequence":5}})).0, INVALID);
 }
+#[test]
+fn activity_reaches_the_session_list_without_an_attached_view() {
+    let mut h = Harness::new();
+    h.connect();
+    let mut op = 0;
+    assert_eq!(unsafe { sfm_client_poll(h.handle, &mut op) }, 0);
+    let poll = h.request();
+    // A 0.9 host seeds activity right after pairing, before any view attaches.
+    let activity = json!({"type":"terminal","event":{"type":"activity","tabId":TAB,"busy":true}});
+    let body = json!({"ok":true,"value":{"events":[activity]}}).to_string();
+    assert_eq!(h.complete(&poll, body.as_bytes()), 0);
+    assert_eq!(h.event()["result"]["value"]["events"], json!([activity]));
+}
