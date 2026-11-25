@@ -81,7 +81,7 @@ No mutation is automatically retried, including input, resize, tab creation and 
 
 Session and tab dots use desktop activity semantics. A matched agent is green, and its dot pulses while host output is active. Input echo is ignored for 250 ms; 2500 ms without other output returns the dot to steady green. Ordinary shells do not pulse.
 
-Activity travels over the client's single event stream, independently of terminal attachments and ownership. On every successful pair, including a reconnect to a surviving host view, the host queues current activity for its live non-elevated tabs, at most 64. Queued activity coalesces per tab and survives terminal frame cleanup. Pairing also retires any older host event poll without letting it drain the replacement stream's activity. Mobile clears busy flags on disconnect, then rebuilds them from these events. No extra status requests or per-tab polling are needed. Hosts without this recovery fix only send transitions, so a reconnect during continuous output can miss the earlier busy event.
+Activity travels over the client's single event stream, independently of terminal attachments and ownership. The Rust client forwards it for every tab, attached or not. After every successful pair, including a reconnect or resume, the first poll carries the current activity of the live non-elevated tabs: 0.9 hosts send busy and idle for at most 64 tabs, Rust hosts send the busy ones. Later polls carry changes only. Mobile clears busy flags on disconnect, then rebuilds them from these events. No extra status requests or per-tab polling are needed.
 
 ## Test terminal consumers
 
