@@ -37,7 +37,11 @@ async function main() {
     },
   }, { createClientId: randomUUID, approvalRetryMs: 50 });
   const received: { data: string; sequence: number }[] = [];
-  const remove = client.subscribeTerminal(event => { if (event.type === 'data') received.push(event); });
+  const settlements: (string | null)[] = [];
+  const remove = client.subscribeTerminal(event => {
+    if (event.type === 'data') received.push(event);
+    if (event.type === 'settlement') settlements.push(event.settledAt);
+  });
   try {
     client.connect();
     await until(() => client.getState().status === 'connected');
@@ -62,6 +66,10 @@ async function main() {
     assert(last !== undefined);
     unwrap(await client.acknowledgeTerminal({ ...identity, sequence: last }));
     unwrap(await client.resizeTerminal({ ...identity, cols: 93, rows: 27 }));
+    unwrap(await client.settleSession({ sessionId: session.id, confirmActive: true }));
+    await until(() => typeof settlements.at(-1) === 'string');
+    unwrap(await client.unsettleSession({ sessionId: session.id }));
+    await until(() => settlements.length >= 2 && settlements.at(-1) === null);
     // The owner taking control again keeps its epoch, as 0.9 did.
     unwrap(await client.takeTerminalControl({ tabId, generation: identity.generation }));
     const upload = unwrap(await client.beginTerminalUpload({ ...identity, fileName: 'phone photo.txt', size: 6 }));

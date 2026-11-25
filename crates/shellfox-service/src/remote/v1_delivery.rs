@@ -12,6 +12,8 @@ pub(super) struct Delivery {
     pending: VecDeque<(u64, u64)>,
     faulted: bool,
     exited: bool,
+    /// The session's settlement this view last saw for the tab.
+    pub settled_at: Option<String>,
 }
 
 #[derive(Default)]
@@ -42,6 +44,35 @@ impl Utf8Stream {
         }
         self.0 = data.to_vec();
         text
+    }
+}
+
+/// Tells the view when a session holding its attached tabs was settled or
+/// unsettled, as 0.9 did, so typing into it unsettles it again.
+pub(super) fn report_settlement(
+    snapshot: &shellfox_core::Snapshot,
+    terminals: &mut std::collections::HashMap<TabId, Delivery>,
+    events: &mut Vec<wire::HostEvent>,
+) {
+    for (&tab_id, delivery) in terminals {
+        let Some(session) = snapshot
+            .sessions
+            .iter()
+            .find(|session| session.tabs.iter().any(|tab| tab.id == tab_id))
+        else {
+            continue;
+        };
+        if delivery.faulted || delivery.exited || session.settled_at == delivery.settled_at {
+            continue;
+        }
+        delivery.settled_at = session.settled_at.clone();
+        events.push(wire::HostEvent::Terminal {
+            event: wire::TerminalEvent::Settlement {
+                tab_id,
+                generation: delivery.lease.generation,
+                settled_at: delivery.settled_at.clone(),
+            },
+        });
     }
 }
 
@@ -96,6 +127,7 @@ impl Delivery {
                 pending: VecDeque::from([(wire_sent, raw_cut)]),
                 faulted: false,
                 exited: false,
+                settled_at: None,
             },
             chunks,
         )

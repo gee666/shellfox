@@ -124,8 +124,9 @@ impl RemoteService<'_> {
                         "Could not build a bounded terminal snapshot.",
                     )
                 })?;
-            let (delivery, chunks) =
+            let (mut delivery, chunks) =
                 super::v1_delivery::Delivery::snapshot(lease.clone(), tab, &bytes, raw_cut);
+            delivery.settled_at = session.settled_at.clone();
             let screen = if self
                 .service
                 .terminals

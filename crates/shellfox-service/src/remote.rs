@@ -328,6 +328,8 @@ impl ServiceHost for RemoteService<'_> {
                     event.select_session_id = None;
                     view.revision = event.revision;
                     events.push(adapter::changed_event(&event).map_err(AppError::from)?);
+                    let snapshot = self.service.host().snapshot().map_err(host_error)?;
+                    v1_delivery::report_settlement(&snapshot, &mut view.terminals, &mut events);
                 }
                 if let Some(private) = private {
                     let revision = view.revision;
