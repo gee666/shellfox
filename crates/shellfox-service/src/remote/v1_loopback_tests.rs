@@ -26,7 +26,7 @@ fn app<T>(result: std::result::Result<T, AppError>) -> Result<T> {
 }
 
 #[tokio::test]
-#[ignore = "requires the compiled Shellfox CLI supervisor and bundled mobile TS loopback client"]
+#[ignore = "run through `pnpm test:remote:loopback`: needs the built CLI and the bundled mobile client"]
 async fn mobile_v1_client_drives_the_real_rust_owner() -> Result<()> {
     let executable =
         PathBuf::from(std::env::var_os("SHELLFOX_TEST_SUPERVISOR").context("compiled CLI path")?);

@@ -257,6 +257,16 @@ impl GrantCustody {
             .find(|entry| entry.ticket == ticket)
             .map(|entry| (entry.cancel.clone(), entry.removed.clone()))
     }
+    /// True while a granted lease of `kind` still awaits its release.
+    pub fn releasing(&self, identity: Identity, kind: GrantKind) -> bool {
+        self.entries.iter().any(|entry| {
+            entry.ticket.identity == identity
+                && entry.kind == kind
+                && entry.actual.is_some()
+                && !entry.retired
+                && entry.rejected.is_none()
+        })
+    }
     pub fn retirements(&self) -> Vec<RetirementCandidate> {
         self.entries
             .iter()

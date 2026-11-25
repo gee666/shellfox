@@ -345,3 +345,30 @@ fn cancel_watch_follows_the_recipient_and_ends_when_the_entry_leaves() {
     assert!(removed.is_cancelled());
     assert!(ledger.cancel_watch(ticket).is_none());
 }
+#[test]
+fn a_detached_lease_is_releasing_until_the_runtime_revokes_it() {
+    let identity = identity();
+    let mut ledger = GrantCustody::default();
+    let lease = Lease {
+        controller: 4,
+        epoch: 2,
+    };
+    let kind = GrantKind::Controller(4);
+    assert!(!ledger.releasing(identity, kind));
+    ledger
+        .retire_owned(identity, RequestId(1), ActualGrant::Controller(lease))
+        .unwrap();
+    assert!(ledger.releasing(identity, kind));
+    assert!(!ledger.releasing(identity, GrantKind::Controller(5)));
+    ledger.record_revocation(
+        identity,
+        &Event::ControllerRevoked {
+            lease,
+            reason: ControllerRevocation::Released,
+        },
+    );
+    assert!(!ledger.releasing(identity, kind));
+    ledger
+        .reserve(identity, RequestId(2), kind, CancellationToken::new())
+        .unwrap();
+}

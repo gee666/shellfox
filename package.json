@@ -18,6 +18,7 @@
     "test:integration:owned": "node scripts/test-integration-hold.mjs",
     "test:native": "node scripts/native.mjs test",
     "test:tailscale": "node scripts/tailscale.mjs test",
+    "test:remote:loopback": "node scripts/remote-loopback.mjs",
     "build:tailscale": "node scripts/tailscale.mjs build",
     "build:native": "node scripts/native.mjs publish",
     "build": "node scripts/build.mjs",

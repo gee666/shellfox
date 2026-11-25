@@ -77,6 +77,25 @@ impl Service {
         self.grants.reap_closed();
         Ok(())
     }
+    /// Sends the release of `controller`'s detached lease on `tab` and waits
+    /// briefly until the runtime applied it. A view that detached can then
+    /// claim the terminal again at once, as in 0.9.
+    pub(crate) fn settle_controller_release(&mut self, tab: TabId, controller: u64) {
+        let Some(identity) = self.terminals.get(&tab).map(|t| t.runtime.identity()) else {
+            return;
+        };
+        let kind = crate::grant::custody::GrantKind::Controller(controller);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let _ = self.wait_until(
+            deadline,
+            |service| {
+                service.pump_grant_retirements().map_err(|_| ())?;
+                service.drain(tab).map_err(|_| ())?;
+                Ok((!service.grants.releasing(identity, kind)).then_some(()))
+            },
+            || (),
+        );
+    }
     /// Only after the original source owner was authoritatively removed by its
     /// existing cleanup path. Source Finish/Phase never calls this callback.
     pub(crate) fn ownership_source_destroyed(&mut self, identity: Identity) {

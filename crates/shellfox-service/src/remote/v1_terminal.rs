@@ -85,6 +85,9 @@ impl RemoteService<'_> {
             ));
         }
         let generation = runtime.runtime.identity().generation;
+        let controller = self.state.views.get(&key(actor)).ok_or_else(lost)?.controller;
+        // This view's own lease from an earlier detach must be released first.
+        self.service.settle_controller_release(tab, controller);
         let view = self.state.views.get_mut(&key(actor)).ok_or_else(lost)?;
         view.check_capacity(tab)?;
         let offer = match self.service.attach_manager(tab, view.controller, takeover) {
