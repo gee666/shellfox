@@ -31,6 +31,13 @@ fn an_x11_window_survives_a_minute_of_work() {
     let scratch = desktop.data.parent().unwrap().to_path_buf();
     let temp = std::env::temp_dir();
     let folders = [scratch.as_path(), temp.as_path()];
+    // A fresh data dir opens with no sessions, so there is no shell to type
+    // into until a launch adds the first tab.
+    let status = desktop
+        .command(&["add", scratch.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(status.success(), "launch forwarding failed: {status}");
     wait_for_shell(&window, &scratch, &mut ui);
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut round = 0;
