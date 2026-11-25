@@ -131,9 +131,42 @@ fn to_object(settings: &Settings) -> Result<serde_json::Map<String, serde_json::
     }
 }
 
+/// Over sorted keys, whatever the map order, so saved baselines stay valid.
 fn digest(value: &serde_json::Value) -> String {
-    Sha256::digest(value.to_string().as_bytes())
+    Sha256::digest(sorted(value).to_string().as_bytes())
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+fn sorted(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            keys.into_iter()
+                .map(|key| (key.clone(), sorted(&map[key])))
+                .collect::<serde_json::Map<_, _>>()
+                .into()
+        }
+        serde_json::Value::Array(items) => items.iter().map(sorted).collect(),
+        other => other.clone(),
+    }
+}
+
+#[cfg(test)]
+mod digest_tests {
+    #[test]
+    fn a_digest_ignores_key_order_and_matches_sorted_json() {
+        let a: serde_json::Value = serde_json::from_str(r#"{"b":1,"a":[{"y":2,"x":1}]}"#).unwrap();
+        let b: serde_json::Value = serde_json::from_str(r#"{"a":[{"x":1,"y":2}],"b":1}"#).unwrap();
+        assert_eq!(super::digest(&a), super::digest(&b));
+        // The baseline earlier builds saved hashed sorted compact JSON.
+        let saved = r#"{"a":[{"x":1,"y":2}],"b":1}"#;
+        use sha2::Digest;
+        let expected: String = sha2::Sha256::digest(saved.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        assert_eq!(super::digest(&a), expected);
+    }
 }
