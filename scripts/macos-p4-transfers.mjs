@@ -14,6 +14,19 @@ const read = file => readFile(file).catch(error => {
   throw error;
 });
 
+/** Presses `name` until `started` sees a native picker or an active transfer.
+ * Starting is ignored while a transfer is active, so repeating a press is safe. */
+export async function startTransfer(name, press, started) {
+  for (let attempt = 1; ; attempt += 1) {
+    await press(name);
+    try { return await eventually(`${name} started a transfer`, started, Boolean, 10_000); }
+    catch (error) {
+      if (attempt === 3) throw error;
+      console.warn(`P4: ${name} had no visible effect; pressing again`);
+    }
+  }
+}
+
 export async function exerciseTransfers({ parent, home, remote, picker, openUpload, openDownload, selectRemote,
   startCancellationProbe, cancelUpload, idle, shot,
 }) {

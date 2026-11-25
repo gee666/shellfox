@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileHash, run } from './rust-package-common.mjs';
 import { marker, original, updated } from './macos-p4-fixture.mjs';
 import { eventually, nativePicker } from './macos-p4-dialog.mjs';
-import { exerciseTransfers } from './macos-p4-transfers.mjs';
+import { exerciseTransfers, startTransfer } from './macos-p4-transfers.mjs';
 import { peerEnv, startRustPeer, viewerFlags } from './macos-p4-rust-peer.mjs';
 
 const keyboard = { a: 0, s: 1, z: 6, x: 7, c: 8, b: 11, e: 14,
@@ -38,10 +38,17 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   const node = (name, apply = value => Boolean(value)) => eventually(name,
     () => named(tree(), name), apply);
   const editor = expected => node('File contents', field => field?.value === expected);
-  const press = async name => {
-    await node(name, control => control?.enabled === true);
-    action('press-control', name);
-  };
+  // Retry only a control a repaint removed: a failed AXPress may have been delivered.
+  const press = name => eventually(`pressed ${name}`, () => {
+    if (named(tree(), name)?.enabled !== true) return false;
+    try { action('press-control', name); }
+    catch (error) {
+      if (String(error).includes(`No ${name} control in an owned window`)) return false;
+      throw error;
+    }
+    return true;
+  }, Boolean);
+  const transfer = name => startTransfer(name, press, () => picker.visible() || named(tree(), 'Cancel transfer'));
   const focusEditor = async value => {
     await editor(value);
     await eventually('File contents focused', () => {
@@ -229,8 +236,8 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await press('Files');
     await go(peer.a, peer.a);
     await exerciseTransfers({ parent: dir, home: env.HOME, remote: peer.a, picker, shot,
-      openUpload: () => press('Upload file'),
-      openDownload: () => press('Download selected file'),
+      openUpload: () => transfer('Upload file'),
+      openDownload: () => transfer('Download selected file'),
       async selectRemote(name) {
         await go(path.join(peer.a, name), peer.a);
         await shot('20-peer-binary', capture => observed(capture, 'Binary file'));
@@ -302,6 +309,9 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   } catch (error) {
     failure = error;
     try { action('capture', path.join(dir, 'last-screen.png')); } catch { /* Best effort. */ }
+    try {
+      await writeFile(path.join(dir, 'last-tree.json'), JSON.stringify({ window: tree(), dialogs: action('dialogs') }, null, 2));
+    } catch { /* Best effort. */ }
     throw error;
   } finally {
     try {

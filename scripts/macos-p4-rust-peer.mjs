@@ -92,7 +92,14 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
         assert.equal(viewer('host', 'network', 'on', '--hostname', viewerName).enabled, true);
         peer = await eventually('P4 host visible only on the private test tailnet', () => status(viewer).peers.find(row => row.hostname === hostName && row.online), Boolean);
         viewer('host', 'network', 'peer', peer.id, 'connect');
-        const pending = await eventually('P4 viewer requests approval', () => status(hostCLI).pending, rows => rows.length === 1);
+        // The viewer retries a failed first request with 1, 2, 4, 8 s backoff while
+        // the DERP path comes up, so allow the same minute as the connected wait.
+        const pending = await eventually('P4 viewer requests approval', () => status(hostCLI).pending, rows => rows.length === 1, 60_000)
+          .catch(error => {
+            let viewerPeer;
+            try { viewerPeer = current(); } catch (cause) { viewerPeer = String(cause); }
+            throw new Error(`${error.message}; viewer peer: ${JSON.stringify(viewerPeer)}`, { cause: error });
+          });
         assert.equal(pending[0].hostname, viewerName);
         const awaiting = await eventually('viewer received the pending approval state', current,
           row => row?.connection === 'awaitingApproval' && Boolean(row.attemptId));

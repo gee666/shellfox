@@ -192,6 +192,7 @@ func pressControl(_ owner: pid_t, _ name: String, modal: Bool) throws {
     }
     var queue = modal ? dialogs : ownedWindows(owner)
     var visited = 0
+    var failure: AXError?
     while let element = queue.popLast(), visited < 1500 {
         visited += 1
         let role: String? = attribute(element, kAXRoleAttribute)
@@ -199,13 +200,18 @@ func pressControl(_ owner: pid_t, _ name: String, modal: Bool) throws {
             let title: String? = attribute(element, kAXTitleAttribute)
             let description: String? = attribute(element, kAXDescriptionAttribute)
             if title == name || description == name {
-                if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success { return }
+                let result = AXUIElementPerformAction(element, kAXPressAction as CFString)
+                if result == .success { return }
+                failure = result
             }
         }
         let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
         queue.append(contentsOf: children)
     }
-    throw ProbeError("Could not press \(name) in an owned \(modal ? "native dialog" : "window")")
+    let place = modal ? "native dialog" : "window"
+    // Callers retry a missing control. A failed press may still have reached the app.
+    if let failure { throw ProbeError("AXPress on \(name) failed with \(failure.rawValue) in an owned \(place)") }
+    throw ProbeError("No \(name) control in an owned \(place)")
 }
 
 func number(_ string: String) throws -> CGFloat {

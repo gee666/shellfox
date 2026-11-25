@@ -56,6 +56,7 @@ export function nativePicker(action) {
   };
   return {
     wait: () => eventually('owned native file dialog', read, dialog, 60_000),
+    visible: () => dialog(read()),
     cancel: async () => { action('press', 'Cancel'); await dismissed(); },
     choose,
     confirmOpen,
