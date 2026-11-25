@@ -33,6 +33,7 @@ mod linux_fontconfig;
 mod macos_terminate;
 #[cfg(target_os = "macos")]
 mod macos_window;
+mod native_dialog;
 #[cfg(target_os = "linux")]
 mod native_window;
 mod options;

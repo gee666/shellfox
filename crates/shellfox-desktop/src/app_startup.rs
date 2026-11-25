@@ -30,6 +30,8 @@ pub(crate) fn record_init_failure(error: anyhow::Error, cx: &mut gpui::App) {
 
 pub(crate) enum Startup {
     Forwarded,
+    /// The user chose Quit over stopping the previous version's host.
+    Declined,
     Graphical(Option<Prestarted>),
 }
 #[derive(Clone)]
@@ -57,9 +59,10 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
     let running = crate::host_process::find_running(&runtime, &config)?;
     let running = match running {
         Some(running) => match stale_host(&runtime, options, &running)? {
-            // A previous build's idle host was stopped; start the right one.
-            true => None,
-            false => Some(running),
+            // A previous build's host was stopped; start the right one.
+            StaleOutcome::Replaced => None,
+            StaleOutcome::Attach => Some(running),
+            StaleOutcome::Declined => return Ok(Startup::Declined),
         },
         None => None,
     };
@@ -93,10 +96,12 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
 enum Stale {
     Attach,
     Replace,
-    Refuse,
+    Ask,
 }
 /// Only a desktop-started host of this exact build is attached. An idle one of
-/// another build is replaced; one with shells or another window is refused.
+/// another build is replaced. One with shells or a window is replaced only if
+/// the user agrees: its shells are unreachable from this build, so leaving it
+/// would keep them running unseen.
 fn stale(
     desktop_owned: bool,
     same_build: bool,
@@ -106,16 +111,39 @@ fn stale(
     match (desktop_owned, same_build) {
         (false, _) | (true, true) => Stale::Attach,
         (true, false) if !desktop_registered && terminals == 0 => Stale::Replace,
-        (true, false) => Stale::Refuse,
+        (true, false) => Stale::Ask,
     }
 }
 
-/// True after stopping an idle host of another build.
+enum StaleOutcome {
+    Attach,
+    Replaced,
+    Declined,
+}
+fn stale_question(terminals: usize) -> (String, &'static str) {
+    match terminals {
+        0 => (
+            "Shellfox was updated. The previous version is still open.".into(),
+            "Close it and continue",
+        ),
+        1 => (
+            "Shellfox was updated. 1 terminal is still running in the previous version.".into(),
+            "Stop it and continue",
+        ),
+        n => (
+            format!(
+                "Shellfox was updated. {n} terminals are still running in the previous version."
+            ),
+            "Stop them and continue",
+        ),
+    }
+}
+
 fn stale_host(
     runtime: &tokio::runtime::Runtime,
     options: &Options,
     running: &crate::host_process::Running,
-) -> Result<bool> {
+) -> Result<StaleOutcome> {
     let route = running.route;
     let desktop_owned = options.owned_host || recorded(options, route);
     let same_build = route.build == crate::host_process::expected_build();
@@ -130,22 +158,36 @@ fn stale_host(
         route.desktop_registered,
         terminals,
     ) {
-        Stale::Attach => Ok(false),
-        Stale::Refuse => Err(OtherBuildRunning.into()),
-        Stale::Replace => {
-            runtime.block_on(async {
-                running
-                    .client
-                    .execute(shellfox_service::local_api::LocalApiRequest::Stop {})
-                    .await?;
-                tokio::time::timeout(Duration::from_secs(30), running.client.closed())
-                    .await
-                    .context("The previous Shellfox host did not stop")?;
-                anyhow::Ok(())
-            })?;
-            Ok(true)
+        Stale::Attach => Ok(StaleOutcome::Attach),
+        Stale::Ask if options.ui_acceptance => Err(OtherBuildRunning.into()),
+        Stale::Ask => {
+            let (question, accept) = stale_question(terminals);
+            match crate::native_dialog::confirm(&question, accept, "Quit") {
+                Some(true) => replace(runtime, running),
+                Some(false) => Ok(StaleOutcome::Declined),
+                None => Err(OtherBuildRunning.into()),
+            }
         }
+        Stale::Replace => replace(runtime, running),
     }
+}
+
+/// Stops another build's host, ending its shells, and waits until it is gone.
+fn replace(
+    runtime: &tokio::runtime::Runtime,
+    running: &crate::host_process::Running,
+) -> Result<StaleOutcome> {
+    runtime.block_on(async {
+        running
+            .client
+            .execute(shellfox_service::local_api::LocalApiRequest::Stop {})
+            .await?;
+        tokio::time::timeout(Duration::from_secs(30), running.client.closed())
+            .await
+            .context("The previous Shellfox host did not stop")?;
+        anyhow::Ok(())
+    })?;
+    Ok(StaleOutcome::Replaced)
 }
 
 async fn terminal_count(client: &LocalClient) -> Result<usize> {
@@ -271,7 +313,20 @@ mod tests {
             "a `host run` host"
         );
         assert_eq!(stale(true, false, false, 0), Stale::Replace);
-        assert_eq!(stale(true, false, false, 1), Stale::Refuse);
-        assert_eq!(stale(true, false, true, 0), Stale::Refuse);
+        assert_eq!(stale(true, false, false, 1), Stale::Ask);
+        assert_eq!(stale(true, false, true, 0), Stale::Ask);
+    }
+    #[test]
+    fn the_stale_question_counts_the_terminals() {
+        assert_eq!(
+            stale_question(2),
+            (
+                "Shellfox was updated. 2 terminals are still running in the previous version."
+                    .into(),
+                "Stop them and continue"
+            )
+        );
+        assert_eq!(stale_question(1).1, "Stop it and continue");
+        assert_eq!(stale_question(0).1, "Close it and continue");
     }
 }

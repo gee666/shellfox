@@ -7,7 +7,7 @@ The desktop UI (`shellfox`) runs no shells. They live in a separate host process
 `app_startup::prepare` runs before GPUI:
 
 - If a host answers on the data directory and already has a registered desktop window, the launch is handed to it (see [desktop-external-launch.md](desktop-external-launch.md)) and this process exits.
-- If a host answers without a desktop, the UI attaches to it. A desktop-started host of another build is replaced when it is idle and refused ("A different Shellfox version is still running") when it has shells or a window. A `host run` host is attached as is.
+- If a host answers without a desktop, the UI attaches to it. A desktop-started host of another build is replaced when it is idle. When it has shells or a window, the UI asks first ("Shellfox was updated. N terminals are still running in the previous version." with Stop them and continue, or Quit), as this build can't show them. The dialog is a message box on Windows, zenity, kdialog or xmessage on Linux, and osascript on macOS. A `host run` host is attached as is.
 - Otherwise the UI starts a host in the background and initializes meanwhile. Windows wait for the host to answer. Of two concurrent launches, one host wins the directory lock and the other exits.
 
 The host is spawned from `shellfox-cli` in `bin/` or beside the desktop binary. On Windows it gets a hidden console of its own and breaks away from the UI's job. On Linux it runs in its own systemd user scope with `OOMPolicy=continue`, falling back to a plain `setsid` child. The host prints one line, its readiness marker or its startup error.
@@ -18,7 +18,7 @@ A desktop-started host is recorded in `desktop-host-owner` in the desktop direct
 
 `AppHost` (app_host.rs) keeps one client per window. Closing a window detaches its client. Closing the last window, or Quit, stops a desktop-started host. It asks first when the host has live shells, and waits for the host process to exit. Unsaved files and pending operations block a close. Closing the desktop never stops a `host run` host.
 
-Before the UI stops the host it writes a quit byte to the host's stdin. If the pipe closes without it, the UI died: the host starts it again once with `--owned-host`, unless the host is stopping. Later UIs attach on their own.
+Before the UI stops the host it writes a quit byte to the host's stdin. If the pipe closes without it, the UI died: the host starts it again with `--owned-host`, up to 3 times in 5 minutes, unless the host is stopping. After that an idle host stops, and a host with shells shows an OS notification (notify-send or D-Bus on Linux, osascript on macOS, a message box on Windows): "Shellfox's window keeps closing. N terminals are still running. Run shellfox to see them." Later UIs attach on their own.
 
 If the host ends without the UI asking (host_lost.rs), the UI quits when its own host was stopped, offers Restart when it died, and waits to reconnect to a `host run` host.
 
@@ -35,3 +35,7 @@ The OS ending the UI is an approved Quit with no prompt, as in 0.9.15. The host 
 - macOS: the power-off notification before logout, restart and shutdown, and SIGTERM or SIGHUP (system_end.rs). The quit that follows is let through, and the host stops in GPUI's quit hook.
 
 An unsaved file cannot hold up a logout. After 10 seconds the UI quits and stops the host anyway.
+
+## Package removal and downgrade
+
+The Linux deb's prerm stops this package's desktop and `host run` hosts, and so their shells, on removal or on a move back to Electron (below 0.10), which can't see them. Run from inside a Shellfox terminal, it stops them once dpkg exits. An upgrade to another Rust version leaves them to the new UI's question above. Squirrel kills every process under the install root when it installs, updates or uninstalls; each shell's Windows job has KILL_ON_JOB_CLOSE, so the host's death ends them.
