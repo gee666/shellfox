@@ -110,14 +110,14 @@ fn verifier() -> PermissionVerifier {
     PermissionVerifier::new(shellfox_transport::VerifiedHelper::new(helper, digest).unwrap())
 }
 
-fn policy() -> StoragePolicy {
+pub(super) fn policy() -> StoragePolicy {
     #[cfg(not(windows))]
     return StoragePolicy::default();
     #[cfg(windows)]
     StoragePolicy::with_windows_helper(crate::tests::helper().0)
 }
 
-fn settings() -> shellfox_core::Settings {
+pub(super) fn settings() -> shellfox_core::Settings {
     shellfox_core::Settings {
         accent_color: "#0075ff".into(),
         auto_update: false,

@@ -4,6 +4,7 @@ mod approval_store;
 mod boundary;
 #[path = "window_state.rs"]
 mod desktop_window_state;
+mod electron_merge;
 mod legacy;
 mod lifecycle;
 mod reserved_publication;
@@ -24,6 +25,7 @@ pub use activity_store::{
     activity_unix_ms, activity_utc_timestamp, CapturedSettlement, ResumeSessionResult,
 };
 pub use boundary::HostRequest;
+pub use electron_merge::{ElectronMerge, ElectronSettingsDigest};
 pub use reserved_publication::{ReservedPublicationReceipt, ReservedSessionPublication};
 use rusqlite::{Connection, TransactionBehavior};
 pub use session_creation::CreationRequestReceipt;

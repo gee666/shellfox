@@ -1,7 +1,8 @@
 //! Takes over an Electron (or Node headless) root on first launch of a Rust
 //! host laid out as `<root>/rust-v1/host`. Each item fills only an unused
 //! Rust store; markers in the private control dir keep it to one pass. The
-//! Electron files stay for rollback until `RETENTION` after the import.
+//! Electron files stay for rollback until `RETENTION` after the import; if
+//! Electron is used again meanwhile, `resync` merges its later changes.
 //! SQLite only ever opens a private snapshot of Electron's database.
 use anyhow::{Context, Result};
 use cap_std::{ambient_authority, fs::Dir};
@@ -20,6 +21,7 @@ use tempfile::NamedTempFile;
 mod cleanup;
 mod files;
 mod remote;
+mod resync;
 mod retention;
 use retention::{
     cleanup, fingerprint, finish_without_electron, imported, remove_stale_snapshots, Imported,
@@ -134,9 +136,6 @@ fn run(
                 .imported_at_ms
                 .saturating_add(RETENTION.as_millis() as u64)
     });
-    if !pending && (marked(CLEANUP_MARKER) || !expired) {
-        return Ok(None);
-    }
     remove_stale_snapshots(control);
     let parent = Dir::open_ambient_dir(
         source.parent().context("Electron parent missing")?,
@@ -147,13 +146,24 @@ fn run(
         Ok(source) => source.context("Electron root missing")?,
         Err(error) => {
             // A linked root is not taken over; Electron keeps using it.
-            eprintln!("Electron import skipped: the data root is not a plain directory ({error}).");
+            if pending {
+                eprintln!(
+                    "Electron import skipped: the data root is not a plain directory ({error})."
+                );
+            }
             finish_without_electron(control, &check)?;
             return Ok(None);
         }
     };
     if !pending {
         let marker = imported.context("Import marker missing")?;
+        // An unreadable marker has no import time to merge from.
+        if marker.imported_at_ms != u64::MAX {
+            resync::resync(&source, root, data, control, policy, &marker, &check)?;
+        }
+        if marked(CLEANUP_MARKER) || !expired {
+            return Ok(None);
+        }
         return cleanup(&source, root, control, &marker, &check).map(|()| None);
     }
     let evidence = files::exists(&source, files::DATABASE)?
@@ -285,6 +295,7 @@ fn import(
         if let Some(file) = &remote {
             report.remote_preferences = remote::import_preferences(&control_dir, file)?;
         }
+        resync::record_import(data, control, database.as_deref(), marker, check)?;
         write_marker(control, MARKER_V2, marker, check)?;
     }
     Ok(report)
@@ -318,5 +329,7 @@ fn write_marker(
     Ok(())
 }
 
+#[cfg(test)]
+mod resync_tests;
 #[cfg(test)]
 mod tests;

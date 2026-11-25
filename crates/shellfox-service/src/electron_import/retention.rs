@@ -144,3 +144,8 @@ pub(super) fn take_held(root: &Path) -> Option<std::fs::File> {
     let index = held.iter().position(|(path, _)| path == root)?;
     Some(held.swap_remove(index).1)
 }
+
+pub(super) fn held(root: &Path) -> bool {
+    HELD.lock()
+        .is_ok_and(|held| held.iter().any(|(path, _)| path == root))
+}

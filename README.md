@@ -57,7 +57,7 @@ On the first start, 0.10 imports from the 0.9 files in the parent `Shellfox` dir
 - device approvals and remote access preferences;
 - the Tailscale node identity, copied, so paired machines and phones keep working without a new login.
 
-Running terminals aren't carried over. Chromium's caches are deleted right after the import. The rest of the 0.9 data stays for 30 days, so you can go back to 0.9, and is then deleted. If 0.9 runs again within those 30 days, its data is kept.
+Running terminals aren't carried over. Chromium's caches are deleted right after the import. The rest of the 0.9 data stays for 30 days, so you can go back to 0.9, and is then deleted. If 0.9 runs again within those 30 days, its data is kept, and its later session and settings changes are merged on the next 0.10 start.
 
 Headless details, including rollback, are in [headless deployment](docs/headless.md#updating-from-09).
 
