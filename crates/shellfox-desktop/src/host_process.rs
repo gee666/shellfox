@@ -1,6 +1,6 @@
 //! The UI is a client of a separate host process, `shellfox-cli --desktop-host`
 //! (see shellfox-cli/src/desktop_host.rs), so a UI crash leaves every shell
-//! running. The host relaunches a crashed UI once; later launches reattach.
+//! running. The host relaunches a crashed UI; later launches reattach.
 use crate::host_client::HostEndpointConfig;
 use anyhow::{Context, Result, bail};
 use shellfox_service::{
@@ -252,8 +252,8 @@ fn spawn(command: &mut Command) -> Result<Option<String>> {
     Ok((!line.is_empty()).then_some(line))
 }
 
-/// Call once this UI's Stop was admitted, so the host does not take the UI's
-/// exit for a crash and relaunch it.
+/// Call once this UI's Stop was admitted, and on any other deliberate exit,
+/// so the host does not take the UI's exit for a crash and relaunch it.
 pub(crate) fn announce_quit() {
     QUITTING.store(true, Ordering::SeqCst);
     if let Some(started) = STARTED

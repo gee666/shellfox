@@ -107,6 +107,28 @@ impl Fixture {
             ui_pipe,
         })
     }
+    fn crash_reports(&self) -> Result<Vec<PathBuf>> {
+        let logs = shellfox_service::crash_report::logs_dir(&self.data);
+        let Ok(entries) = std::fs::read_dir(logs) else {
+            return Ok(Vec::new());
+        };
+        let mut reports = Vec::new();
+        for entry in entries {
+            let path = entry?.path();
+            if path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("crash-"))
+            {
+                reports.push(path);
+            }
+        }
+        Ok(reports)
+    }
+    fn quit_ui(&mut self) -> Result<()> {
+        let mut pipe = self.ui_pipe.take().context("stdin")?;
+        pipe.write_all(&[LocalBootstrap::DESKTOP_HOST_QUIT])?;
+        Ok(())
+    }
     async fn client(&self) -> Result<LocalClient> {
         LocalClient::connect(&self.data, &self.helper, self.digest).await
     }
@@ -151,6 +173,10 @@ fn shells_survive_a_ui_crash_and_the_kill_of_another_shell() -> Result<()> {
             );
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+        ensure!(
+            !fixture.crash_reports()?.is_empty(),
+            "The crash left no report."
+        );
         survivor.echo(&client).await?;
         stop(&client).await
     });
@@ -164,11 +190,15 @@ fn a_ui_that_quits_is_not_relaunched() -> Result<()> {
         .build()?;
     let mut fixture = Fixture::start()?;
     let result = runtime.block_on(async {
-        let mut pipe = fixture.ui_pipe.take().context("stdin")?;
-        pipe.write_all(&[LocalBootstrap::DESKTOP_HOST_QUIT])?;
-        drop(pipe);
+        // A shell keeps the host serving once its UI is gone.
+        create(&fixture.client().await?, fixture.scratch.path()).await?;
+        fixture.quit_ui()?;
         tokio::time::sleep(Duration::from_secs(2)).await;
         ensure!(!fixture.marker.exists(), "A quitting UI was relaunched.");
+        ensure!(
+            fixture.crash_reports()?.is_empty(),
+            "A quit was reported as a crash."
+        );
         // host status reports the desktop owner, as in 0.9.
         let hex: String = fixture.digest.iter().map(|b| format!("{b:02x}")).collect();
         let output = Command::new(env!("CARGO_BIN_EXE_shellfox-cli"))
@@ -199,6 +229,20 @@ fn a_ui_that_quits_is_not_relaunched() -> Result<()> {
         Ok(())
     });
     fixture.finish(&runtime, result)
+}
+
+#[test]
+fn an_idle_host_stops_after_its_ui_quits() -> Result<()> {
+    let mut fixture = Fixture::start()?;
+    fixture.quit_ui()?;
+    let exit = fixture.host.wait(Duration::from_secs(30))?;
+    ensure!(exit.success(), "Desktop host exited unsuccessfully.");
+    ensure!(!fixture.marker.exists(), "A quitting UI was relaunched.");
+    ensure!(
+        fixture.crash_reports()?.is_empty(),
+        "A quit was reported as a crash."
+    );
+    Ok(())
 }
 
 #[test]

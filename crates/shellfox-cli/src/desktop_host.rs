@@ -5,8 +5,9 @@
 //!
 //! stdout carries one line: the readiness marker or the startup error. stdin is
 //! a pipe from the UI that started this host. The UI writes the quit byte before
-//! it stops the host; EOF without it means the UI died, and the host starts it
-//! again with the N relaunch arguments, unless this host is stopping. A
+//! it stops the host and on any other deliberate exit; EOF without it means the
+//! UI died, and the host starts it again with the N relaunch arguments, unless
+//! this host is stopping. A
 //! relaunched UI that exits with an error is started again, up to 3 times in
 //! 5 minutes (relaunch.rs). Past that, an idle host stops, and one with shells
 //! tells the user through an OS notification (notice.rs). If the login session
@@ -130,7 +131,21 @@ impl Serving {
     /// No UI comes back by itself: an idle host stops, and the user learns
     /// about the shells of a busy one instead of them running unseen.
     fn without_ui(&self) {
-        let terminals = self.ask(async |client| {
+        match self.terminals() {
+            Some(Ok(0)) => self.stop(),
+            Some(Ok(terminals)) => notice::show(terminals),
+            Some(Err(error)) => eprintln!("Shellfox host status failed: {error:#}"),
+            None => eprintln!("Shellfox host status timed out"),
+        }
+    }
+    /// A UI that quit on purpose leaves running terminals to later UIs.
+    fn after_quit(&self) {
+        if self.routes_launches() && matches!(self.terminals(), Some(Ok(0))) {
+            self.stop();
+        }
+    }
+    fn terminals(&self) -> Option<Result<usize>> {
+        self.ask(async |client| {
             match client
                 .request(&shellfox_service::local::DesktopRequest::Status)
                 .await?
@@ -140,13 +155,7 @@ impl Serving {
                 }
                 _ => anyhow::bail!("Host returned an invalid status response."),
             }
-        });
-        match terminals {
-            Some(Ok(0)) => self.stop(),
-            Some(Ok(terminals)) => notice::show(terminals),
-            Some(Err(error)) => eprintln!("Shellfox host status failed: {error:#}"),
-            None => eprintln!("Shellfox host status timed out"),
-        }
+        })
     }
     /// The same orderly stop as `host stop`: the shells end with the host.
     fn stop(&self) {
@@ -177,6 +186,20 @@ impl Serving {
                 .await
                 .ok()
         })
+    }
+}
+
+/// Reads the UI's pipe until it closes. True if the UI announced its quit
+/// first; a UI that crashed or was killed never does.
+fn ui_quit(mut pipe: impl Read) -> bool {
+    let mut quit = false;
+    let mut byte = [0; 1];
+    loop {
+        match pipe.read(&mut byte) {
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Ok(0) | Err(_) => return quit,
+            Ok(_) => quit |= byte[0] == LocalBootstrap::DESKTOP_HOST_QUIT,
+        }
     }
 }
 
@@ -212,14 +235,8 @@ fn watch_ui(
         if ready.recv().is_err() {
             return;
         }
-        let mut stdin = std::io::stdin().lock();
-        let mut byte = [0; 1];
-        loop {
-            match stdin.read(&mut byte) {
-                Ok(0) | Err(_) => break,
-                Ok(_) if byte[0] == LocalBootstrap::DESKTOP_HOST_QUIT => return,
-                Ok(_) => {}
-            }
+        if ui_quit(std::io::stdin().lock()) {
+            return serving.after_quit();
         }
         let mut since = started;
         let mut relaunches = relaunch::Relaunches::default();
@@ -306,6 +323,13 @@ mod tests {
         assert!(super::plan(&strings(&[ui, "3", "--desktop-dir", "/d"])).is_err());
         assert!(super::plan(&strings(&["relative", "0"])).is_err());
         assert!(super::plan(&strings(&[ui])).is_err());
+    }
+    #[test]
+    fn a_quit_is_the_quit_byte_anywhere_before_the_pipe_closes() {
+        assert!(ui_quit(&[LocalBootstrap::DESKTOP_HOST_QUIT][..]));
+        assert!(ui_quit(&b"xqq"[..]));
+        assert!(!ui_quit(&b""[..]));
+        assert!(!ui_quit(&b"x"[..]));
     }
     #[test]
     fn a_lost_ui_is_relaunched_unless_its_session_ended() {

@@ -87,12 +87,26 @@ impl Exit {
             }
             None => true,
         };
+        // A host this UI started relaunches it unless told the exit was meant.
+        if deliberate(outcome, quit_requested()) {
+            crate::host_process::announce_quit();
+        }
         if installs_update(outcome, host_gone)
             && let Some(updater) = &self.updater
             && let Err(error) = updater.install_on_exit()
         {
             eprintln!("Shellfox update did not start: {error:#}");
         }
+    }
+}
+
+/// Shellfox's own quit or a startup error it reported. A panic, or an event
+/// loop that ended by itself on a lost display, is a crash.
+fn deliberate(outcome: Outcome, quit_requested: bool) -> bool {
+    match outcome {
+        Outcome::Clean => quit_requested,
+        Outcome::StartupFailed => true,
+        Outcome::Panicked => false,
     }
 }
 
@@ -146,6 +160,16 @@ mod tests {
         );
         assert!(!installs_update(Outcome::StartupFailed, true));
         assert!(!installs_update(Outcome::Panicked, true));
+    }
+    #[test]
+    fn only_a_requested_quit_or_a_reported_startup_error_is_deliberate() {
+        assert!(deliberate(Outcome::Clean, true));
+        assert!(
+            !deliberate(Outcome::Clean, false),
+            "a lost display is relaunched"
+        );
+        assert!(deliberate(Outcome::StartupFailed, false));
+        assert!(!deliberate(Outcome::Panicked, true));
     }
     #[test]
     fn the_exit_work_runs_once() {
