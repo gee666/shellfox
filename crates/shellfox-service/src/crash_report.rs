@@ -242,15 +242,29 @@ fn prune(dir: &Path) {
     }
 }
 
+/// The executable's lowest mapping, which is its load address (PIE).
+#[cfg(target_os = "linux")]
+fn linux_image_base() -> Option<String> {
+    let exe = std::fs::read_link("/proc/self/exe").ok()?;
+    let exe = exe.to_str()?;
+    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+    let start = maps
+        .lines()
+        .find(|line| line.ends_with(exe))?
+        .split('-')
+        .next()?;
+    Some(format!("0x{start}"))
+}
+
 /// OS, desktop session and display backend, as far as the environment tells.
 fn system() -> Vec<(&'static str, String)> {
     let mut facts = vec![(
         "OS",
         format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
     )];
-    // Releases ship no PDBs or dSYMs, so Windows and macOS backtraces are
-    // bare addresses. With the load address they resolve offline against the
-    // release workflow's symbols artifact.
+    // Releases ship no debug info (PDBs, dSYMs, Linux .debug files), so
+    // backtraces are bare addresses. With the load address they resolve
+    // offline against the release workflow's symbols artifact.
     #[cfg(target_os = "macos")]
     {
         unsafe extern "C" {
@@ -268,6 +282,8 @@ fn system() -> Vec<(&'static str, String)> {
         };
         facts.push(("Image base", format!("{base:p}")));
     }
+    #[cfg(target_os = "linux")]
+    facts.extend(linux_image_base().map(|base| ("Image base", base)));
     if cfg!(target_os = "linux") {
         let release = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
         if let Some(name) = release
@@ -335,6 +351,15 @@ mod tests {
         let leap = SystemTime::UNIX_EPOCH + Duration::from_secs(951_782_400);
         assert_eq!(timestamp(leap, "-"), "20000229-000000");
         assert_eq!(timestamp(SystemTime::UNIX_EPOCH, " "), "19700101 000000");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_linux_image_base_maps_this_executable() {
+        let base = linux_image_base().expect("image base");
+        let address = usize::from_str_radix(base.trim_start_matches("0x"), 16).unwrap();
+        let here = linux_image_base as fn() -> Option<String> as usize;
+        assert!(address != 0 && address <= here, "{base} vs {here:#x}");
     }
 
     #[test]

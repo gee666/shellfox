@@ -10,7 +10,7 @@ import { packageNotices } from './package-rust-notices.mjs';
 import { packageHeadless } from './package-rust-headless.mjs';
 import { releaseVersion } from './release-version.mjs';
 import { assertGlibcFloor, GLIBC_FLOOR } from './package-rust-glibc.mjs';
-import { compactLinuxDebugInfo, debugInfoEnv } from './package-rust-debuginfo.mjs';
+import { debugInfoEnv, splitLinuxDebugInfo } from './package-rust-debuginfo.mjs';
 
 const pkg = readJson(path.join(root, 'package.json'));
 const icon = extension => path.join(root, `resources/icon/icon.${extension}`);
@@ -217,7 +217,7 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
     // Desktop and headless ship these two binaries; both must meet the floor.
     if (process.platform === 'linux') {
       assertGlibcFloor(['shellfox', 'shellfox-cli'].map(name => path.join(profile, name)));
-      for (const name of ['shellfox', 'shellfox-cli']) compactLinuxDebugInfo(path.join(profile, name), work);
+      for (const name of ['shellfox', 'shellfox-cli']) splitLinuxDebugInfo(path.join(profile, name));
     }
     copy(path.join(profile, win ? 'shellfox.exe' : 'shellfox'), path.join(executables, win ? 'Shellfox.exe' : mac ? 'Shellfox' : 'shellfox'), 0o755);
     copy(path.join(profile, win ? 'shellfox-cli.exe' : 'shellfox-cli'), path.join(executables, win ? 'bin/shellfox-cli.exe' : 'shellfox-cli'), 0o755);
