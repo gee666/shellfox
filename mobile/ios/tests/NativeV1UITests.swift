@@ -24,6 +24,15 @@ final class NativeV1UITests: XCTestCase {
     let settings = app.buttons["Open Settings"]
     XCTAssertTrue(settings.waitForExistence(timeout: 30), app.debugDescription)
     settings.tap()
+    // React Native can drop a tap that lands before the first screen has
+    // finished mounting. Repeat it until the Settings tab is selected.
+    let settingsTab = app.descendants(matching: .any)["tab-settings"].firstMatch
+    var retries = 0
+    while retries < 5 && !becomes(timeout: 5, { settingsTab.isSelected }) {
+      retries += 1
+      if settings.exists && settings.isHittable { settings.tap() } else { settingsTab.tap() }
+    }
+    XCTAssertTrue(settingsTab.isSelected, app.debugDescription)
     XCTAssertTrue(app.staticTexts["shellfox-ios-ci"].waitForExistence(timeout: 90), app.debugDescription)
     let connect = app.buttons["Connect"].firstMatch
     wait("the fixture host is online and ready to pair") { connect.exists && connect.isEnabled }
@@ -176,6 +185,11 @@ final class NativeV1UITests: XCTestCase {
 
   private func value(_ element: XCUIElement) -> String {
     element.value as? String ?? ""
+  }
+
+  private func becomes(timeout: TimeInterval, _ predicate: @escaping () -> Bool) -> Bool {
+    let matches = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in predicate() }, object: nil)
+    return XCTWaiter.wait(for: [matches], timeout: timeout) == .completed
   }
 
   private func wait(_ description: String, timeout: TimeInterval = 30, until predicate: @escaping () -> Bool) {

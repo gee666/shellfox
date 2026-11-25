@@ -6,11 +6,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { fileHash, root, run, scratchRoot } from '../../../scripts/rust-package-common.mjs';
 import { listenerStopped, requestListenerStop } from '../../../scripts/confirmed-network-outage.mjs';
+import { freshSimulator, removeSimulator } from './simulator.mjs';
 
 const execute = promisify(execFile);
 const port = '42761';
 const controlURL = `http://127.0.0.1:${port}`;
-const bundleID = 'com.shellfox.mobile.iosnativev1fixture';
 const build = path.join(scratchRoot, 'ios-fixture-derived');
 const products = path.join(build, 'Build/Products');
 const evidence = path.join(scratchRoot, 'ios-native-v1-results');
@@ -99,12 +99,8 @@ const commands = {
 for (const [name, source] of Object.entries(commands)) {
   writeFileSync(path.join(project, `.${name}`), source, { flag: 'wx', mode: 0o600 });
 }
-const devices = JSON.parse(command('xcrun', ['simctl', 'list', '-j', 'devices', 'available'])).devices;
-const simulator = Object.values(devices).reverse().flat().find(device => device.name.startsWith('iPad'));
-assert.ok(simulator, 'Rotation requires an available iPad simulator');
 const sim = (...args) => command('xcrun', ['simctl', ...args]);
-let control, host, tests;
-let booted = false;
+let control, host, tests, simulator;
 let failure;
 try {
   control = child(path.join(work, 'testcontrol'), [port]);
@@ -131,10 +127,9 @@ try {
   // verifies echo, and detaches without leaving a controller behind.
   command('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'terminals', 'attach', tab.id],
     { timeout: 60_000, stdio: 'inherit' });
-  console.log(`Booting ${simulator.name} (${simulator.udid})`);
-  if (simulator.state !== 'Booted') sim('boot', simulator.udid);
-  command('xcrun', ['simctl', 'bootstatus', simulator.udid, '-b'], { timeout: 240_000, stdio: 'inherit' });
-  booted = true;
+  // Rotation needs an iPad.
+  simulator = await freshSimulator('iPad');
+  console.log(`Booted a fresh ${simulator.name} (${simulator.udid})`);
   const plans = readdirSync(products).filter(name => name.startsWith('ShellfoxNativeV1UI') && name.endsWith('.xctestrun'));
   assert.equal(plans.length, 1, `Expected one built UI test plan, found ${plans.join(', ')}`);
   console.log('Starting XCTest on the owned iPad');
@@ -207,13 +202,11 @@ try {
   } catch { console.error('iPad fixture file was unavailable at failure'); }
   throw error;
 } finally {
-  if (booted) {
+  if (simulator) {
     try { sim('io', simulator.udid, 'screenshot', path.join(evidence, 'last-screen.png')); } catch { /* Best effort. */ }
   }
   await stop(tests);
-  if (booted) {
-    try { sim('terminate', simulator.udid, bundleID); } catch { /* XCTest may have stopped it. */ }
-  }
+  if (simulator) removeSimulator(simulator.udid);
   try {
     if (host && !host.finished) {
       try {
