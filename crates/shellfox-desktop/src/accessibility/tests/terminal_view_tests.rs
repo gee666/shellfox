@@ -48,6 +48,7 @@ pub(super) fn frame(cols: u16, cells: Vec<Cell>) -> ViewFrame {
             identity,
             sequence: 900,
             mouse_tracking: false,
+            alternate_scroll: false,
             screen: Screen {
                 cols,
                 rows,

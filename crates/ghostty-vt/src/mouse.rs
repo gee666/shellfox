@@ -70,6 +70,12 @@ impl Terminal {
     pub fn mouse_tracking(&mut self) -> Result<bool> {
         self.engine.mouse_tracking().map_err(Error)
     }
+    /// Does a wheel step become an Up or Down key? True on the alternate
+    /// screen without mouse reporting, unless the application reset mode 1007.
+    /// `encode_mouse` then returns that key for wheel presses.
+    pub fn alternate_scroll(&mut self) -> Result<bool> {
+        self.engine.alternate_scroll().map_err(Error)
+    }
     /// Ghostty selects tracking and output format from current terminal modes.
     /// Geometry has no padding; subtract the content origin in the UI first.
     /// Screen pixel dimensions must be nonzero and at most 1 billion per axis.

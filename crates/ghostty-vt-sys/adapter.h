@@ -61,6 +61,7 @@ int sf_status(SfVt *vt);
 int sf_colors(SfVt *vt, const uint8_t *fg, const uint8_t *bg,
               const uint8_t *cursor, const uint8_t *palette);
 int sf_mouse_tracking(SfVt *vt, uint8_t *out);
+int sf_alternate_scroll(SfVt *vt, uint8_t *out);
 int sf_mouse(SfVt *vt, const SfMouse *mouse, uint8_t *out, size_t cap, size_t *len);
 int sf_selection(SfVt *vt, const SfSelection *selection);
 int sf_copy_selection(SfVt *vt, uint8_t *out, size_t cap, size_t *len);

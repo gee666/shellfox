@@ -1,10 +1,12 @@
 mod geometry;
+mod wheel;
 use super::{TerminalView, runtime::Pending};
-use gpui::{Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, Window, px};
+use gpui::{Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, Window};
 use shellfox_ghostty_vt::{
     MouseAction, MouseButton, MouseEvent, MouseGeometry, Selection, ViewportPoint,
 };
 use shellfox_runtime::Command;
+pub(super) use wheel::Wheel;
 
 impl TerminalView {
     fn cell_at(&self, position: gpui::Point<gpui::Pixels>, clamp: bool) -> Option<ViewportPoint> {
@@ -25,12 +27,21 @@ impl TerminalView {
     }
 
     fn reporting(&self, mods: gpui::Modifiers) -> bool {
+        self.mouse_tracking && self.may_report(mods)
+    }
+
+    /// The wheel also reaches alternate-screen apps, as cursor keys.
+    fn wheel_reporting(&self, mods: gpui::Modifiers) -> bool {
+        (self.mouse_tracking || self.alternate_scroll) && self.may_report(mods)
+    }
+
+    fn may_report(&self, mods: gpui::Modifiers) -> bool {
         let bypass = if cfg!(target_os = "macos") {
             mods.alt
         } else {
             mods.shift
         };
-        (self.lease.is_some() || self.peer_can_write()) && self.mouse_tracking && !bypass
+        (self.lease.is_some() || self.peer_can_write()) && !bypass
     }
 
     fn held_buttons(&self) -> u8 {
@@ -285,31 +296,24 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let on_track = self.scrollbar_track_contains(event.position);
-        if self.failed || self.closing || !on_track && self.cell_at(event.position, false).is_none()
+        // The padding below the last row still scrolls the terminal.
+        if self.failed || self.closing || !on_track && self.cell_at(event.position, true).is_none()
         {
             return;
         }
-        let delta = event.delta.pixel_delta(px(self.line_height));
-        let reporting = !on_track && self.reporting(event.modifiers);
-        let sensitivity = if event.modifiers.alt && !reporting {
-            5.
-        } else {
-            1.
-        };
-        self.wheel_remainder.x = (self.wheel_remainder.x
-            + sensitivity * f32::from(delta.x) / self.line_height)
-            .clamp(-64., 64.);
-        self.wheel_remainder.y = (self.wheel_remainder.y
-            + sensitivity * f32::from(delta.y) / self.line_height)
-            .clamp(-64., 64.);
-        let x = self.wheel_remainder.x.trunc() as i32;
-        let y = self.wheel_remainder.y.trunc() as i32;
-        self.wheel_remainder.x -= x as f32;
-        self.wheel_remainder.y -= y as f32;
+        let reporting = !on_track && self.wheel_reporting(event.modifiers);
+        let steps = self
+            .wheel
+            .steps(event.delta, self.line_height, event.modifiers, reporting);
         if reporting {
             for (steps, positive, negative, vertical) in [
-                (y, MouseButton::WheelUp, MouseButton::WheelDown, true),
-                (x, MouseButton::WheelLeft, MouseButton::WheelRight, false),
+                (steps.y, MouseButton::WheelUp, MouseButton::WheelDown, true),
+                (
+                    steps.x,
+                    MouseButton::WheelLeft,
+                    MouseButton::WheelRight,
+                    false,
+                ),
             ] {
                 for sent in 0..steps.unsigned_abs() {
                     if !self.send_mouse(
@@ -318,20 +322,14 @@ impl TerminalView {
                         event.position,
                         event.modifiers,
                     ) {
-                        let remainder = if vertical {
-                            &mut self.wheel_remainder.y
-                        } else {
-                            &mut self.wheel_remainder.x
-                        };
-                        *remainder = (*remainder
-                            + (steps.unsigned_abs() - sent) as f32 * steps.signum() as f32)
-                            .clamp(-64., 64.);
+                        let unsent = (steps.unsigned_abs() - sent) as i32 * steps.signum();
+                        self.wheel.refund(vertical, unsent);
                         break;
                     }
                 }
             }
-        } else if y != 0 {
-            self.scroll_lines(-(y as isize));
+        } else if steps.y != 0 {
+            self.scroll_lines(-(steps.y as isize));
         }
         cx.stop_propagation();
         cx.notify();

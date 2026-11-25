@@ -26,6 +26,7 @@ fn view() -> ViewFrame {
             sequence: 1,
             screen: rendered.screen,
             mouse_tracking: false,
+            alternate_scroll: false,
         }),
         row_metadata: rendered.row_metadata.into(),
         cursor_visual: CursorVisual {

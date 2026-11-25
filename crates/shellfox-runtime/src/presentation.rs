@@ -309,6 +309,7 @@ fn frame(
         sequence,
         screen: rendered.screen,
         mouse_tracking: terminal.mouse_tracking().map_err(optional)?,
+        alternate_scroll: terminal.alternate_scroll().map_err(optional)?,
     });
     let result = Arc::new(ViewFrame {
         identity,

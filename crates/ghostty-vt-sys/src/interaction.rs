@@ -26,6 +26,7 @@ pub struct Selection {
 }
 unsafe extern "C" {
     fn sf_mouse_tracking(vt: *mut c_void, out: *mut u8) -> i32;
+    fn sf_alternate_scroll(vt: *mut c_void, out: *mut u8) -> i32;
     fn sf_mouse(
         vt: *mut c_void,
         event: *const Mouse,
@@ -53,10 +54,16 @@ fn owned_text(call: impl FnMut(*mut u8, usize, &mut usize) -> i32) -> Result<Str
 
 impl Engine {
     pub fn mouse_tracking(&mut self) -> Result<bool> {
+        self.flag(sf_mouse_tracking)
+    }
+    pub fn alternate_scroll(&mut self) -> Result<bool> {
+        self.flag(sf_alternate_scroll)
+    }
+    fn flag(&mut self, query: unsafe extern "C" fn(*mut c_void, *mut u8) -> i32) -> Result<bool> {
         let mut out = 0;
         // SAFETY: initialized output and a unique live terminal owner.
         unsafe {
-            check(sf_mouse_tracking(self.ptr.as_ptr(), &mut out))?;
+            check(query(self.ptr.as_ptr(), &mut out))?;
         }
         match out {
             0 => Ok(false),

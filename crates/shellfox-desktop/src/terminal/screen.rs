@@ -72,6 +72,7 @@ mod tests {
                 sequence: 1,
                 screen: rendered.screen,
                 mouse_tracking: false,
+                alternate_scroll: false,
             }),
             row_metadata: rendered.row_metadata.into(),
             selection: terminal.view_selection(&mut view).unwrap(),

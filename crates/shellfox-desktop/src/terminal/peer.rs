@@ -236,12 +236,17 @@ impl TerminalView {
                 selection,
                 sequence: peer.sequence,
             };
-            Ok::<_, shellfox_ghostty_vt::Error>((frame, peer.terminal.mouse_tracking()?))
+            let modes = (
+                peer.terminal.mouse_tracking()?,
+                peer.terminal.alternate_scroll()?,
+            );
+            Ok::<_, shellfox_ghostty_vt::Error>((frame, modes))
         })();
         match result {
-            Ok((frame, tracking)) => {
+            Ok((frame, (tracking, alternate))) => {
                 self.screen = SharedScreen::Peer(Rc::new(frame));
                 self.mouse_tracking = tracking;
+                self.alternate_scroll = alternate;
             }
             Err(error) => peer.unavailable(error.to_string()),
         }

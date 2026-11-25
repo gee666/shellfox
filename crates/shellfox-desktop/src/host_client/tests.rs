@@ -16,6 +16,7 @@ fn frame(tab: TabId, frame_id: u64, sequence: u64) -> NativeFrame {
         sequence,
         screen: rendered.screen,
         mouse_tracking: false,
+        alternate_scroll: false,
     });
     let presentation = Arc::new(shellfox_runtime::ViewFrame {
         identity,
@@ -162,6 +163,7 @@ fn frame_cache_rejects_invalid_grid_and_more_than_128_views_before_acceptance() 
         sequence: 0,
         screen,
         mouse_tracking: false,
+        alternate_scroll: false,
     });
     assert!(frames.accept(tab, false, invalid).is_err());
     assert!(frames.latest(tab, false).is_none());

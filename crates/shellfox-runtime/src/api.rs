@@ -277,6 +277,9 @@ pub struct ScreenFrame {
     pub sequence: u64,
     pub screen: Screen,
     pub mouse_tracking: bool,
+    /// Wheel steps reach the application as cursor keys; see `Terminal::alternate_scroll`.
+    #[serde(default)]
+    pub alternate_scroll: bool,
 }
 /// Recovery fidelity is explicit, never inferred from the presence of ANSI bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

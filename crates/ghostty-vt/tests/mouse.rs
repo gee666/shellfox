@@ -207,3 +207,34 @@ fn mouse_arguments_are_bounded_before_ffi() -> Result<(), Box<dyn std::error::Er
     assert_eq!(terminal.encode_mouse(&e, GEOMETRY).unwrap_err(), Error(-2));
     Ok(())
 }
+
+/// As in Ghostty and xterm.js, the wheel scrolls alternate-screen apps with
+/// cursor keys unless they report the mouse or reset mode 1007.
+#[test]
+fn alternate_screen_wheel_sends_cursor_keys() -> Result<(), Box<dyn std::error::Error>> {
+    let mut terminal = Terminal::new(80, 24)?;
+    let up = event(MouseAction::Press, Some(MouseButton::WheelUp));
+    let down = event(MouseAction::Press, Some(MouseButton::WheelDown));
+    let left = event(MouseAction::Press, Some(MouseButton::WheelLeft));
+    assert!(!terminal.alternate_scroll()?);
+    assert!(terminal.encode_mouse(&up, GEOMETRY)?.is_empty());
+    terminal.feed(b"\x1b[?1049h")?;
+    assert!(terminal.alternate_scroll()?);
+    assert_eq!(terminal.encode_mouse(&up, GEOMETRY)?, b"\x1b[A");
+    assert_eq!(terminal.encode_mouse(&down, GEOMETRY)?, b"\x1b[B");
+    assert!(terminal.encode_mouse(&left, GEOMETRY)?.is_empty());
+    let release = event(MouseAction::Release, Some(MouseButton::WheelUp));
+    assert!(terminal.encode_mouse(&release, GEOMETRY)?.is_empty());
+    terminal.feed(b"\x1b[?1h")?;
+    assert_eq!(terminal.encode_mouse(&up, GEOMETRY)?, b"\x1bOA");
+    terminal.feed(b"\x1b[?1000h\x1b[?1006h")?;
+    assert!(!terminal.alternate_scroll()?);
+    assert_eq!(terminal.encode_mouse(&up, GEOMETRY)?, b"\x1b[<64;3;4M");
+    terminal.feed(b"\x1b[?1000l\x1b[?1007l")?;
+    assert!(!terminal.alternate_scroll()?);
+    assert!(terminal.encode_mouse(&up, GEOMETRY)?.is_empty());
+    terminal.feed(b"\x1b[?1007h\x1b[?1049l")?;
+    assert!(!terminal.alternate_scroll()?);
+    assert!(terminal.encode_mouse(&up, GEOMETRY)?.is_empty());
+    Ok(())
+}

@@ -104,6 +104,7 @@ impl TerminalView {
         self.delivery.recovery_barrier = frame.recovery_barrier;
         self.phase = Some(frame.phase);
         self.mouse_tracking = frame.frame.mouse_tracking;
+        self.alternate_scroll = frame.frame.alternate_scroll;
         // HostClient already accepted into bounded native state before ACK.
         // Always accept, including unchanged IDs, as delivery can catch up.
         if !same_frame {
