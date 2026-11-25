@@ -123,6 +123,79 @@ async fn tab_activity_changes_reach_each_view_once_as_a_native_change() {
 }
 
 #[tokio::test]
+async fn a_view_paired_while_a_tab_works_hears_it_is_busy_at_once() {
+    let scratch = crate::tests::scratch();
+    let approval_data = crate::tests::scratch();
+    let mut owner = approval_owner(approval_data.path()).await;
+    let metadata = native_metadata::Fixture::new();
+    let peer = PeerIdentity {
+        id: "n-busy".into(),
+        hostname: "offline".into(),
+    };
+    let (approvals, _store) = approve_peer(&owner, &metadata, &peer).await;
+    let actor = approvals
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
+        .unwrap();
+    let mut service =
+        Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
+    let mut state = RemoteState::new(Default::default(), None, None);
+    let created = service
+        .host()
+        .create_session(shellfox_core::CreateSession {
+            request_id: SessionId::new(),
+            title: None,
+            cwd: scratch.path().to_str().unwrap().into(),
+            profile_id: Default::default(),
+        })
+        .unwrap();
+    let tab = created.sessions[0].tabs[0].id;
+    let row = |dot| crate::NativeTabActivity {
+        tab,
+        generation: shellfox_core::Generation::new(),
+        dot,
+        has_agents: true,
+        closed: false,
+        error: None,
+        process_title: None,
+    };
+    // The agent was already working before this device connected.
+    service.replace_tab_activity(vec![row(crate::activity::AgentState::Busy)]);
+    dispatch(
+        &mut service,
+        &mut state,
+        OwnerCommand::Pair {
+            actor: actor.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(state.ready_views(&service).count(), 1, "due at once");
+    let poll = OwnerCommand::Poll {
+        actor: actor.clone(),
+    };
+    let polled = dispatch(&mut service, &mut state, poll.clone())
+        .await
+        .unwrap();
+    let activity = |busy| serde_json::json!({"type":"terminal","event":{"type":"activity","tabId":tab,"busy":busy}});
+    let native = serde_json::json!({"type":"changed","event":{"revision":created.revision,"reason":"native"}});
+    assert_eq!(
+        polled["events"],
+        serde_json::json!([native, activity(true)])
+    );
+    assert_eq!(state.ready_views(&service).count(), 0);
+
+    service.replace_tab_activity(vec![row(crate::activity::AgentState::Running)]);
+    let polled = dispatch(&mut service, &mut state, poll).await.unwrap();
+    assert_eq!(
+        polled["events"],
+        serde_json::json!([native, activity(false)])
+    );
+    service.shutdown().unwrap();
+    drop(service);
+    owner.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn peer_requests_wait_behind_a_close_in_order_and_polls_do_not() {
     let scratch = crate::tests::scratch();
     let approval_data = crate::tests::scratch();
