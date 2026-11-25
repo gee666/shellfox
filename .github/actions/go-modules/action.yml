@@ -1,0 +1,32 @@
+name: Go modules
+description: >-
+  Restores the Go module downloads into tmp/go-mod, where every build script
+  looks for them, and fills a cache miss with retries. A proxy or DNS outage
+  then fails here after a few attempts instead of inside a long build.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        # Module zips only: Go extracts them offline, and they are a fraction of the tree.
+        path: tmp/go-mod/cache/download
+        key: go-mod-v1-${{ hashFiles('native/tailscale/go.sum', 'native/mobile/go.sum') }}
+        restore-keys: go-mod-v1-
+    - name: Download Go modules
+      shell: bash
+      env:
+        GOMODCACHE: ${{ github.workspace }}/tmp/go-mod
+        GOCACHE: ${{ github.workspace }}/tmp/go-cache
+        GOTOOLCHAIN: local
+        GOENV: 'off'
+        GOWORK: 'off'
+        GOFLAGS: ''
+      run: |
+        for module in native/tailscale native/mobile; do
+          for attempt in 1 2 3 4; do
+            (cd "$module" && go mod download) && break
+            if [ "$attempt" = 4 ]; then exit 1; fi
+            echo "::warning::go mod download in $module failed (attempt $attempt); retrying"
+            sleep $((attempt * 20))
+          done
+        done

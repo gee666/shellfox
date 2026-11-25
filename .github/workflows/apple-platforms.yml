@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/apple-platforms.yml
       - .github/actions/pinned-ghostty/**
+      - .github/actions/go-modules/**
       - .github/workflows/rust-platforms.yml
       - Cargo.*
       - rust-toolchain.toml
@@ -30,7 +31,8 @@ jobs:
     if: github.ref == 'refs/heads/experiment/ghostty-rust'
     name: macOS ${{ matrix.arch }} workspace and unsigned installer
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    # Room for the cold x64 release build below.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -57,15 +59,14 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
+      - uses: ./.github/actions/go-modules
+        timeout-minutes: 10
       - name: Rust pin
         run: rustup show
       - name: Prepare static Ghostty
         id: prepare
         uses: ./.github/actions/pinned-ghostty
         timeout-minutes: 35
-      - name: Check desktop, including the wry/WKWebView HTML preview
-        run: cargo check --locked -p shellfox-desktop
-        timeout-minutes: 25
       - name: Check the Go helper's native ACL query
         working-directory: native/tailscale
         run: |
@@ -91,7 +92,9 @@ jobs:
         id: package
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         run: node scripts/package-rust.mjs
-        timeout-minutes: 45
+        # A cold release build on the 4-vCPU Intel runner takes 22-43 min, up to
+        # 18 of them in shellfox-desktop alone. arm64 needs about 15.
+        timeout-minutes: 60
       - name: Smoke extracted desktop and CLI and verify disk image
         id: smoke
         if: ${{ !cancelled() && steps.package.outcome == 'success' }}
@@ -146,6 +149,8 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
+      - uses: ./.github/actions/go-modules
+        timeout-minutes: 10
       - name: Prepare static Ghostty
         uses: ./.github/actions/pinned-ghostty
         timeout-minutes: 35
@@ -227,10 +232,13 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
+      - uses: ./.github/actions/go-modules
+        timeout-minutes: 10
       - name: Install dependencies and test RN native contracts
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
-          node --test mobile/ios/scripts/contracts.test.mjs scripts/confirmed-network-outage.test.mjs
+          node --test mobile/ios/scripts/contracts.test.mjs mobile/ios/scripts/simulator.test.mjs \
+            scripts/confirmed-network-outage.test.mjs
         timeout-minutes: 10
       - name: Identify the Xcode SDK
         id: sdk
@@ -309,19 +317,9 @@ jobs:
         id: native-contracts
         shell: bash
         run: |
-          simulator=$(xcrun simctl list devices booted available -j | node -e '
-            const { devices } = JSON.parse(require("node:fs").readFileSync(0));
-            console.log(Object.values(devices).flat().find(d => d.name.startsWith("iPhone"))?.udid ?? "");')
-          if [ -z "$simulator" ]; then
-            simulator=$(xcrun simctl list devices available -j | node -e '
-              const { devices } = JSON.parse(require("node:fs").readFileSync(0));
-              console.log(Object.values(devices).reverse().flat().find(d => d.name.startsWith("iPhone"))?.udid ?? "");')
-            test -n "$simulator"
-            xcrun simctl boot "$simulator"
-          fi
+          simulator=$(node mobile/ios/scripts/simulator.mjs create iPhone)
           # Do not keep the iPhone running while the iPad UI fixture boots.
-          trap 'xcrun simctl shutdown "$simulator"' EXIT
-          xcrun simctl bootstatus "$simulator" -b
+          trap 'node mobile/ios/scripts/simulator.mjs delete "$simulator"' EXIT
           xcodebuild -workspace mobile/ios/ShellfoxMobile.xcworkspace \
             -scheme ShellfoxRustNative -sdk iphonesimulator -configuration Debug \
             -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath tmp/ios-derived \
