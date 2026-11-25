@@ -45,7 +45,11 @@ pub(super) struct FactsJob {
     pub evidence: ManagerFactsRequest,
     pub result: Result<ManagerFactsResult, AppError>,
     pub capabilities_only: bool,
+    wake: crate::OwnerWakeSlot,
+    attempt: u8,
 }
+/// Fresh collections for a request whose facts changed underneath it.
+const STALE_RETRIES: u8 = 2;
 pub(super) struct FactsPipeline {
     pub provider: Arc<dyn ManagerFactsProvider>,
     pub runtime: tokio::runtime::Handle,
@@ -81,6 +85,15 @@ impl FactsPipeline {
         service: &mut Service,
         request: shellfox_remote::OwnerRequest,
         wake: crate::OwnerWakeSlot,
+    ) {
+        self.admit_attempt(service, request, wake, 0);
+    }
+    fn admit_attempt(
+        &mut self,
+        service: &mut Service,
+        request: shellfox_remote::OwnerRequest,
+        wake: crate::OwnerWakeSlot,
+        attempt: u8,
     ) {
         if request.is_cancelled() {
             return;
@@ -165,6 +178,8 @@ impl FactsPipeline {
                     evidence,
                     result,
                     capabilities_only,
+                    wake: wake.clone(),
+                    attempt,
                 })
                 .await;
             wake.notify();
@@ -200,6 +215,16 @@ impl FactsPipeline {
                 state.profiles = facts.profiles;
                 state.home = facts.home;
                 state.dispatch_request(service, job.request);
+            }
+            // Activity bookkeeping such as the once-a-minute session touch
+            // changes the snapshot too. File commands carry their own target
+            // and revision, so they collect again instead of failing.
+            Err(error)
+                if error.code == ErrorCode::TargetLost
+                    && job.attempt < STALE_RETRIES
+                    && recollects_when_stale(&job.request.command) =>
+            {
+                self.admit_attempt(service, job.request, job.wake, job.attempt + 1);
             }
             Err(error) => job.request.complete(Err(error)),
         }
@@ -263,6 +288,24 @@ fn capabilities_only(command: &OwnerCommand) -> bool {
         CreateDirectory(v) => v.session_id.is_some() || v.tab_id.is_some(),
         _ => false,
     }
+}
+fn recollects_when_stale(command: &OwnerCommand) -> bool {
+    use wire::RemoteCommand::*;
+    matches!(
+        command,
+        OwnerCommand::Execute {
+            command: GetTerminalProfiles(_)
+                | GetHomeDirectory(_)
+                | ListFiles(_)
+                | ReadFile(_)
+                | WriteFile(_)
+                | ReadFileAsset(_)
+                | WriteImageFile(_)
+                | BeginFileWrite(_)
+                | CreateDirectory(_),
+            ..
+        }
+    )
 }
 fn identities(service: &Service, snapshot: &shellfox_core::Snapshot) -> Vec<RuntimeFactIdentity> {
     let mut identities: Vec<_> = service
