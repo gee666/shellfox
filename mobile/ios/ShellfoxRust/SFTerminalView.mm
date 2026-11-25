@@ -20,6 +20,8 @@
   NSString *_accessibleText;
   uint64_t _frameEpoch;
   BOOL _parserReady;
+  // The owner accepted this mailbox and "bound" was sent. Readiness follows it.
+  BOOL _bound;
 }
 - (instancetype)initWithFrame:(CGRect)frame {
   if ((self = [super initWithFrame:frame])) {
@@ -169,7 +171,7 @@
         mailbox->active.store(false); view->_mailbox.reset();
         if (view.failed) view.failed(status); return;
       }
-      view->_lastGrid = CGSizeZero;
+      view->_lastGrid = CGSizeZero; view->_bound = YES;
       [view setNeedsLayout];
       if (view.stateChanged) view.stateChanged(@"bound");
     });
@@ -184,11 +186,14 @@
   [_input cancelComposition]; [_input resignFirstResponder];
   if (_mailbox) { _mailbox->active.store(false); _mailbox->resetFrame(); }
   _mailbox.reset(); _frame.reset(); _accessibleText = nil;
-  _parserReady = NO; _input.editable = NO;
+  _parserReady = NO; _bound = NO; _input.editable = NO;
   [self setNeedsDisplay];
 }
 - (void)displayTick {
-  if (!_mailbox) return;
+  // A rebind copies the terminal's readiness on the owner thread before "bound"
+  // reaches the main queue. Reporting "ready" first would let "bound" clear it
+  // in JS, leaving a resumed terminal read-only.
+  if (!_mailbox || !_bound) return;
   if (_mailbox->closed.load()) {
     [self detach]; if (self.stateChanged) self.stateChanged(@"closed"); return;
   }
