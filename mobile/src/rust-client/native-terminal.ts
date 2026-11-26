@@ -109,6 +109,9 @@ export class NativeTerminalSession {
       await this.remote.bindTerminal(this.tabId, this.handle);
       this.bound = true;
       if (!this.closed) await this.attach();
+      // The last opener wins: opening the view, also when the app returns to
+      // the foreground, takes control. If that fails the view offers Take it.
+      if (!this.closed && !this.readOnly && this.state === 'blocked') await this.takeControl().catch(() => undefined);
     })();
     await this.initializing;
     if (this.closed) throw new Error('Native terminal is closed.');

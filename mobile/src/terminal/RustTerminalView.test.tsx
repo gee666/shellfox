@@ -250,7 +250,7 @@ describe('native terminal in the existing mobile controls', () => {
     expect(native.terminalInput).not.toHaveBeenCalled();
   });
 
-  it('never takes ownership automatically and honors an explicit Take it action', async () => {
+  it('takes control when it opens a terminal another client controls', async () => {
     const native = new TestNative();
     let owned = false;
     native.result = (method) => {
@@ -262,10 +262,30 @@ describe('native terminal in the existing mobile controls', () => {
       }
       return { ok: true, value: { detached: true } };
     };
-    await setup(false, native);
-    expect(native.operation.mock.calls.filter(([, json]) => json.includes('takeTerminalControl'))).toHaveLength(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Take it' })); await tick(300);
+    await setup(false, native); await tick(300);
     expect(native.operation.mock.calls.filter(([, json]) => json.includes('takeTerminalControl'))).toHaveLength(1);
+    expect(screen.queryByText('Another client is controlling this terminal')).toBeNull();
+  });
+
+  it('offers Take it when taking control on open was refused', async () => {
+    const native = new TestNative();
+    let owned = false, refused = false;
+    native.result = (method) => {
+      if (method === 'takeTerminalControl') {
+        if (!refused) { refused = true; return { ok: false, error: { code: 'TERMINAL_CONTROL_REQUIRED', message: 'In use.', retryable: false } }; }
+        owned = true; return { ok: true, value: { taken: true } };
+      }
+      if (method === 'attachTerminal') {
+        const { chunks: _chunks, lifetime: _lifetime, ...metadata } = attachment;
+        return { ok: true, value: owned ? metadata : { control: 'blocked', tabId: ids.tab,
+          sessionId: ids.session, generation: ids.generation, controlEpoch: 1 } };
+      }
+      return { ok: true, value: { detached: true } };
+    };
+    await setup(false, native); await tick(300);
+    expect(native.operation.mock.calls.filter(([, json]) => json.includes('takeTerminalControl'))).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Take it' })); await tick(300);
+    expect(native.operation.mock.calls.filter(([, json]) => json.includes('takeTerminalControl'))).toHaveLength(2);
     expect(screen.queryByText('Another client is controlling this terminal')).toBeNull();
   });
 });
