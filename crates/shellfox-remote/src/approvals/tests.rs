@@ -6,17 +6,17 @@ fn disabling_network_fences_old_tickets_but_does_not_revoke_device_approval() {
     let client = ClientId::new_v4();
     let actor = control.authorize(&peer(), client, 1).unwrap();
     control.set_enabled(false).unwrap();
-    assert_eq!(
-        actor.with_authorized(None, || Ok(())).unwrap_err().code,
-        ErrorCode::AccessDenied
-    );
-    assert_eq!(
-        control.authorize(&peer(), client, 2).err().unwrap().code,
-        ErrorCode::AccessDenied
-    );
+    // A pause must not read as a rejection: the viewer reconnects afterwards.
+    let paused = |result: Result<(), AppError>| {
+        let error = result.unwrap_err();
+        assert_eq!(error.code, ErrorCode::NativeUnavailable);
+        assert!(error.retryable);
+    };
+    paused(actor.with_authorized(None, || Ok(())));
+    paused(control.authorize(&peer(), client, 2).map(|_| ()));
     assert_eq!(control.state().unwrap().approvals.len(), 1);
     control.set_enabled(true).unwrap();
-    assert!(actor.with_authorized(None, || Ok(())).is_err());
+    paused(actor.with_authorized(None, || Ok(())));
     assert!(control
         .authorize(&peer(), client, 3)
         .unwrap()

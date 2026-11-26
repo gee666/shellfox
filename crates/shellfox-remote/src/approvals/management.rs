@@ -34,6 +34,7 @@ impl ApprovalControl {
             Grant {
                 approval,
                 epoch,
+                installed: epoch,
                 files,
             },
         );
@@ -163,6 +164,7 @@ impl ApprovalControl {
                     Grant {
                         approval,
                         epoch,
+                        installed: epoch,
                         files,
                     },
                 );

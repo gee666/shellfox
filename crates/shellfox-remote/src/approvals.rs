@@ -26,7 +26,12 @@ pub struct ApprovalState {
 }
 struct Grant {
     approval: Approval,
+    /// Tickets carry this. Disabling the network moves it on, so no ticket
+    /// outlives an outage.
     epoch: u64,
+    /// The epoch this approval was saved at. A ticket from before it belongs
+    /// to a revoked or replaced approval.
+    installed: u64,
     files: Vec<Arc<FileService>>,
 }
 #[derive(Default)]
@@ -108,10 +113,10 @@ impl Actor {
     }
     fn check(&self, state: &State) -> Result<(), AppError> {
         if !state.enabled || state.commit_fenced {
-            return Err(denied());
+            return Err(paused());
         }
         let grant = state.grants.get(&self.peer_id).ok_or_else(denied)?;
-        if grant.epoch != self.approval_epoch
+        if grant.installed > self.approval_epoch
             || grant.approval.permission != self.permission
             || state
                 .attempts
@@ -119,6 +124,10 @@ impl Actor {
                 .is_some_and(|a| a.denied.contains_key(&self.client_id))
         {
             return Err(denied());
+        }
+        if grant.epoch != self.approval_epoch {
+            // The same approval outlived a network disable: pair again.
+            return Err(paused());
         }
         Ok(())
     }
@@ -128,6 +137,16 @@ impl Actor {
     pub fn file_capabilities(&self) -> &[Arc<FileService>] {
         &self.files
     }
+}
+/// Remote access is off, or an approval is being saved. Approved devices stay
+/// approved: their views pair again once it is back, so this must never read
+/// as a rejection.
+fn paused() -> AppError {
+    error(
+        ErrorCode::NativeUnavailable,
+        "Remote access on the host is paused. Reconnecting when it is back.",
+        true,
+    )
 }
 fn denied() -> AppError {
     error(
@@ -204,7 +223,7 @@ impl ApprovalControl {
     ) -> Result<Actor, AppError> {
         let mut state = self.lock()?;
         if !state.enabled || state.commit_fenced {
-            return Err(denied());
+            return Err(paused());
         }
         Self::expire(&mut state, now);
         if !state.attempts.contains_key(&peer.id) && state.attempts.len() >= 1000 {
