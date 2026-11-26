@@ -52,7 +52,7 @@ impl Fixture {
         Connection::open(self.root.0.join(STORE_FILENAME)).unwrap()
     }
     fn times(&self, at: &str, settled: Option<&str>) {
-        self.db().execute("UPDATE sessions SET value=json_set(value,'$.updatedAt',?1,'$.settledAt',?2) WHERE id=?3",rusqlite::params![at,settled,self.session.to_string()]).unwrap();
+        self.host.test_write("UPDATE sessions SET value=json_set(value,'$.updatedAt',?1,'$.settledAt',?2) WHERE id=?3",rusqlite::params![at,settled,self.session.to_string()]).unwrap();
     }
     fn block_writes(&self) {
         self.db().execute_batch("CREATE TRIGGER fail_activity BEFORE UPDATE ON host_state BEGIN SELECT RAISE(ABORT,'injected failure'); END;").unwrap();

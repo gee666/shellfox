@@ -36,7 +36,7 @@ impl Scratch {
             tab_id: snapshot.sessions[0].tabs[0].id,
             generation: Generation::new(),
         };
-        self.db().execute("UPDATE sessions SET value=json_set(value,'$.settledAt',?,'$.updatedAt','2030-01-01T00:00:00.000Z')",[MARKER]).unwrap();
+        host.test_write("UPDATE sessions SET value=json_set(value,'$.settledAt',?,'$.updatedAt','2030-01-01T00:00:00.000Z')",[MARKER]).unwrap();
         host.register_terminal(identity).unwrap();
         (host, session, identity)
     }

@@ -74,10 +74,8 @@ impl Host {
         }
         let mut inner = self.lock()?;
         let runtime = inner.settings_runtime.clone();
-        let tx = inner
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage::storage_error)?;
+        let crate::Inner { db, journal, .. } = &mut *inner;
+        let tx = crate::journal::Write::begin(db, journal)?;
         let mut data = storage::load(&tx)?;
         match receipt(&tx, &data, input.request_id)? {
             ReservedPublicationReceipt::Published { session_id, tab_id }

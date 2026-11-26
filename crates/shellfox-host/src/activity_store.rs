@@ -139,10 +139,13 @@ impl Host {
     ) -> Result<(Snapshot, bool)> {
         let mut inner = self.lock()?;
         let runtime = inner.settings_runtime.clone();
-        let Inner { db, registry, .. } = &mut *inner;
-        let tx = db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage::storage_error)?;
+        let Inner {
+            db,
+            journal,
+            registry,
+            ..
+        } = &mut *inner;
+        let tx = crate::journal::Write::begin(db, journal)?;
         let mut data = storage::load(&tx)?;
         registry.last_settlement_ms = registry
             .last_settlement_ms

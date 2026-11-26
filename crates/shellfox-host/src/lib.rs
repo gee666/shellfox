@@ -5,6 +5,7 @@ mod boundary;
 #[path = "window_state.rs"]
 mod desktop_window_state;
 mod electron_merge;
+mod journal;
 mod legacy;
 mod lifecycle;
 mod reserved_publication;
@@ -20,14 +21,18 @@ mod storage;
 mod storage_guard;
 mod storage_write;
 mod tabs;
+#[cfg(feature = "test-support")]
+mod test_support;
 
 pub use activity_store::{
     activity_unix_ms, activity_utc_timestamp, CapturedSettlement, ResumeSessionResult,
 };
 pub use boundary::HostRequest;
 pub use electron_merge::{ElectronMerge, ElectronSettingsDigest};
+use journal::{Journal, Write};
+pub use journal::{JournalHook, JournalHooks};
 pub use reserved_publication::{ReservedPublicationReceipt, ReservedSessionPublication};
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::Connection;
 pub use session_creation::CreationRequestReceipt;
 pub use session_facts::{SessionCreationFactMap, SessionCreationFacts};
 pub use settings::{SettingsRequest, SettingsRuntime};
@@ -53,7 +58,10 @@ pub struct Host {
     _ownership: File,
 }
 struct Inner {
+    /// The in-memory working copy. Reads never touch the disk; writes reach it
+    /// through `journal`.
     db: Connection,
+    journal: Journal,
     registry: Registry,
     settings_runtime: Option<std::sync::Arc<dyn SettingsRuntime>>,
 }
@@ -101,10 +109,13 @@ impl Host {
         let (directory, ownership, _checked_artifacts) =
             storage_guard::prepare(directory.as_ref())?;
         lock_store(&ownership)?;
-        let db = storage::open(&directory.join(STORE_FILENAME))?;
+        let disk = storage::open(&directory.join(STORE_FILENAME))?;
+        let db = storage::working_copy(&disk)?;
+        let journal = Journal::new(disk, &db)?;
         let host = Self {
             inner: Mutex::new(Inner {
                 db,
+                journal,
                 registry: Registry::default(),
                 settings_runtime: None,
             }),
@@ -123,10 +134,32 @@ impl Host {
     }
     /// Commits a metadata write, then publishes `revision`. A failed commit
     /// publishes nothing, so readers never see a rolled-back revision.
-    fn commit(&self, tx: rusqlite::Transaction<'_>, revision: u64) -> Result<()> {
-        tx.commit().map_err(storage_error)?;
+    fn commit(&self, tx: Write<'_>, revision: u64) -> Result<()> {
+        tx.commit()?;
         self.revision.fetch_max(revision, Ordering::Release);
         Ok(())
+    }
+    /// From now on writes commit in memory and reach the disk in order on a
+    /// writer thread: a slow disk delays only `durable()`, never a caller.
+    /// Before this, each write waits for its disk commit and fails with it.
+    pub fn start_journal(&self, hooks: JournalHooks) -> Result<()> {
+        self.lock()?.journal.start(hooks)
+    }
+    /// Sequence number of the last committed change that changed a row.
+    pub fn written(&self) -> Result<u64> {
+        Ok(self.lock()?.journal.written())
+    }
+    /// Sequence number of the last change committed on disk.
+    pub fn durable(&self) -> Result<u64> {
+        Ok(self.lock()?.journal.durable())
+    }
+    /// The disk error the journal is retrying, while it fails.
+    pub fn durability_failure(&self) -> Result<Option<String>> {
+        Ok(self.lock()?.journal.failure())
+    }
+    /// Waits at most `timeout` until every committed change is on disk.
+    pub fn flush(&self, timeout: std::time::Duration) -> Result<()> {
+        self.lock()?.journal.flush(timeout)
     }
     fn lock(&self) -> Result<MutexGuard<'_, Inner>> {
         self.inner
@@ -225,13 +258,11 @@ impl Host {
     ) -> Result<Snapshot> {
         let Inner {
             db,
+            journal,
             registry,
             settings_runtime,
-            ..
         } = inner;
-        let tx = db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
+        let tx = Write::begin(db, journal)?;
         let mut data = storage::load(&tx)?;
         let old_preferences = data.state.preferences.clone();
         let old_env = data.state.terminal_env.clone();

@@ -47,10 +47,8 @@ impl Host {
         validation::ensure(kind == "table", "Invalid Electron settings table.")?;
         let settings = read(&db, SettingsImportPolicy::IncludeEnvironment)?;
         let mut inner = self.lock()?;
-        let tx = inner
-            .db
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(crate::storage::storage_error)?;
+        let crate::Inner { db, journal, .. } = &mut *inner;
+        let tx = crate::journal::Write::begin(db, journal)?;
         let mut data = crate::storage::load(&tx)?;
         if data.state.revision != 0 {
             return Ok(false);
@@ -82,10 +80,8 @@ impl Host {
         let imported = crate::legacy::read_legacy(&path, SettingsImportPolicy::IncludeEnvironment)?;
         let mut inner = self.lock()?;
         let runtime = inner.settings_runtime.clone();
-        let tx = inner
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(crate::storage::storage_error)?;
+        let crate::Inner { db, journal, .. } = &mut *inner;
+        let tx = crate::journal::Write::begin(db, journal)?;
         let mut data = crate::storage::load(&tx)?;
         let revision = data.state.revision;
         let mut result = ElectronImport::default();
@@ -135,10 +131,8 @@ impl Host {
         let imported = crate::legacy::read_legacy(&path, policy)?;
         let mut inner = self.lock()?;
         let runtime = inner.settings_runtime.clone();
-        let tx = inner
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(crate::storage::storage_error)?;
+        let crate::Inner { db, journal, .. } = &mut *inner;
+        let tx = crate::journal::Write::begin(db, journal)?;
         let mut data = crate::storage::load(&tx)?;
         if !data.sessions.is_empty() || data.state.revision != 0 {
             return Err(Error::new(

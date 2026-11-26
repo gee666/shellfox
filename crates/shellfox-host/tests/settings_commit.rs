@@ -104,7 +104,8 @@ fn sql_writes_must_finish_before_the_commit_guard_is_called() {
         let calls = Arc::new(AtomicUsize::new(0));
         host.install_settings_runtime(Arc::new(DenyCommit(calls.clone())))
             .unwrap();
-        scratch.db().execute_batch("CREATE TRIGGER reject_sql BEFORE UPDATE ON host_state BEGIN SELECT RAISE(ABORT,'injected write failure'); END;").unwrap();
+        // The Host's SQL runs on its working copy.
+        host.test_batch("CREATE TRIGGER reject_sql BEFORE UPDATE ON host_state BEGIN SELECT RAISE(ABORT,'injected write failure'); END;").unwrap();
         // A guard mistakenly moved before SQL would return Internal instead.
         assert_eq!(
             mutate(&host, route).unwrap_err().code,
@@ -113,6 +114,26 @@ fn sql_writes_must_finish_before_the_commit_guard_is_called() {
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(host.global_settings().unwrap(), before);
         assert_eq!(host.snapshot().unwrap().revision, 0);
+    }
+}
+#[test]
+fn a_disk_write_that_fails_after_the_guard_rolls_the_change_back() {
+    for route in ["global", "environment"] {
+        let scratch = Scratch::new();
+        let host = Host::open(&scratch.0).unwrap();
+        let before = host.global_settings().unwrap();
+        scratch.db().execute_batch("CREATE TRIGGER reject_disk BEFORE UPDATE ON host_state BEGIN SELECT RAISE(ABORT,'injected disk failure'); END;").unwrap();
+        assert_eq!(
+            mutate(&host, route).unwrap_err().code,
+            ErrorCode::StorageFailed
+        );
+        assert_eq!(host.global_settings().unwrap(), before);
+        assert_eq!(host.snapshot().unwrap().revision, 0);
+        drop(host);
+        assert_eq!(
+            Host::open(&scratch.0).unwrap().global_settings().unwrap(),
+            before
+        );
     }
 }
 #[test]

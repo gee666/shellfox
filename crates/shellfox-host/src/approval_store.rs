@@ -1,6 +1,6 @@
 //! Approval transactions on the Host's existing connection and mutex.
 use crate::*;
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{params, Connection};
 const POLICY: &str = "control-full-account-v1";
 fn storage_error(error: impl std::fmt::Display) -> Error {
     let mut error = crate::storage::storage_error(error);
@@ -189,11 +189,9 @@ impl Host {
         let next_sql = i64::try_from(next).map_err(storage_error)?;
         let expected_sql = i64::try_from(expected_revision).map_err(storage_error)?;
         let mut inner = self.lock()?;
-        full(&inner.db)?;
-        let intent = inner
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
+        let Inner { db, journal, .. } = &mut *inner;
+        full(db)?;
+        let intent = crate::journal::Write::begin(db, journal)?;
         let current = read(&intent)?;
         if current.revision != expected_revision {
             return Err(Error::new(
@@ -205,11 +203,10 @@ impl Host {
             params![next_sql, expected_sql]).map_err(storage_error)?;
         validation::ensure(changed == 1, "Approval intent was not recorded.")?;
         full(&intent)?;
-        intent.commit().map_err(storage_error)?;
-        let final_tx = inner
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage_error)?;
+        intent
+            .commit()
+            .map_err(|error| storage_error(error.message))?;
+        let final_tx = crate::journal::Write::begin(db, journal)?;
         let (revision, phase) = meta(&final_tx)?;
         validation::ensure(
             revision == next && phase == "pending",
@@ -234,8 +231,10 @@ impl Host {
         let changed = final_tx.execute("UPDATE native_approval_state SET phase='committed' WHERE id=1 AND revision=? AND phase='pending'", [next_sql]).map_err(storage_error)?;
         validation::ensure(changed == 1, "Approval finalization was not recorded.")?;
         full(&final_tx)?;
-        final_tx.commit().map_err(storage_error)?;
-        let confirmed = read(&inner.db)?;
+        final_tx
+            .commit()
+            .map_err(|error| storage_error(error.message))?;
+        let confirmed = read(db)?;
         validation::ensure(confirmed == wanted, "Approval commit read-back differs.")?;
         Ok(confirmed)
     }

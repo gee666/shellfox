@@ -50,8 +50,8 @@ impl Fixture {
             session,
             identity,
         };
-        f.db()
-            .execute(
+        f.host
+            .test_write(
                 "UPDATE sessions SET value=json_set(value,'$.updatedAt',?1,'$.settledAt',?2)",
                 rusqlite::params![INITIAL, settled],
             )

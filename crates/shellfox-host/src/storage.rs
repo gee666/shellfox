@@ -98,6 +98,20 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
         .map_err(storage_error)?;
     Ok(db)
 }
+/// Copies the opened, migrated store into memory, where the Host works. The
+/// disk connection then only replays the changes the journal records.
+pub(crate) fn working_copy(disk: &Connection) -> Result<Connection> {
+    let mut memory = Connection::open_in_memory().map_err(storage_error)?;
+    rusqlite::backup::Backup::new(disk, &mut memory)
+        .map_err(storage_error)?
+        .run_to_completion(4096, Duration::ZERO, None)
+        .map_err(storage_error)?;
+    crate::approval_store::configure(&memory)?;
+    memory
+        .pragma_update(None, "foreign_keys", true)
+        .map_err(storage_error)?;
+    Ok(memory)
+}
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct State {

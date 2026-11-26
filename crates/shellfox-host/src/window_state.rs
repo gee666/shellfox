@@ -18,11 +18,20 @@ impl Host {
     pub fn save_window_state(&self, state: WindowState) -> Result<()> {
         shellfox_core::validation::ensure(state.valid(), "Invalid desktop window bounds.")?;
         let value = serde_json::to_string(&state).map_err(storage_error)?;
-        self.lock()?.db.execute(
+        self.write_preference(
             "INSERT INTO desktop_preferences VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (KEY, value),
-        ).map_err(storage_error)?;
+            value,
+        )?;
         Ok(())
+    }
+    /// Device preferences carry no metadata revision.
+    fn write_preference(&self, sql: &str, value: String) -> Result<usize> {
+        let mut inner = self.lock()?;
+        let crate::Inner { db, journal, .. } = &mut *inner;
+        let tx = crate::journal::Write::begin(db, journal)?;
+        let changed = tx.execute(sql, (KEY, value)).map_err(storage_error)?;
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// Converts Electron's bounds once. Only a private snapshot is opened.
@@ -54,14 +63,10 @@ impl Host {
             return Ok(false);
         };
         let value = serde_json::to_string(&state).map_err(storage_error)?;
-        let inserted = self
-            .lock()?
-            .db
-            .execute(
-                "INSERT OR IGNORE INTO desktop_preferences VALUES (?1, ?2)",
-                (KEY, value),
-            )
-            .map_err(storage_error)?;
+        let inserted = self.write_preference(
+            "INSERT OR IGNORE INTO desktop_preferences VALUES (?1, ?2)",
+            value,
+        )?;
         Ok(inserted == 1)
     }
 }

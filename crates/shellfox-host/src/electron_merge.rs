@@ -45,10 +45,8 @@ impl Host {
         };
         let mut inner = self.lock()?;
         let runtime = inner.settings_runtime.clone();
-        let tx = inner
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage::storage_error)?;
+        let crate::Inner { db, journal, .. } = &mut *inner;
+        let tx = crate::journal::Write::begin(db, journal)?;
         let mut data = storage::load(&tx)?;
         let since = |at: &str| activity_unix_ms(at).is_ok_and(|ms| ms > since_ms);
         for session in imported.sessions {

@@ -28,10 +28,8 @@ impl Host {
     pub fn save_global_settings(&self, patch: SettingsPatch) -> Result<Settings> {
         let mut inner = self.lock()?;
         let runtime = inner.settings_runtime.clone();
-        let tx = inner
-            .db
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(storage::storage_error)?;
+        let crate::Inner { db, journal, .. } = &mut *inner;
+        let tx = crate::journal::Write::begin(db, journal)?;
         let previous = settings_store::read(&tx)?;
         let candidate = previous.patched(patch)?;
         let launch_changed = candidate.terminal_profile_id != previous.terminal_profile_id
