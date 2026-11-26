@@ -21,17 +21,16 @@ final class NativeV1UITests: XCTestCase {
     app.launchEnvironment["TS_DEBUG_ALWAYS_USE_DERP"] = "true"
     app.launch()
 
-    let settings = app.buttons["Open Settings"]
-    XCTAssertTrue(settings.waitForExistence(timeout: 30), app.debugDescription)
-    settings.tap()
-    // React Native can drop a tap that lands before the first screen has
-    // finished mounting. Repeat it until the Settings tab is selected.
+    // The tab bar is stable, unlike the empty state's "Open Settings" button,
+    // which unmounts while the first screen loads. React Native can also drop
+    // a tap that lands before mounting, so repeat until Settings is selected.
     let settingsTab = app.descendants(matching: .any)["tab-settings"].firstMatch
+    XCTAssertTrue(settingsTab.waitForExistence(timeout: 30), app.debugDescription)
     var retries = 0
-    while retries < 5 && !becomes(timeout: 5, { settingsTab.isSelected }) {
+    repeat {
+      if settingsTab.isHittable { settingsTab.tap() }
       retries += 1
-      if settings.exists && settings.isHittable { settings.tap() } else { settingsTab.tap() }
-    }
+    } while retries < 6 && !becomes(timeout: 5, { settingsTab.isSelected })
     XCTAssertTrue(settingsTab.isSelected, app.debugDescription)
     XCTAssertTrue(app.staticTexts["shellfox-ios-ci"].waitForExistence(timeout: 90), app.debugDescription)
     let connect = app.buttons["Connect"].firstMatch
