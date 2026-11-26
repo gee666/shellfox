@@ -4,6 +4,8 @@ mod control_tests;
 #[cfg(test)]
 mod legacy_scope_tests;
 #[cfg(test)]
+mod stalled_disk_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod v1_loopback_tests;
