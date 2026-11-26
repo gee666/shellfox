@@ -14,6 +14,11 @@ import { NativeTerminalDriver, registerNativeTerminal, type NativeExecute } from
 interface Run {
   abort: AbortController; pump?: OperationPump; suspended: boolean;
   restart: boolean; pairing: boolean; resume?: () => void; retry?: AbortController;
+  /**
+   * Native polls as soon as it is connected, so a poll can finish before JS has
+   * read the pair result. Hosts seed busy tabs in that first poll; keep them.
+   */
+  early: CoarseHostEvent[];
   /** Stops waiting for the outstanding long-poll; reconnect fences it natively. */
   interrupt?: () => void;
 }
@@ -70,7 +75,7 @@ export class RustHostClient extends RemoteOperations implements HostClient {
       if (this.run.restart) this.run.interrupt?.();
       return;
     }
-    const run: Run = { abort: new AbortController(), suspended: false, restart: false, pairing: false }; this.run = run;
+    const run: Run = { abort: new AbortController(), suspended: false, restart: false, pairing: false, early: [] }; this.run = run;
     this.change('connecting'); void this.loop(run);
   }
   reconnect(): void { this.stop(); this.connect(); }
@@ -142,6 +147,11 @@ export class RustHostClient extends RemoteOperations implements HostClient {
       this.stopRun('rejected', { code: 'ACCESS_DENIED', message: 'Remote host access was denied.', retryable: false });
       return;
     }
+    if (connection.status === 'connected' && run.pairing && !run.suspended && !run.restart && event.internal && event.status === 0) {
+      const poll = coarsePollSchema.safeParse(event.result);
+      if (poll.success && poll.data.ok) run.early.push(...poll.data.value.events);
+      return;
+    }
     if (connection.status === 'connected' && (run.suspended || run.restart || run.pairing)) return;
     const status = connection.status === 'awaitingApproval' ? 'awaiting-approval'
       : connection.status === 'suspended' ? 'reconnecting' : connection.status;
@@ -188,7 +198,7 @@ export class RustHostClient extends RemoteOperations implements HostClient {
           if (run.restart) { paired = false; needsReconnect = true; }
           if (!paired) {
             const reconnect = needsReconnect;
-            needsReconnect = false; run.restart = false; run.pairing = true;
+            needsReconnect = false; run.restart = false; run.pairing = true; run.early = [];
             const event = await pump.invoke(() => reconnect ? remote.reconnect() : remote.connect());
             const parsed = remotePairResponseSchema.safeParse(event.result);
             if (!parsed.success) throw new RemoteClientError({ code: 'UNSUPPORTED',
@@ -198,8 +208,10 @@ export class RustHostClient extends RemoteOperations implements HostClient {
             paired = true; failures = 0; run.pairing = false;
             await this.resumed(run);
             if (!this.active(run)) break;
+            const early = run.early; run.early = [];
             if (run.restart) continue;
             this.observe(run, event);
+            this.deliver(run, early);
           }
           if (!this.active(run)) break;
           if (run.suspended || run.restart) continue;

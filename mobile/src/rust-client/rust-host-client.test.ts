@@ -218,6 +218,21 @@ describe('Rust host client in existing mobile presentation', () => {
     expect(native.connect).toHaveBeenCalledTimes(count); expect(native.closeClient).not.toHaveBeenCalled();
   });
 
+  it('keeps the first poll\'s activity seed when the native poll finishes before pairing does', async () => {
+    const { native, client } = setup(); const listener = vi.fn(); client.subscribe(listener);
+    const activity = { type: 'terminal', event: { type: 'activity', tabId: ids.tab, busy: true } };
+    // Native starts its own poll once connected. A host seeds busy tabs on pair,
+    // so that poll can return before JS has read the pair result.
+    native.connect.mockImplementationOnce(async () => {
+      const id = native.complete({ ok: true, value: { paired: true, terminalControl: 'exclusive-v1' } });
+      native.event('800', { ok: true, value: { events: [activity] } }, 0, true);
+      return id;
+    });
+    client.connect(); await tick();
+    expect(client.getState().status).toBe('connected');
+    expect(listener).toHaveBeenCalledWith(activity);
+  });
+
   it('retains a successful in-flight pair but defers connected state/polling until resume', async () => {
     const { native, client } = setup(); native.connect.mockResolvedValueOnce('900');
     client.connect(); await tick(); client.suspend();
