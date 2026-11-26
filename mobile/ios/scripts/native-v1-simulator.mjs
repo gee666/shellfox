@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -24,10 +24,16 @@ const sharedEnv = {
   TS_AUTH_KEY: '', TS_AUTHKEY: '', TS_CLIENT_SECRET: '', TS_CLIENT_ID: '',
 };
 
-function child(command, args) {
+/** `log` also keeps the process's stderr as a results file. */
+function child(command, args, log) {
   const proc = spawn(command, args, {
-    cwd: root, env: { ...process.env, ...sharedEnv }, stdio: ['ignore', 'pipe', 'inherit'],
+    cwd: root, env: { ...process.env, ...sharedEnv }, stdio: ['ignore', 'pipe', log ? 'pipe' : 'inherit'],
   });
+  if (log) {
+    const file = createWriteStream(log);
+    proc.stderr.on('data', bytes => { file.write(bytes); process.stderr.write(bytes); });
+    proc.once('close', () => file.end());
+  }
   const state = { proc, output: '', finished: false, status: null, startedTest: false, observedOutage: false };
   proc.stdout.on('data', bytes => {
     state.output = (state.output + bytes).slice(-20_000);
@@ -112,7 +118,7 @@ try {
     } catch { return false; }
   });
   console.log('Starting isolated Rust host');
-  host = child(cli, [...flags, 'host', 'serve']);
+  host = child(cli, [...flags, 'host', 'serve'], path.join(evidence, 'host.log'));
   const endpoint = path.join(data, 'rust-service-v1', 'endpoint.json');
   await until('the Rust host endpoint', 30_000, () => {
     live(host, 'Rust host');
@@ -222,7 +228,5 @@ try {
     console.error('Host cleanup also failed:', error);
   } finally {
     await stop(control);
-    // The host log is evidence for slow or failed peer requests.
-    if (existsSync(`${data}.logs`)) cpSync(`${data}.logs`, path.join(evidence, 'host.logs'), { recursive: true });
   }
 }

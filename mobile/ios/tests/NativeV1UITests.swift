@@ -104,7 +104,8 @@ final class NativeV1UITests: XCTestCase {
     // run beside the terminal poll, so this takes seconds, not a poll period.
     let preview = app.descendants(matching: .any)["file-preview"].firstMatch
     wait("the host returned the file") { preview.exists }
-    wait("the code preview finished loading") { self.value(preview) == "Loaded" }
+    // The app replaces a WebView that has not loaded in 10 s, up to three times.
+    wait("the code preview finished loading", timeout: 45) { self.value(preview) == "Loaded" }
     // WebKit exposes the page from its own process. On a cold simulator that
     // process's accessibility can come up 20-40 s after the page has loaded.
     let renderedFile = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "initial fixture text")).firstMatch
