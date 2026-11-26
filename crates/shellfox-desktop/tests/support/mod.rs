@@ -136,6 +136,65 @@ impl Desktop {
         }
     }
 
+    /// Runs a second launch, such as `add <folder>`, that hands itself to the
+    /// running desktop and exits. Fails with its output instead of hanging.
+    pub fn forward(&self, extra: &[&str]) {
+        let mut child = self
+            .command(extra)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "launch {extra:?} did not forward: {}\n{}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// How many host processes started on this data dir, from their log banners.
+    pub fn hosts_started(&self) -> usize {
+        std::fs::read_to_string(self.logs().join("host.log"))
+            .unwrap_or_default()
+            .matches("--- Shellfox host ")
+            .count()
+    }
+
+    /// The working folders of the host's sessions.
+    pub fn session_folders(&self) -> Vec<String> {
+        runtime().block_on(async {
+            let snapshot = async {
+                let client = LocalClient::connect(&self.data, &self.helper, self.digest)
+                    .await
+                    .ok()?;
+                let reply = client.execute(LocalApiRequest::Snapshot {}).await.ok();
+                let _ = client.disconnect().await;
+                match reply? {
+                    shellfox_service::local_api::LocalApiResponse::Snapshot(snapshot) => {
+                        Some(snapshot.sessions.into_iter().map(|s| s.cwd).collect())
+                    }
+                    _ => None,
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(10), snapshot)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+        })
+    }
+
     /// The orderly stop of the host, as `host stop` does.
     pub fn stop_host(&self) {
         runtime().block_on(async {

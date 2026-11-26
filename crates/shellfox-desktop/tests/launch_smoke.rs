@@ -36,6 +36,60 @@ fn desktop_window_attaches_to_its_own_host_and_quits_with_it() {
     assert!(runs.is_empty(), "{runs:?}");
 }
 
+/// As with 0.9's single-instance lock, of two launches a few milliseconds
+/// apart one opens the window and the other waits for it, hands its folder
+/// over and exits. Either may win.
+#[test]
+fn a_second_launch_within_milliseconds_forwards_to_the_first() {
+    let desktop = Desktop::new("desktop-double-launch-");
+    let folder = desktop.data.parent().unwrap().join("work");
+    std::fs::create_dir_all(&folder).unwrap();
+    let folder = folder.to_str().unwrap().to_owned();
+    let mut launches = [
+        Ui(desktop.command(&[]).spawn().unwrap()),
+        Ui(desktop.command(&["add", &folder]).spawn().unwrap()),
+    ];
+    let host = Host(&desktop);
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let forwarded = loop {
+        if let Some(index) = launches
+            .iter_mut()
+            .position(|ui| ui.0.try_wait().unwrap().is_some())
+        {
+            break index;
+        }
+        assert!(Instant::now() < deadline, "Neither launch forwarded");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let status = launches[forwarded].0.wait().unwrap();
+    assert!(
+        status.success(),
+        "The forwarding launch exited with {status}"
+    );
+    let first = &mut launches[1 - forwarded];
+    desktop.wait_registered(Some(first));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !desktop.session_folders().contains(&folder) {
+        assert!(
+            Instant::now() < deadline,
+            "The forwarded folder never opened: {:?}",
+            desktop.session_folders()
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert_eq!(desktop.hosts_started(), 1, "A second host was started");
+    assert!(
+        first.0.try_wait().unwrap().is_none(),
+        "The first desktop exited"
+    );
+    drop(host);
+    wait_exit(
+        first,
+        Duration::from_secs(30),
+        "The desktop kept running after its host stopped",
+    );
+}
+
 #[test]
 fn a_crashed_ui_leaves_a_report_and_its_host_relaunches_it() {
     crash_and_relaunch(

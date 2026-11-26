@@ -79,6 +79,7 @@ pub(crate) fn install(cx: &mut App) {
     }
     let Some(original_host) = crate::app_host::adapter::get(cx) else {
         eprintln!("Launch coordinator requires the installed original application owner.");
+        crate::launch_lock::release();
         return;
     };
     cx.global_mut::<LaunchGlobal>().installed = true;
@@ -87,11 +88,15 @@ pub(crate) fn install(cx: &mut App) {
             Ok(client) => client,
             Err(error) => {
                 eprintln!("Desktop launch client unavailable: {error:#}");
+                crate::launch_lock::release();
                 return;
             }
         };
         let delivery = DeliveryClient(client);
-        let registration = match delivery.0.desktop_register().await {
+        let registration = delivery.0.desktop_register().await;
+        // Registered or not, a later launch now sees this window as it is.
+        crate::launch_lock::release();
+        let registration = match registration {
             Ok(registration) => registration,
             Err(error) => {
                 eprintln!("Desktop launch registration unavailable; no retry: {error:#}");

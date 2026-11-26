@@ -56,13 +56,18 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
         &config.helper,
         config.helper_sha256,
     ))?;
+    // Released once this launch's window registers, or it forwards or quits.
+    crate::launch_lock::acquire(&config.data_dir);
     let running = crate::host_process::find_running(&runtime, &config)?;
     let running = match running {
         Some(running) => match stale_host(&runtime, options, &running)? {
             // A previous build's host was stopped; start the right one.
             StaleOutcome::Replaced => None,
             StaleOutcome::Attach => Some(running),
-            StaleOutcome::Declined => return Ok(Startup::Declined),
+            StaleOutcome::Declined => {
+                crate::launch_lock::release();
+                return Ok(Startup::Declined);
+            }
         },
         None => None,
     };
@@ -80,6 +85,7 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
     if route.desktop_registered {
         // Another window process owns the UI: hand this launch to it.
         handoff(&runtime, &running.client, options, route)?;
+        crate::launch_lock::release();
         return Ok(Startup::Forwarded);
     }
     let _ = runtime.block_on(running.client.disconnect());

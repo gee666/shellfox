@@ -116,16 +116,16 @@ fn start_and_discover(
 ) -> Result<(LocalClient, LaunchRouteInfo, bool)> {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        // A host that lost the directory lock exits silently: a concurrent
-        // launch's host answers soon, or a stopping one releases the lock.
-        let (started, patience) = match start(executable, relaunch_args, application_args, config) {
-            Ok(()) => (true, deadline),
-            Err(StartError::Permanent(error)) => return Err(error),
-            Err(StartError::Exited) => (
-                false,
-                (Instant::now() + Duration::from_secs(3)).min(deadline),
-            ),
-        };
+        // A host that lost the directory to a concurrent launch's host exits:
+        // that host answers soon, or a stopping one releases the directory.
+        let soon = (Instant::now() + Duration::from_secs(3)).min(deadline);
+        let (started, patience, failed) =
+            match start(executable, relaunch_args, application_args, config) {
+                Ok(()) => (true, deadline, None),
+                Err(StartError::Permanent(error)) => return Err(error),
+                Err(StartError::Exited) => (false, soon, None),
+                Err(StartError::Failed(error)) => (false, soon, Some(error)),
+            };
         loop {
             match runtime.block_on(discover(config)) {
                 Ok((client, route)) => return Ok((client, route, started)),
@@ -134,9 +134,15 @@ fn start_and_discover(
                         // Never leave a host that this UI cannot reach.
                         stop_started(Duration::from_secs(10));
                     }
-                    return Err(error.context("The Shellfox host did not answer"));
+                    return Err(
+                        failed.unwrap_or_else(|| error.context("The Shellfox host did not answer"))
+                    );
                 }
-                Err(_) if Instant::now() >= patience => break,
+                Err(_) if Instant::now() >= patience => match failed {
+                    // No other host took over: the failure was this host's own.
+                    Some(error) => return Err(error),
+                    None => break,
+                },
                 Err(_) => std::thread::sleep(Duration::from_millis(100)),
             }
         }
@@ -169,11 +175,14 @@ async fn discover(config: &HostEndpointConfig) -> Result<(LocalClient, LaunchRou
 }
 
 enum StartError {
-    /// Retrying cannot help: no CLI, it cannot be spawned, or it is not a host.
+    /// Retrying cannot help: no CLI, or it cannot be spawned.
     Permanent(anyhow::Error),
-    /// The host exited silently, as one does after losing the directory lock
-    /// to a concurrent launch's host. Discovery finds the winner.
+    /// The host exited silently. Discovery finds a concurrent launch's host.
     Exited,
+    /// The host reported a startup error. Losing the directory to a concurrent
+    /// host fails this way too, in whatever step it lost, so the error stands
+    /// only if no other host answers.
+    Failed(anyhow::Error),
 }
 
 /// Starts the host and waits until its local API admits clients.
@@ -211,7 +220,7 @@ fn start(
     if output == LocalBootstrap::DESKTOP_HOST_READY {
         return Ok(());
     }
-    Err(StartError::Permanent(anyhow::anyhow!(
+    Err(StartError::Failed(anyhow::anyhow!(
         "The Shellfox host did not start: {output}"
     )))
 }

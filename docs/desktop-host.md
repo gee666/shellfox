@@ -4,11 +4,11 @@ The desktop UI (`shellfox`) runs no shells. They live in a separate host process
 
 ## Startup
 
-`app_startup::prepare` runs before GPUI:
+`app_startup::prepare` runs before GPUI. Like 0.9's single-instance lock, one launch at a time gets past the host lookup: a launch holds `<data>.launch.lock` until its window registers with the host, and a second launch waits up to 60 s for it, then hands itself to that window.
 
 - If a host answers on the data directory and already has a registered desktop window, the launch is handed to it (see [desktop-external-launch.md](desktop-external-launch.md)) and this process exits.
 - If a host answers without a desktop, the UI attaches to it. A desktop-started host of another build is replaced when it is idle. When it has shells or a window, the UI asks first ("Shellfox was updated. N terminals are still running in the previous version." with Stop them and continue, or Quit), as this build can't show them. The dialog is a message box on Windows, zenity, kdialog or xmessage on Linux, and osascript on macOS. A `host run` host is attached as is.
-- Otherwise the UI starts a host in the background and initializes meanwhile. Windows wait for the host to answer. Of two concurrent launches, one host wins the directory lock and the other exits.
+- Otherwise the UI starts a host in the background and initializes meanwhile. Windows wait for the host to answer. If the started host fails, as one does that loses the directory to another host, the UI uses whichever host answers within 3 s, and reports the failure only if none does.
 
 The host is spawned from `shellfox-cli` in `bin/` or beside the desktop binary. On Windows it gets a hidden console of its own and breaks away from the UI's job. On Linux it runs in its own systemd user scope with `OOMPolicy=continue`, falling back to a plain `setsid` child. The host prints one line, its readiness marker or its startup error.
 

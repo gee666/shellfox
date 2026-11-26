@@ -26,6 +26,7 @@ mod host_lost;
 mod host_process;
 mod input;
 mod integration;
+mod launch_lock;
 mod launch_runtime;
 #[cfg(target_os = "linux")]
 mod linux_fontconfig;
