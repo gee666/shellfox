@@ -123,6 +123,7 @@ impl Root {
                                 root.settings.panel = Some(panel);
                                 crate::launch_runtime::install(cx);
                                 root.watch_tab_activity(client.clone(), window, cx);
+                                root.watch_terminal_control(window, cx);
                                 let workspace = root.watch_workspace(client.clone(), window, cx);
                                 let power = root.watch_power(client.clone(), window, cx);
                                 let peers = root.watch_peer_inventory(client.clone(), window, cx);

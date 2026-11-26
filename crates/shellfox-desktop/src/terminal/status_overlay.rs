@@ -1,7 +1,7 @@
 use super::{Backend, TerminalView};
 use gpui::{AnyElement, Context, EventEmitter, IntoElement, div, prelude::*, px, rgb};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TerminalRecovery {
     Retry,
     TakeControl,

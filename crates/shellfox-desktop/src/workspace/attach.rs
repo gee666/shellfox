@@ -45,11 +45,14 @@ fn attach_due(
 }
 
 impl Root {
+    /// Shows the selected terminal and, as its last opener, takes its control.
     pub(crate) fn ensure_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.selected_tab() else {
             return;
         };
-        self.attach_local_view(id, None, window, cx);
+        let live = self.tabs.views.contains_key(&id) && !self.control_blocked(id, cx);
+        let recovery = (!live).then_some(TerminalRecovery::TakeControl);
+        self.attach_local_view(id, recovery, window, cx);
     }
 
     /// Called on every render: the selected terminal attaches without a click.
@@ -118,10 +121,8 @@ impl Root {
                         && tab.profile_id.as_str() == shellfox_service::AUTOMATION_PROFILE_ID
                 })
         });
-        let takeover = recovery == Some(TerminalRecovery::TakeControl);
-        if read_only && takeover {
-            return;
-        }
+        // A read-only view only watches, so it never takes control.
+        let takeover = recovery == Some(TerminalRecovery::TakeControl) && !read_only;
         if self.selected_tab() == Some(id) && !self.settings.open && self.dialogs.current.is_none()
         {
             self.hold_input(id, window, cx);
@@ -237,10 +238,22 @@ impl Root {
         view.update(cx, |view, cx| view.set_captured_settlement(marker, cx));
         // The tab strip and sidebar are cached panes; they show each terminal's phase and
         // failure, which change with a notify on the view, rendered or not.
-        let mut status = (view.read(cx).runtime_phase(), view.read(cx).is_failed());
-        cx.observe(&view, move |_, view, cx| {
-            let now = (view.read(cx).runtime_phase(), view.read(cx).is_failed());
+        let status_of = |view: &gpui::Entity<TerminalView>, cx: &gpui::App| {
+            let view = view.read(cx);
+            (
+                view.runtime_phase(),
+                view.is_failed(),
+                view.control_blocked(),
+            )
+        };
+        let mut status = status_of(&view, cx);
+        cx.observe_in(&view, window, move |root, view, window, cx| {
+            let now = status_of(&view, cx);
             if std::mem::replace(&mut status, now) != now {
+                // Control may have freed before this view saw it was lost.
+                if now.2 && root.tabs.views.get(&id) == Some(&view) {
+                    root.claim_selected(crate::workspace::Claim::Freed, window, cx);
+                }
                 cx.notify();
             }
         })

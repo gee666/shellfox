@@ -58,8 +58,19 @@ impl Root {
         self.tabs.activity.states = states;
         if previous.is_some() && previous != self.selected_tab() {
             self.ensure_terminal(window, cx);
+        } else {
+            self.claim_selected(crate::workspace::Claim::Freed, window, cx);
         }
         cx.notify();
+    }
+
+    /// The host reports that no view controls this running tab.
+    pub(crate) fn tab_control_free(&self, id: TabId) -> bool {
+        self.tabs
+            .activity
+            .states
+            .get(&id)
+            .is_some_and(|state| !state.closed && !state.controlled)
     }
 
     pub(crate) fn local_tab_viewable(&self, tab: &Tab) -> bool {

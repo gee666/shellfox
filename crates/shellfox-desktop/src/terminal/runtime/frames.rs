@@ -174,8 +174,11 @@ impl TerminalView {
             self.cancel_input(cx);
         }
         self.report_peer_focus(focused);
-        if let Backend::Attached(connection) = &self.backend {
-            connection.kick_frames();
+        match &self.backend {
+            Backend::Attached(connection) => connection.kick_frames(),
+            // Focusing a peer terminal shows it, so it takes control back.
+            Backend::Peer(_) if focused => self.take_peer_control(cx),
+            _ => {}
         }
     }
 }

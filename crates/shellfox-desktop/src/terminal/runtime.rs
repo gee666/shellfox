@@ -199,6 +199,10 @@ impl TerminalView {
             _ => {}
         }
     }
+    /// Another view took this terminal; it shows nothing until control returns.
+    pub(crate) fn control_blocked(&self) -> bool {
+        self.control_blocked
+    }
     fn block_control(&mut self) {
         self.control_blocked = true;
         self.status = "Terminal controlled by another view".into();

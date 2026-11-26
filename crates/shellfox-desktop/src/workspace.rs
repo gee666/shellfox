@@ -1,5 +1,7 @@
 use crate::root::Root;
 mod attach;
+mod control;
+pub(crate) use control::Claim;
 mod reply;
 mod selection;
 mod state;

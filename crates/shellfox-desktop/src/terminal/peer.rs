@@ -27,6 +27,8 @@ pub(super) struct Peer {
     connection: u64,
     frozen: bool,
     visible: bool,
+    /// Shown since the last attach: a blocked answer takes control, as the last opener.
+    claim: bool,
     frontend_replies: bool,
     pointer: input::Pointer,
     held_keys: shellfox_ghostty_vt::key::HeldKeys,
@@ -68,6 +70,7 @@ impl Peer {
             connection: 0,
             frozen: false,
             visible: true,
+            claim: true,
             frontend_replies,
             pointer: input::Pointer::default(),
             held_keys: Default::default(),
@@ -179,6 +182,7 @@ impl TerminalView {
         }
         if let Some(peer) = self.peer_mut() {
             peer.visible = visible;
+            peer.claim = visible;
             peer.detach_failed = false;
         }
         self.poll_peer(cx);

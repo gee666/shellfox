@@ -94,6 +94,7 @@ impl TerminalView {
                 };
                 peer.in_flight = false;
                 let state = peer.binding.state();
+                let mut claim = false;
                 if state.connection_id == connection && state.status == ConnectionStatus::Connected
                 {
                     match result {
@@ -101,6 +102,8 @@ impl TerminalView {
                             if let Err(error) = peer.attach(attachment, &colors) {
                                 peer.unavailable(error.to_string());
                             }
+                            claim = std::mem::take(&mut peer.claim)
+                                && matches!(peer.state, State::Blocked(_));
                             view.refresh_peer_screen();
                         }
                         Ok(Reply::Success(Applied::Detached)) => {
@@ -114,6 +117,9 @@ impl TerminalView {
                         Err(error) => peer.unavailable(error.to_string()),
                     }
                 }
+                if claim {
+                    view.take_peer_control(cx);
+                }
                 view.poll_peer(cx);
                 cx.notify();
             });
@@ -122,7 +128,7 @@ impl TerminalView {
         cx.notify();
     }
 
-    pub(super) fn take_peer_control(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::terminal) fn take_peer_control(&mut self, cx: &mut Context<Self>) {
         let Some(peer) = self.peer_mut() else {
             return;
         };
