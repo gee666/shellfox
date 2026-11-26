@@ -24,6 +24,9 @@ struct Script {
     polls: VecDeque<Vec<Value>>,
     /// Method and payload of every request.
     seen: Vec<(String, Value)>,
+    /// Polls that time out, as against a stalled peer, before the scripted ones.
+    stalls: usize,
+    pairs: usize,
 }
 #[derive(Clone, Default)]
 struct Peer(Arc<Mutex<Script>>);
@@ -46,7 +49,12 @@ impl OutboundTransport for Peer {
                 let mut script = self.0.lock().unwrap();
                 match endpoint {
                     Endpoint::Pair => {
-                        return ok(json!({ "paired": true, "terminalControl": "exclusive-v1" }))
+                        script.pairs += 1;
+                        return ok(json!({ "paired": true, "terminalControl": "exclusive-v1" }));
+                    }
+                    Endpoint::Events if script.stalls > 0 => {
+                        script.stalls -= 1;
+                        return Err(TransportError::Deadline);
                     }
                     Endpoint::Events => script.polls.pop_front(),
                     _ => {
@@ -219,5 +227,43 @@ async fn a_held_terminal_is_taken_only_with_ctrl_t_and_exit_ends_attach() {
             "resizeTerminal",
             "detachTerminal"
         ]
+    );
+}
+
+#[tokio::test]
+async fn a_peer_that_stops_answering_is_re_paired_and_replayed() {
+    let peer = Peer::default();
+    {
+        let mut script = peer.0.lock().unwrap();
+        script.attachments.push_back(owned(2, 1, "before"));
+        script.attachments.push_back(owned(2, 3, "after"));
+        script.stalls = 1;
+        script.polls.push_back(vec![json!({
+            "type": "exit", "tabId": TAB, "generation": GENERATION, "controlEpoch": 2,
+            "exitCode": 0, "signal": null, "lastSequence": 3,
+        })]);
+    }
+    let client = paired(&peer).await;
+    let mut output = Vec::new();
+    let input = Box::pin(futures_util::stream::pending::<std::io::Result<Event>>());
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        run(&client, TAB.parse().unwrap(), (80, 24), &mut output, input),
+    )
+    .await
+    .expect("the attach resumes and ends with the shell")
+    .unwrap();
+    let screen = String::from_utf8_lossy(&output);
+    assert!(
+        screen.contains("before") && screen.contains("after"),
+        "{screen}"
+    );
+    assert_eq!(peer.0.lock().unwrap().pairs, 2);
+    assert_eq!(
+        methods(&peer)
+            .iter()
+            .filter(|m| *m == "attachTerminal")
+            .count(),
+        2
     );
 }

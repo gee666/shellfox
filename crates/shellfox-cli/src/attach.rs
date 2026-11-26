@@ -8,13 +8,20 @@ use crossterm::{
     terminal,
 };
 use futures_util::StreamExt;
+use shellfox_client::{
+    protocol::{ErrorCode, TransportError},
+    ClientError,
+};
 use shellfox_core::TabId;
 use shellfox_service::{
-    local::LocalClient,
+    local::{HostClosed, LocalClient, LocalRequestFailure},
     local_api::{LocalApiRequest, LocalApiResponse, RecoveryCapability},
     Attachment, TerminalOutput,
 };
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    time::Duration,
+};
 
 const PASTE_CHUNK: usize = 16 * 1024;
 
@@ -28,6 +35,19 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
         "Recovery restores the visible screen only, not shell/TUI modes or scrollback history."
     );
     let _terminal = TerminalGuard::enter()?;
+    let client = &*client;
+    // A host that stops answering (a stalled disk, a frozen process) is waited
+    // for as long as it runs. Only its exit ends the view.
+    tokio::select! {
+        result = view(client, tab, takeover) => result,
+        closed = client.closed() => match closed {
+            HostClosed::Stopped => bail!("The Shellfox host stopped."),
+            HostClosed::Lost => bail!("The Shellfox host was lost."),
+        },
+    }
+}
+
+async fn view(client: &LocalClient, tab: TabId, takeover: bool) -> Result<()> {
     let attachment = match client
         .execute(LocalApiRequest::Attach { tab, takeover })
         .await?
@@ -39,16 +59,18 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
     resize(client, tab, &attachment, cols, rows).await?;
     let mut queries = QueryFilter::default();
     let mut last_sequence = recover(client, tab, &attachment, &mut queries).await?;
-    let client = &*client;
     let mut events = EventStream::new();
     let mut keys = keys::Keys::default();
     // The host holds each output read until the terminal has something new,
     // so keys and output are awaited together instead of polled.
     let poll = || {
-        client.execute(LocalApiRequest::Poll {
-            tab,
-            attachment: attachment.clone(),
-        })
+        patient(
+            client,
+            LocalApiRequest::Poll {
+                tab,
+                attachment: attachment.clone(),
+            },
+        )
     };
     let mut output = None;
     loop {
@@ -74,13 +96,13 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
                         for text in shellfox_ghostty_vt::paste_chunks(&text, PASTE_CHUNK) {
                             let attachment = attachment.clone();
                             let paste = LocalApiRequest::Paste { tab, attachment, text: text.to_owned() };
-                            done(client.execute(paste).await?)?;
+                            input(client, paste).await?;
                         }
                         continue;
                     }
                     Input::Ignore => continue,
                 };
-                done(client.execute(request).await?)?;
+                input(client, request).await?;
                 continue;
             }
             reply = pending => reply?,
@@ -132,16 +154,57 @@ async fn resize(
     if cols == 0 || rows == 0 {
         return Ok(());
     }
-    done(
-        client
-            .execute(LocalApiRequest::Resize {
-                tab,
-                attachment: attachment.clone(),
-                cols,
-                rows,
-            })
-            .await?,
+    let request = LocalApiRequest::Resize {
+        tab,
+        attachment: attachment.clone(),
+        cols,
+        rows,
+    };
+    done(patient(client, request).await?)
+}
+
+/// Sends a request that is safe to repeat (a read, an acknowledgement, a resize)
+/// until a stalled host answers it.
+async fn patient(client: &LocalClient, request: LocalApiRequest) -> Result<LocalApiResponse> {
+    let mut delay = Duration::from_millis(100);
+    loop {
+        match client.execute(request.clone()).await {
+            Err(error) if stalled(&error) => {
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(Duration::from_secs(2));
+            }
+            result => return result,
+        }
+    }
+}
+
+/// Sends keys or a paste once. Repeating input the host may already have
+/// written could type it twice, so input a stalled or busy host didn't take
+/// is dropped and the view goes on. Losing control ends the view.
+async fn input(client: &LocalClient, request: LocalApiRequest) -> Result<()> {
+    match client.execute(request).await {
+        Ok(response) => done(response),
+        Err(error) if controlled_elsewhere(&error) => Err(error),
+        Err(error) if stalled(&error) || error.downcast_ref::<LocalRequestFailure>().is_some() => {
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn stalled(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<ClientError>(),
+        Some(ClientError::Transport(
+            TransportError::Deadline | TransportError::Unavailable
+        ))
     )
+}
+
+fn controlled_elsewhere(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<LocalRequestFailure>()
+        .is_some_and(|failure| failure.error.code == ErrorCode::TerminalControlRequired)
 }
 
 async fn recover(
@@ -150,13 +213,11 @@ async fn recover(
     attachment: &Attachment,
     queries: &mut QueryFilter,
 ) -> Result<u64> {
-    match client
-        .execute(LocalApiRequest::Recover {
-            tab,
-            attachment: attachment.clone(),
-        })
-        .await?
-    {
+    let request = LocalApiRequest::Recover {
+        tab,
+        attachment: attachment.clone(),
+    };
+    match patient(client, request).await? {
         LocalApiResponse::Recovery {
             bytes,
             last_sequence,
@@ -180,15 +241,12 @@ async fn acknowledge(
     attachment: &Attachment,
     sequence: u64,
 ) -> Result<()> {
-    done(
-        client
-            .execute(LocalApiRequest::Acknowledge {
-                tab,
-                attachment: attachment.clone(),
-                sequence,
-            })
-            .await?,
-    )
+    let request = LocalApiRequest::Acknowledge {
+        tab,
+        attachment: attachment.clone(),
+        sequence,
+    };
+    done(patient(client, request).await?)
 }
 
 fn done(response: LocalApiResponse) -> Result<()> {

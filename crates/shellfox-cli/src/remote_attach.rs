@@ -2,6 +2,8 @@
 //! v1 view. Output streams from the peer's event poll; keys and pastes are
 //! encoded by a local Ghostty terminal that follows the remote modes, as the
 //! SSH client does. Input is never retried, and only the owner may write.
+//! A peer that stops answering is re-paired with the client's backoff and
+//! the screen replayed; input typed meanwhile is dropped.
 use crate::{
     keys::{Encoded, Encoder},
     output::CliError,
@@ -10,7 +12,7 @@ use crate::{
 use anyhow::Result;
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 use futures_util::{Stream, StreamExt};
-use shellfox_client::{Client, EventDisposition, ViewCursor};
+use shellfox_client::{Client, ConnectionStatus, EventDisposition, ViewCursor};
 use shellfox_core::TabId;
 use shellfox_protocol::{
     AcknowledgeTerminal, AttachTerminal, DetachTerminal, Generation, HostEvent, OutboundTransport,
@@ -82,6 +84,26 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
     fn connection(&self) -> u64 {
         self.client.state().connection_id
     }
+    /// A failed request that also dropped the connection: the peer (or the
+    /// local host carrying its traffic) stopped answering.
+    fn disconnected(&self) -> bool {
+        self.client.state().status != ConnectionStatus::Connected
+    }
+    /// Pairs again until the peer answers, waiting as the client advises.
+    /// A peer that rejects this client ends the attach.
+    async fn reconnect(&self) -> Result<()> {
+        loop {
+            let state = self.client.state();
+            if state.status == ConnectionStatus::Connected {
+                return Ok(());
+            }
+            let Some(delay) = state.retry_after else {
+                return Err(state.last_error.map_or_else(lost, CliError::app));
+            };
+            tokio::time::sleep(delay).await;
+            let _ = self.client.pair().await;
+        }
+    }
     async fn send<R: Request>(&self, request: &R) -> Result<R::Response> {
         value(self.client.execute(request).await.map_err(|_| lost())?)
     }
@@ -92,6 +114,8 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
         };
         match self.send(&request).await {
             Err(error) if control_required(&error) => self.view.borrow_mut().blocked(),
+            // Not retried: the output stream reconnects and replays the screen.
+            Err(_) if self.disconnected() => Ok(()),
             result => result.map(|_| ()),
         }
     }
@@ -186,7 +210,15 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
     /// Streams the peer's terminal events until the shell exits.
     async fn output(&self) -> Result<()> {
         loop {
-            let events = value(self.client.poll().await.map_err(|_| lost())?)?.events;
+            let events = match self.client.poll().await {
+                Ok(Reply::Success(response)) => response.events,
+                _ if self.disconnected() => {
+                    self.resume().await?;
+                    continue;
+                }
+                Ok(Reply::Failure(error)) => return Err(CliError::app(error)),
+                Err(_) => return Err(lost()),
+            };
             for event in events {
                 let HostEvent::Terminal { event } = event else {
                     continue;
@@ -198,6 +230,17 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
                     Next::Reattach => self.attach().await?,
                     Next::Finished => return Ok(()),
                 }
+            }
+        }
+    }
+
+    /// Reconnects and attaches again, until a fresh attach replays the screen.
+    async fn resume(&self) -> Result<()> {
+        loop {
+            self.reconnect().await?;
+            match self.attach().await {
+                Err(_) if self.disconnected() => continue,
+                result => return result,
             }
         }
     }
