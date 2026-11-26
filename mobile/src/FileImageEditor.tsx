@@ -5,6 +5,7 @@ import { Note, useUi } from './ui';
 import { FileIconButton } from './FileIconButton';
 import { allowImageEditorNavigation, type FileImageEditorProps, type ImageEditorCommand } from '../../src/shared/image-editor-protocol';
 import { useImageEditor } from '../../src/shared/use-image-editor';
+import { useRecoveringWebView } from './useRecoveringWebView';
 
 export type { FileImageEditorProps, ImageEditorFileAction } from '../../src/shared/image-editor-protocol';
 export { discardImageEditorDraft, getImageDraftScope } from '../../src/shared/image-editor-drafts';
@@ -43,6 +44,9 @@ function ImageEditorSession({ restart, ...props }: FileImageEditorProps & { rest
   }, [receive]);
   const source = useMemo(() => ({ html: editor.document ?? '', baseUrl: 'about:blank' }), [editor.document]);
   const showWebView = !!editor.document && !fatalMessage;
+  // A view that never loads holds no edits yet, so it is replaced. A lost
+  // process after that, or the last failed attempt, uses the Reopen fallback.
+  const view = useRecoveringWebView(source, { crash: 'give-up', active: showWebView, onGiveUp: stopped });
   const message = editor.error ?? fatalMessage;
   return <View style={[styles.grow, { position: 'relative' }]}>
     {!showWebView && (props.onFileAction || fatalMessage) && <View testID="image-editor-fallback-toolbar"
@@ -57,7 +61,7 @@ function ImageEditorSession({ restart, ...props }: FileImageEditorProps & { rest
     {message && (showWebView ? <View testID="image-editor-error-overlay" pointerEvents="none"
       style={{ position: 'absolute', bottom: 6, left: 6, right: 6, zIndex: 2, maxHeight: '50%', overflow: 'hidden',
         padding: 6, borderRadius: 3, backgroundColor: colors.panel }}><Note error>{message}</Note></View> : <Note error>{message}</Note>)}
-    {showWebView && <WebView ref={web} testID="image-editor" accessibilityLabel="Image editing canvas"
+    {showWebView && <WebView key={view.key} ref={web} testID="image-editor" accessibilityLabel="Image editing canvas"
       style={[styles.grow, { backgroundColor: colors.bg }]} source={source} onMessage={onMessage}
       originWhitelist={['*']}
       onShouldStartLoadWithRequest={request => allowImageEditorNavigation(request.url)}
@@ -86,8 +90,7 @@ function ImageEditorSession({ restart, ...props }: FileImageEditorProps & { rest
       automaticallyAdjustContentInsets={false}
       contentInsetAdjustmentBehavior="never"
       onError={event => editor.fail(event.nativeEvent.description)}
-      onContentProcessDidTerminate={stopped}
-      onRenderProcessGone={stopped}
+      {...view.handlers}
     />}
   </View>;
 }

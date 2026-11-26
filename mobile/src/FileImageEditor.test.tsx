@@ -7,6 +7,7 @@ import { success } from '../../src/shared/contracts';
 import type { EditableImage, FileImageEditorProps } from '../../src/shared/image-editor-protocol';
 import { FILE_IMAGE_BYTES } from '../../src/shared/file-schemas';
 import { FileImageEditor, discardImageEditorDraft, getImageDraftScope } from './FileImageEditor';
+import { WEBVIEW_LOAD_TIMEOUT_MS } from './useRecoveringWebView';
 
 interface NativeMessage { nativeEvent: { data: string; url: string } }
 interface NativeWebProps {
@@ -17,6 +18,7 @@ interface NativeWebProps {
   onError: (event: { nativeEvent: { description: string } }) => void;
   onContentProcessDidTerminate: () => void;
   onRenderProcessGone: () => void;
+  onLoad: () => void;
   javaScriptCanOpenWindowsAutomatically: boolean; allowFileAccess: boolean; domStorageEnabled: boolean;
   allowUniversalAccessFromFileURLs: boolean; sharedCookiesEnabled: boolean; mixedContentMode: string;
 }
@@ -228,4 +230,24 @@ it('recovers a fatal view when a new image generation supplies a fresh document'
 it('restores edits after the native view unmounts', () => {
   const f = setup(); f.send(f.state); f.unmount();
   const reopened = setup(); expect(reopened.web.source.html).toContain('"operations":[{"type":"rotate","direction":"left"}]');
+});
+it('replaces a canvas that never loads, then falls back to Reopen image editor', () => {
+  vi.useFakeTimers();
+  try {
+    const f = setup({ onFileAction: vi.fn() });
+    const first = screen.getByTestId('native-image-editor');
+    act(() => vi.advanceTimersByTime(WEBVIEW_LOAD_TIMEOUT_MS));
+    const second = screen.getByTestId('native-image-editor');
+    expect(second).not.toBe(first); expect(currentWeb().source).toBe(f.web.source);
+    // Each replacement starts its own timer after React commits it.
+    act(() => vi.advanceTimersByTime(WEBVIEW_LOAD_TIMEOUT_MS));
+    act(() => vi.advanceTimersByTime(WEBVIEW_LOAD_TIMEOUT_MS));
+    expect(screen.queryByTestId('native-image-editor')).not.toBeInTheDocument();
+    expect(screen.getByTestId('image-editor-fallback-toolbar')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen image editor' }));
+    act(() => currentWeb().onLoad());
+    const loaded = screen.getByTestId('native-image-editor');
+    act(() => vi.advanceTimersByTime(WEBVIEW_LOAD_TIMEOUT_MS * 3));
+    expect(screen.getByTestId('native-image-editor')).toBe(loaded);
+  } finally { vi.useRealTimers(); }
 });

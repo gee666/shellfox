@@ -2,7 +2,8 @@
 import React, { type ReactNode } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { FilePreview, PREVIEW_LOAD_TIMEOUT_MS } from './FilePreview';
+import { FilePreview } from './FilePreview';
+import { WEBVIEW_LOAD_TIMEOUT_MS } from './useRecoveringWebView';
 
 interface NativeWebProps {
   accessibilityValue: { text: string };
@@ -35,7 +36,7 @@ it('reports natively when the preview document has loaded, and again for new con
   expect(web().accessibilityValue).toEqual({ text: 'Loading' });
   act(() => web().onLoad());
   expect(web().accessibilityValue).toEqual({ text: 'Loaded' });
-  act(() => vi.advanceTimersByTime(PREVIEW_LOAD_TIMEOUT_MS * 2));
+  act(() => vi.advanceTimersByTime(WEBVIEW_LOAD_TIMEOUT_MS * 2));
   expect(mounts).toBe(1);
   view.rerender(<FilePreview text="second" kind="code" onError={() => undefined} />);
   expect(web().accessibilityValue).toEqual({ text: 'Loading' });
@@ -44,12 +45,12 @@ it('reports natively when the preview document has loaded, and again for new con
 it('replaces a WebView that never loads, then offers a retry instead of a blank page', () => {
   const onError = vi.fn();
   render(<FilePreview text="stuck" kind="code" onError={onError} />);
-  act(() => vi.advanceTimersByTime(PREVIEW_LOAD_TIMEOUT_MS));
+  act(() => vi.advanceTimersByTime(WEBVIEW_LOAD_TIMEOUT_MS));
   expect(mounts).toBe(2);
-  act(() => vi.advanceTimersByTime(PREVIEW_LOAD_TIMEOUT_MS));
+  act(() => vi.advanceTimersByTime(WEBVIEW_LOAD_TIMEOUT_MS));
   expect(mounts).toBe(3);
   expect(onError).not.toHaveBeenCalled();
-  act(() => vi.advanceTimersByTime(PREVIEW_LOAD_TIMEOUT_MS));
+  act(() => vi.advanceTimersByTime(WEBVIEW_LOAD_TIMEOUT_MS));
   expect(onError).toHaveBeenCalledWith('The preview did not load.');
   expect(screen.getByRole('status').textContent).toBe('Preview did not load.');
   fireEvent.click(screen.getByText('Retry'));
