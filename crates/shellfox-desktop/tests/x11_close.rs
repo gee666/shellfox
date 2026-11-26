@@ -94,11 +94,7 @@ fn closing_the_x11_window_quits_without_a_crash_or_a_relaunch() {
     let mut ui = Ui(desktop.command(&[]).spawn().unwrap());
     let host = Host(&desktop);
     desktop.wait_registered(Some(&mut ui));
-    let status = desktop
-        .command(&["add", folder.to_str().unwrap()])
-        .status()
-        .unwrap();
-    assert!(status.success(), "launch forwarding failed: {status}");
+    desktop.forward(&["add", folder.to_str().unwrap()]);
     let window = window();
     wait_for_shell(&window, &folder, &mut ui);
     delete_window(&window);

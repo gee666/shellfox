@@ -60,11 +60,7 @@ fn tab_and_shift_tab_reach_the_focused_x11_terminal() {
     let mut ui = Ui(desktop.command(&[]).spawn().unwrap());
     let host = Host(&desktop);
     desktop.wait_registered(Some(&mut ui));
-    let status = desktop
-        .command(&["add", folder.to_str().unwrap()])
-        .status()
-        .unwrap();
-    assert!(status.success(), "launch forwarding failed: {status}");
+    desktop.forward(&["add", folder.to_str().unwrap()]);
     let window = window();
     wait_for_shell(&window, &folder, &mut ui);
     // (kitty flags, Tab bytes, Shift+Tab bytes) as hex.

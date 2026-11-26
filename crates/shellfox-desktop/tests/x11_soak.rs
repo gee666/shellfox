@@ -33,11 +33,7 @@ fn an_x11_window_survives_a_minute_of_work() {
     let folders = [scratch.as_path(), temp.as_path()];
     // A fresh data dir opens with no sessions, so there is no shell to type
     // into until a launch adds the first tab.
-    let status = desktop
-        .command(&["add", scratch.to_str().unwrap()])
-        .status()
-        .unwrap();
-    assert!(status.success(), "launch forwarding failed: {status}");
+    desktop.forward(&["add", scratch.to_str().unwrap()]);
     wait_for_shell(&window, &scratch, &mut ui);
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut round = 0;
@@ -60,8 +56,7 @@ fn an_x11_window_survives_a_minute_of_work() {
         // A desktop launch adds a tab and switches to it.
         if round % 3 == 0 && round < 15 {
             let folder = folders[round % 2].to_str().unwrap();
-            let status = desktop.command(&["add", folder]).status().unwrap();
-            assert!(status.success(), "launch forwarding failed: {status}");
+            desktop.forward(&["add", folder]);
             alive(&mut ui, "a new tab");
             // The next keys must reach the new tab's shell, not race its start.
             wait_for_shell(&window, &scratch, &mut ui);

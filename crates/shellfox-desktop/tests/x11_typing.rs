@@ -22,11 +22,7 @@ fn two_thousand_fast_keys_reach_the_program_in_order() {
     let mut ui = Ui(desktop.command(&[]).spawn().unwrap());
     let host = Host(&desktop);
     desktop.wait_registered(Some(&mut ui));
-    let status = desktop
-        .command(&["add", folder.to_str().unwrap()])
-        .status()
-        .unwrap();
-    assert!(status.success(), "launch forwarding failed: {status}");
+    desktop.forward(&["add", folder.to_str().unwrap()]);
     let window = window();
     wait_for_shell(&window, &folder, &mut ui);
     let file = folder.join("typed.txt");
