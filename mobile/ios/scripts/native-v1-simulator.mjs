@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -222,5 +222,7 @@ try {
     console.error('Host cleanup also failed:', error);
   } finally {
     await stop(control);
+    // The host log is evidence for slow or failed peer requests.
+    if (existsSync(`${data}.logs`)) cpSync(`${data}.logs`, path.join(evidence, 'host.logs'), { recursive: true });
   }
 }

@@ -99,10 +99,16 @@ final class NativeV1UITests: XCTestCase {
     XCTAssertTrue(file.waitForExistence(timeout: 30), app.debugDescription)
     file.tap()
     let edit = app.buttons["files-mode"]
-    // A Files request can wait behind the current long poll before it starts.
-    XCTAssertTrue(edit.waitForExistence(timeout: 65), app.debugDescription)
+    XCTAssertTrue(edit.waitForExistence(timeout: 30), app.debugDescription)
+    // The preview mounts only once the host has returned the file. File reads
+    // run beside the terminal poll, so this takes seconds, not a poll period.
+    let preview = app.descendants(matching: .any)["file-preview"].firstMatch
+    wait("the host returned the file") { preview.exists }
+    wait("the code preview finished loading") { self.value(preview) == "Loaded" }
+    // WebKit exposes the page from its own process. On a cold simulator that
+    // process's accessibility can come up 20-40 s after the page has loaded.
     let renderedFile = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "initial fixture text")).firstMatch
-    XCTAssertTrue(renderedFile.waitForExistence(timeout: 30), app.debugDescription)
+    wait("the preview text is exposed to accessibility", timeout: 90) { renderedFile.exists }
     XCTAssertEqual(edit.label, "Edit source")
     wait("the file mode button is interactive") { edit.isEnabled && edit.isHittable }
     edit.tap()

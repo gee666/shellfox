@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useUi } from './ui';
@@ -17,14 +17,20 @@ export function FilePreview({ text, kind, path, preparedMarkdown, wrapLines = tr
   const source = useMemo(() => ({
     html: filePreviewDocument(text, kind, colors.bg, colors.text, preparedMarkdown, path, wrapLines), baseUrl: 'about:blank',
   }), [text, kind, colors.bg, colors.text, preparedMarkdown, path, wrapLines]);
+  // The page lives in a WebKit process whose accessibility can come up long
+  // after the document. Report the load natively so a reader knows it is ready.
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => setLoaded(false), [source]);
   return (
     <View style={styles.grow}>
       <WebView
         ref={web}
         testID="file-preview"
         accessibilityLabel={kind === 'html' ? 'HTML preview' : kind === 'svg' ? 'SVG preview' : kind === 'code' ? 'Code preview' : kind === 'image' ? 'Image preview' : 'Markdown preview'}
+        accessibilityValue={{ text: loaded ? 'Loaded' : 'Loading' }}
         style={[styles.grow, { backgroundColor: colors.bg }]}
         source={source}
+        onLoadEnd={() => setLoaded(true)}
         // Do not attach onMessage. File scripts must never receive a native bridge.
         originWhitelist={['*']}
         onShouldStartLoadWithRequest={request => allowFilePreviewNavigation(request.url)}
