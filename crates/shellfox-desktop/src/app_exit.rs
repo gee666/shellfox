@@ -19,7 +19,14 @@ static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 /// On macOS every other terminate request goes through the close confirmation.
 pub(crate) fn quit(cx: &mut App) {
     QUIT_REQUESTED.store(true, Ordering::SeqCst);
-    cx.quit();
+    // On Linux GPUI starts its event loop after the launch callback and the
+    // start clears an earlier stop, so a quit from that callback (a forwarded
+    // launch, a startup error) was lost and the process hung. A task runs
+    // inside the loop on every OS.
+    cx.spawn(async |cx| {
+        let _ = cx.update(|cx| cx.quit());
+    })
+    .detach();
 }
 
 /// False when the event loop ended on its own, such as on a lost display.
