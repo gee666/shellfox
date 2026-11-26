@@ -20,3 +20,10 @@ test('skips unavailable devices and fails when none fits', () => {
   const devices = { 'com.apple.CoreSimulator.SimRuntime.iOS-26-1': [device('iPad Pro', 'ipad-pro', false)] };
   assert.throws(() => template(devices, 'iPad'), /No available iPad simulator/);
 });
+
+test('finds a device state across runtimes', async () => {
+  const { deviceState } = await import('./simulator.mjs');
+  const list = { 'com.apple.CoreSimulator.SimRuntime.iOS-26-1': [{ udid: 'A', state: 'Booted' }, { udid: 'B', state: 'Shutdown' }] };
+  assert.equal(deviceState(list, 'B'), 'Shutdown');
+  assert.equal(deviceState(list, 'C'), undefined);
+});

@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { fileHash, root, run, scratchRoot } from '../../../scripts/rust-package-common.mjs';
 import { listenerStopped, requestListenerStop } from '../../../scripts/confirmed-network-outage.mjs';
-import { freshSimulator, removeSimulator } from './simulator.mjs';
+import { waitForBoot } from './simulator.mjs';
 
 const execute = promisify(execFile);
 const port = '42761';
@@ -25,6 +25,24 @@ const sharedEnv = {
 };
 
 /** `log` also keeps the process's stderr as a results file. */
+let stallCaptured = false;
+/** Main-thread stack of the app under test, and the busiest runner processes. */
+function captureStall() {
+  if (stallCaptured) return;
+  stallCaptured = true;
+  const save = (name, command, args) => {
+    const out = createWriteStream(path.join(evidence, name));
+    const proc = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stdout.pipe(out); proc.stderr.pipe(out);
+    proc.once('error', error => out.end(String(error)));
+    setTimeout(() => proc.kill('SIGKILL'), 30_000).unref();
+  };
+  console.log('XCTest is retrying a UI query; sampling the app and the runner');
+  save('stall-top.txt', '/usr/bin/top', ['-l', '2', '-o', 'cpu', '-n', '15', '-stats', 'pid,command,cpu,state,time']);
+  save('stall-app-sample.txt', '/bin/sh', ['-c',
+    'pid=$(pgrep -f "iosnativev1fixture.app/" | head -1); test -n "$pid" && /usr/bin/sample "$pid" 3']);
+}
+
 function child(command, args, log) {
   const proc = spawn(command, args, {
     cwd: root, env: { ...process.env, ...sharedEnv }, stdio: ['ignore', 'pipe', log ? 'pipe' : 'inherit'],
@@ -39,6 +57,9 @@ function child(command, args, log) {
     state.output = (state.output + bytes).slice(-20_000);
     state.startedTest ||= state.output.includes("testNativeV1OnOwnedRustHost]' started.");
     state.observedOutage ||= state.output.includes("Added attachment named '04-native-host-offline'");
+    // XCTest retries a query that the app did not answer. Record what the app
+    // and the runner were doing while it is still stuck.
+    if (/\(retry \d+\)|Timed out while evaluating UI query/.test(String(bytes))) captureStall();
     process.stdout.write(bytes);
   });
   proc.once('close', (code, signal) => { state.finished = true; state.status = code ?? signal; });
@@ -106,7 +127,11 @@ for (const [name, source] of Object.entries(commands)) {
   writeFileSync(path.join(project, `.${name}`), source, { flag: 'wx', mode: 0o600 });
 }
 const sim = (...args) => command('xcrun', ['simctl', ...args]);
-let control, host, tests, simulator;
+let control, host, tests;
+// The workflow creates this iPad at the start of the job and deletes it at
+// the end; the native contracts step uses it first. Rotation needs an iPad.
+const simulator = process.env.SHELLFOX_IOS_SIMULATOR;
+assert.ok(simulator, 'SHELLFOX_IOS_SIMULATOR must name the shared iPad simulator');
 let failure;
 try {
   control = child(path.join(work, 'testcontrol'), [port]);
@@ -133,14 +158,13 @@ try {
   // verifies echo, and detaches without leaving a controller behind.
   command('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'terminals', 'attach', tab.id],
     { timeout: 60_000, stdio: 'inherit' });
-  // Rotation needs an iPad.
-  simulator = await freshSimulator('iPad');
-  console.log(`Booted a fresh ${simulator.name} (${simulator.udid})`);
+  await waitForBoot(simulator);
+  console.log(`The shared iPad simulator ${simulator} is ready`);
   const plans = readdirSync(products).filter(name => name.startsWith('ShellfoxNativeV1UI') && name.endsWith('.xctestrun'));
   assert.equal(plans.length, 1, `Expected one built UI test plan, found ${plans.join(', ')}`);
   console.log('Starting XCTest on the owned iPad');
   tests = child('xcodebuild', ['test-without-building', '-xctestrun', path.join(products, plans[0]),
-    '-destination', `platform=iOS Simulator,id=${simulator.udid},arch=arm64`,
+    '-destination', `platform=iOS Simulator,id=${simulator},arch=arm64`,
     '-resultBundlePath', result, '-parallel-testing-enabled', 'NO']);
   // Simulator install and XCTest startup can take minutes. Do not compete for
   // runner resources by launching CLI status queries before the test is running.
@@ -208,11 +232,8 @@ try {
   } catch { console.error('iPad fixture file was unavailable at failure'); }
   throw error;
 } finally {
-  if (simulator) {
-    try { sim('io', simulator.udid, 'screenshot', path.join(evidence, 'last-screen.png')); } catch { /* Best effort. */ }
-  }
+  try { sim('io', simulator, 'screenshot', path.join(evidence, 'last-screen.png')); } catch { /* Best effort. */ }
   await stop(tests);
-  if (simulator) removeSimulator(simulator.udid);
   try {
     if (host && !host.finished) {
       try {

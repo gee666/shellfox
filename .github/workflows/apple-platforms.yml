@@ -232,6 +232,12 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.22.1
+      - name: Create the job's iPad simulator and start its first boot
+        id: simulator
+        # One device serves the native contracts and the UI fixture. Its first
+        # boot migrates data for several minutes, so it runs during the builds.
+        run: echo "udid=$(node mobile/ios/scripts/simulator.mjs create iPad)" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 5
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.27.3'
@@ -320,19 +326,20 @@ jobs:
         with:
           name: ios-simulator-build-failure
           path: tmp/ios-app-build.log
-      - name: Run native contracts on an available iPhone simulator
+      - name: Run native contracts on the job's simulator
         id: native-contracts
         shell: bash
+        env:
+          simulator: ${{ steps.simulator.outputs.udid }}
         run: |
-          simulator=$(node mobile/ios/scripts/simulator.mjs create iPhone)
-          # Do not keep the iPhone running while the iPad UI fixture boots.
-          trap 'node mobile/ios/scripts/simulator.mjs delete "$simulator"' EXIT
+          node mobile/ios/scripts/simulator.mjs wait "$simulator"
           xcodebuild -workspace mobile/ios/ShellfoxMobile.xcworkspace \
             -scheme ShellfoxRustNative -sdk iphonesimulator -configuration Debug \
             -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath tmp/ios-derived \
             -resultBundlePath tmp/ios-native-tests.xcresult -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO test 2>&1 | tee tmp/ios-native-tests.log
-        timeout-minutes: 25
+        # Up to 20 minutes of first boot if the builds were cached, then the tests.
+        timeout-minutes: 40
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: failure() && steps.native-contracts.outcome == 'failure'
         with:
@@ -368,6 +375,8 @@ jobs:
         timeout-minutes: 25
       - name: Native v1 pairing, PTY, rotation, live outage, foreground recovery and file save
         if: ${{ !cancelled() && steps.ui-app.outcome == 'success' }}
+        env:
+          SHELLFOX_IOS_SIMULATOR: ${{ steps.simulator.outputs.udid }}
         run: node mobile/ios/scripts/native-v1-simulator.mjs
         timeout-minutes: 30
       - name: Export UI screenshots from the XCTest result
@@ -388,6 +397,10 @@ jobs:
             tmp/ios-native-v1-results/
             tmp/ios-rust-build/*-link.txt
           if-no-files-found: ignore
+      - name: Delete the job's simulator
+        if: always() && steps.simulator.outputs.udid != ''
+        run: node mobile/ios/scripts/simulator.mjs delete "${{ steps.simulator.outputs.udid }}"
+        timeout-minutes: 5
       - name: Remove Cargo build directory
         if: always()
         run: rm -rf -- "$CARGO_TARGET_DIR"
