@@ -41,7 +41,10 @@ export async function freshSimulator(family) {
       }
       console.warn(`Simulator boot attempt ${attempt} failed; erasing and retrying: ${error.message}`);
       try { simctl(['shutdown', udid]); } catch { /* It may never have booted. */ }
-      simctl(['erase', udid], 120_000);
+      // A boot that hangs usually means CoreSimulatorService itself is stuck on
+      // this runner; launchd restarts it on the next simctl call.
+      try { run('/usr/bin/killall', ['-9', 'com.apple.CoreSimulator.CoreSimulatorService']); } catch { /* Not running. */ }
+      try { simctl(['erase', udid], 120_000); } catch (erase) { console.warn(`Could not erase ${udid}: ${erase.message}`); }
       await delay(attempt * 10_000);
     }
   }
