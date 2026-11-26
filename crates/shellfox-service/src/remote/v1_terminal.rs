@@ -85,14 +85,13 @@ impl RemoteService<'_> {
             ));
         }
         let generation = runtime.runtime.identity().generation;
-        // A lease from an earlier detach must be released first.
-        self.service.settle_control_release(tab);
         let view = self.state.views.get_mut(&key(actor)).ok_or_else(lost)?;
         view.check_capacity(tab)?;
         let offer = match self.service.attach_manager(tab, view.controller, takeover) {
             Ok(offer) => offer,
             Err(error) if matches!(error.downcast_ref::<GrantFailure>(), Some(GrantFailure::Rejected(error)) if error.code == shellfox_runtime::ErrorCode::ControlRequired) =>
             {
+                view.waiting.wait(tab, generation);
                 return checked(wire::TerminalAttachment::Blocked {
                     tab_id: tab,
                     session_id: session.id,
@@ -153,6 +152,7 @@ impl RemoteService<'_> {
         match projection {
             Ok((delivery, result)) => {
                 view.replays.remove(&tab);
+                view.waiting.stop(tab);
                 view.terminals.insert(tab, delivery);
                 Ok(result)
             }
@@ -284,6 +284,7 @@ impl RemoteService<'_> {
             }
             RemoteCommand::DetachTerminal(input) => {
                 let view = self.state.views.get_mut(&key(actor)).ok_or_else(lost)?;
+                view.waiting.stop(input.tab_id);
                 if let Some(replay) = view.replays.get(&input.tab_id) {
                     if replay.generation() != input.generation {
                         return Err(lost());

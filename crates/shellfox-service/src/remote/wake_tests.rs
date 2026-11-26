@@ -157,6 +157,7 @@ async fn a_view_paired_while_a_tab_works_hears_it_is_busy_at_once() {
         closed: false,
         error: None,
         process_title: None,
+        controlled: false,
     };
     // The agent was already working before this device connected.
     service.replace_tab_activity(vec![row(crate::activity::AgentState::Busy)]);

@@ -233,6 +233,7 @@ mod tests {
             closed: true,
             error: None,
             process_title: None,
+            controlled: false,
         };
         assert!(!tab_is_viewable(TabState::Pending, "pwsh", Some(&closed)));
         assert!(tab_is_viewable(TabState::Pending, "pwsh", None));
@@ -261,6 +262,7 @@ mod tests {
             closed: false,
             error: None,
             process_title: None,
+            controlled: false,
         };
         assert_eq!(local_dot(Some(&live), true), AgentState::Running);
         live.dot = AgentState::Busy;

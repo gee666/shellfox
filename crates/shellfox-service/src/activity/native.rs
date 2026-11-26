@@ -18,6 +18,10 @@ pub struct NativeTabActivity {
     /// Volatile title for the local desktop only; not host facts or persisted state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub process_title: Option<String>,
+    /// A view holds this terminal's control lease. When it turns false, a
+    /// view showing the terminal takes control back without a click.
+    #[serde(default)]
+    pub controlled: bool,
 }
 
 impl fmt::Debug for NativeTabActivity {
@@ -65,6 +69,7 @@ impl From<&TerminalSourceFacts> for NativeTabActivity {
             closed: source.phase == Phase::Closed,
             error,
             process_title: None,
+            controlled: false,
         }
     }
 }
@@ -100,6 +105,7 @@ impl crate::Service {
                     .iter()
                     .map(|terminal| {
                         let mut activity = NativeTabActivity::from(terminal);
+                        activity.controlled = self.controlled(activity.tab);
                         // The public facts keep generic startup errors. Local desktop
                         // diagnostics can display the launcher's fixed error codes.
                         if activity.error.is_some() {

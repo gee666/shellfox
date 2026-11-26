@@ -14,3 +14,8 @@ run('cargo', ['test', '-p', 'shellfox-service', '--lib', '--', '--ignored', '--e
   SHELLFOX_TEST_SUPERVISOR: path.join(target, 'debug', `shellfox-cli${exe}`),
   SHELLFOX_TEST_MOBILE_CLIENT: client,
 });
+// Control returns to the remaining views when the phone leaves (needs the same CLI as PTY supervisor).
+run('cargo', ['test', '-p', 'shellfox-service', '--lib', '--', '--ignored', '--exact',
+  'remote::control_tests::control_returns_to_the_remaining_views_when_the_phone_leaves'], 1_800_000, {
+  SHELLFOX_TEST_SUPERVISOR: path.join(target, 'debug', `shellfox-cli${exe}`),
+});

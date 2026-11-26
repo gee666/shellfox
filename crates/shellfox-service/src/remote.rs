@@ -1,5 +1,7 @@
 //! Remote dispatch borrows the existing service; it never opens a second Host.
 #[cfg(test)]
+mod control_tests;
+#[cfg(test)]
 mod legacy_scope_tests;
 #[cfg(test)]
 mod tests;
@@ -34,6 +36,7 @@ mod v1_privilege;
 pub(crate) use v1_privilege::host_account;
 mod v1_replay;
 mod v1_terminal;
+mod v1_waiting;
 #[cfg(windows)]
 mod wsl_files;
 pub use dispatcher::{remote_channel, RemoteDispatcher, RemoteInbox};
@@ -67,6 +70,7 @@ struct View {
     controller: u64,
     terminals: HashMap<shellfox_core::TabId, v1_delivery::Delivery>,
     replays: HashMap<shellfox_core::TabId, v1_replay::Replay>,
+    waiting: v1_waiting::Waiting,
     wake: shellfox_remote::PollWake,
     activity: v1_activity::Reported,
 }
@@ -78,6 +82,7 @@ impl View {
             || self.terminals.iter().any(|(&tab, delivery)| {
                 delivery.has_events(service.remote_v1_status(tab, &delivery.lease).ok())
             })
+            || self.waiting.has_events(service)
     }
     fn detach_terminals(self, service: &mut Service) {
         for (tab, delivery) in self.terminals {
@@ -271,6 +276,7 @@ impl ServiceHost for RemoteService<'_> {
                         controller,
                         terminals: HashMap::new(),
                         replays: HashMap::new(),
+                        waiting: Default::default(),
                         wake: actor.poll_wake(),
                         activity: v1_activity::Reported::new(self.service.published_tab_activity()),
                     },
@@ -339,8 +345,11 @@ impl ServiceHost for RemoteService<'_> {
                 }
                 let quota = 64 / view.terminals.len().max(1);
                 for (&tab, delivery) in &mut view.terminals {
-                    delivery.poll(self.service, tab, quota, &mut events);
+                    if delivery.poll(self.service, tab, quota, &mut events) {
+                        view.waiting.wait(tab, delivery.lease.generation);
+                    }
                 }
+                view.waiting.poll(self.service, &mut events);
                 checked(wire::PollResponse { events })
             }
             OwnerCommand::Execute { actor, command } => {

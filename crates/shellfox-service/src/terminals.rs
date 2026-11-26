@@ -1,5 +1,6 @@
 use crate::*;
 mod commands;
+mod control;
 mod delivery;
 mod remote_v1;
 pub(crate) use remote_v1::RemoteV1Status;
@@ -129,6 +130,8 @@ impl Service {
         }
         // Starts a missing tab, and reports a start begun earlier exactly once.
         self.start_terminal(tab)?;
+        // A lease another view just detached must be released before this claim.
+        self.settle_control_release(tab);
         let detached = self.terminals[&tab].lease.is_none() || self.terminals[&tab].lease_retiring;
         self.controller_grant(
             tab,

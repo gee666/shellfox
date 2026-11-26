@@ -181,15 +181,16 @@ impl Delivery {
             || status.exited == Some(self.raw_seen)
     }
 
+    /// Appends this attachment's events. True when it just lost control.
     pub fn poll(
         &mut self,
         service: &mut Service,
         tab_id: TabId,
         quota: usize,
         events: &mut Vec<wire::HostEvent>,
-    ) {
+    ) -> bool {
         if self.faulted || self.exited {
-            return;
+            return false;
         }
         let generation = self.lease.generation;
         let control_epoch = self.lease.epoch;
@@ -202,12 +203,12 @@ impl Delivery {
                 control_epoch,
                 control: wire::Control::Blocked,
             }));
-            return;
+            return true;
         }
         let Ok((output, replay_lost, exited)) =
             service.remote_v1_output(tab_id, &self.lease, self.raw_seen)
         else {
-            return;
+            return false;
         };
         if replay_lost {
             self.faulted = true;
@@ -223,7 +224,7 @@ impl Delivery {
                     retryable: true,
                 },
             }));
-            return;
+            return false;
         }
         let initial = self.raw_seen;
         let limit = events.len() + quota;
@@ -272,6 +273,7 @@ impl Delivery {
                 signal: None,
             }));
         }
+        false
     }
 }
 
