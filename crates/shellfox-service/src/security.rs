@@ -214,19 +214,23 @@ impl PrivateDirectory {
                 .await
         }
         .await;
-        // Never return while a permission helper child may still be running. If it cannot
-        // be confirmed closed within about 30 s, exit instead of waiting forever.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        // Never return while a permission helper child may still be running. A slow
+        // close (a stalled disk, a frozen helper) is retried and logged every 30 s,
+        // never a reason to exit.
+        let mut attempts = 0u64;
         loop {
             match preparation.shutdown_confirmed().await {
                 Ok(_proof) => break,
-                Err(error) if std::time::Instant::now() >= deadline => {
-                    eprintln!(
-                        "permission helper could not be confirmed closed: {error:#}; exiting"
-                    );
-                    std::process::exit(1);
+                Err(error) => {
+                    attempts += 1;
+                    if attempts.is_multiple_of(300) {
+                        eprintln!(
+                            "Shellfox: permission helper close not confirmed after {} s: {error:#}. Still retrying.",
+                            attempts / 10
+                        );
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await
                 }
-                Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
             }
         }
         Ok((private, result?))
