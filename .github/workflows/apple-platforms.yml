@@ -62,7 +62,8 @@ jobs:
       - uses: ./.github/actions/go-modules
         timeout-minutes: 10
       - name: Rust pin
-        run: rustup show
+        # rustup fetches the pinned toolchain; its downloads sometimes time out.
+        run: for attempt in 1 2 3; do rustup show && exit 0; sleep $((attempt * 15)); done; exit 1
       - name: Prepare static Ghostty
         id: prepare
         uses: ./.github/actions/pinned-ghostty
@@ -151,6 +152,9 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-modules
         timeout-minutes: 10
+      - name: Rust pin
+        # rustup fetches the pinned toolchain; its downloads sometimes time out.
+        run: for attempt in 1 2 3; do rustup show && exit 0; sleep $((attempt * 15)); done; exit 1
       - name: Prepare static Ghostty
         uses: ./.github/actions/pinned-ghostty
         timeout-minutes: 35
@@ -234,6 +238,9 @@ jobs:
           cache: false
       - uses: ./.github/actions/go-modules
         timeout-minutes: 10
+      - name: Rust pin
+        # rustup fetches the pinned toolchain; its downloads sometimes time out.
+        run: for attempt in 1 2 3; do rustup show && exit 0; sleep $((attempt * 15)); done; exit 1
       - name: Install dependencies and test RN native contracts
         run: |
           pnpm install --frozen-lockfile --ignore-scripts

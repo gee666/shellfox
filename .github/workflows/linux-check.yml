@@ -51,7 +51,8 @@ jobs:
       - name: Node test dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Rust pin
-        run: rustup show
+        # rustup fetches the pinned toolchain; its downloads sometimes time out.
+        run: for attempt in 1 2 3; do rustup show && exit 0; sleep $((attempt * 15)); done; exit 1
       - name: GPUI build dependencies
         run: |
           bash .github/scripts/setup-ubuntu-apt.sh
