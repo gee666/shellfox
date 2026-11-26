@@ -13,7 +13,12 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
+    time::{Duration, Instant},
 };
+
+/// The disk behind this long is logged, and again every `STILL_BEHIND`.
+const BEHIND: Duration = Duration::from_secs(30);
+const STILL_BEHIND: Duration = Duration::from_secs(60);
 use tokio::sync::watch;
 
 /// Names one request across the owner and its waiting caller.
@@ -27,6 +32,8 @@ struct State {
     pending: HashMap<Cause, u64>,
     /// The last change committed in memory.
     written: u64,
+    /// Since when the disk is behind, and when that was last logged.
+    behind: Option<(Instant, Option<Instant>)>,
 }
 pub(crate) struct Durability {
     state: Mutex<State>,
@@ -55,6 +62,7 @@ impl Durability {
                 if let Some(this) = committed.upgrade() {
                     let mut state = this.state();
                     state.written = seq;
+                    state.behind.get_or_insert((Instant::now(), None));
                     if let Some(cause) = state.current {
                         state.pending.insert(cause, seq);
                     }
@@ -62,10 +70,41 @@ impl Durability {
             }),
             durable: Arc::new(move |seq| {
                 if let Some(this) = durable.upgrade() {
-                    this.state().pending.retain(|_, change| *change > seq);
+                    let mut state = this.state();
+                    state.pending.retain(|_, change| *change > seq);
+                    if seq >= state.written {
+                        if let Some((since, Some(_))) = state.behind {
+                            eprintln!(
+                                "Shellfox host: metadata is on disk again after {} s.",
+                                since.elapsed().as_secs()
+                            );
+                        }
+                        state.behind = None;
+                    }
+                    drop(state);
                     this.durable.send_replace(seq);
                 }
             }),
+        }
+    }
+    /// Logs a disk that has been behind for a while. The writer can't: it may
+    /// sit in a write the kernel holds (a frozen or failing disk).
+    pub fn log_lag(&self) {
+        let mut state = self.state();
+        let Some((since, logged)) = state.behind else {
+            return;
+        };
+        let now = Instant::now();
+        let due = match logged {
+            None => now - since >= BEHIND,
+            Some(logged) => now - logged >= STILL_BEHIND,
+        };
+        if due {
+            eprintln!(
+                "Shellfox host: metadata changes have waited {} s for the disk. Replies to them wait too; everything else answers.",
+                (now - since).as_secs()
+            );
+            state.behind = Some((since, Some(now)));
         }
     }
     /// The request the owner runs now, to resume its work later (a close
@@ -152,9 +191,14 @@ mod tests {
         });
         tokio::task::yield_now().await;
         assert!(!waiting.is_finished());
+        assert!(durability.state().behind.is_some());
         (hooks.durable)(1);
         waiting.await.unwrap();
         assert!(durability.state().pending.is_empty());
+        // Change 2 is still in memory only.
+        assert!(durability.state().behind.is_some());
+        (hooks.durable)(2);
+        assert!(durability.state().behind.is_none());
         assert_eq!(durability.current(), None);
     }
 }

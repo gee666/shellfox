@@ -4,6 +4,7 @@ impl Service {
     pub(crate) fn pump(&mut self) {
         use crate::owner::Step;
         let step = |service: &Self, step| service.owner_health.step(step);
+        self.durability.log_lag();
         step(self, Step::TerminalEvents);
         let tabs: Vec<_> = self.terminals.keys().copied().collect();
         for tab in tabs {
