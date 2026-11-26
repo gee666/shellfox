@@ -95,7 +95,11 @@ pub(crate) fn install(cx: &mut App) {
         let delivery = DeliveryClient(client);
         let registration = delivery.0.desktop_register().await;
         // Registered or not, a later launch now sees this window as it is.
-        crate::launch_lock::release();
+        if registration.is_ok() {
+            crate::launch_lock::registered();
+        } else {
+            crate::launch_lock::release();
+        }
         let registration = match registration {
             Ok(registration) => registration,
             Err(error) => {

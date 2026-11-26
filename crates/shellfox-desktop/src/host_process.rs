@@ -62,18 +62,36 @@ impl Route {
     }
 }
 
-/// The data directory's host, if one answers now.
-/// None when no host answers. A live host of another build is an error.
+/// The data directory's host, if one answers. None when no host answers.
+/// A live host of another build is an error. While another process's window
+/// is registered its host is up, so a miss is retried for up to
+/// `WINDOW_HOST_WAIT` instead of starting a competing host.
 pub(crate) fn find_running(
     runtime: &tokio::runtime::Runtime,
     config: &HostEndpointConfig,
 ) -> Result<Option<Running>> {
-    match runtime.block_on(discover(config)) {
-        Ok((client, route)) => Ok(Some(Running { client, route })),
-        Err(error) if error.is::<OtherBuildRunning>() => Err(error),
-        Err(_) => Ok(None),
+    let deadline = Instant::now() + WINDOW_HOST_WAIT;
+    let mut missed = false;
+    loop {
+        match runtime.block_on(discover(config)) {
+            Ok((client, route)) => return Ok(Some(Running { client, route })),
+            Err(error) if error.is::<OtherBuildRunning>() => return Err(error),
+            Err(error) if crate::launch_lock::window_alive(&config.data_dir) => {
+                if !missed {
+                    eprintln!("The open window's host did not answer yet: {error:#}");
+                    missed = true;
+                }
+                if Instant::now() >= deadline {
+                    eprintln!("The open window's host still does not answer; starting one");
+                    return Ok(None);
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(_) => return Ok(None),
+        }
     }
 }
+const WINDOW_HOST_WAIT: Duration = Duration::from_secs(10);
 
 /// Starts a host on its own thread, so the UI can initialize meanwhile. A host
 /// started by a concurrent launch wins the directory lock; ours then exits and

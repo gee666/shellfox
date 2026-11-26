@@ -186,6 +186,7 @@ impl<B: AppHostBackend> AppHost<B> {
     }
     /// The host process ended on its own; there is nothing left to stop.
     pub(crate) fn host_ended(&self) {
+        crate::launch_lock::host_ended();
         if let Ok(mut state) = self.state() {
             state.stopped = true;
             state.revision += 1;

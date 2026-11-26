@@ -4,7 +4,7 @@ The desktop UI (`shellfox`) runs no shells. They live in a separate host process
 
 ## Startup
 
-`app_startup::prepare` runs before GPUI. Like 0.9's single-instance lock, one launch at a time gets past the host lookup: a launch holds `<data>.launch.lock` until its window registers with the host, and a second launch waits up to 60 s for it, then hands itself to that window.
+`app_startup::prepare` runs before GPUI. Like 0.9's single-instance lock, one launch at a time gets past the host lookup: a launch holds `<data>.launch.lock` until its window registers with the host, and a second launch waits up to 60 s for it, then hands itself to that window. The process whose window registered then holds `<data>.window.lock` while its host serves; a launch that sees it held retries a host lookup that misses for up to 10 s instead of starting a second host.
 
 - If a host answers on the data directory and already has a registered desktop window, the launch is handed to it (see [desktop-external-launch.md](desktop-external-launch.md)) and this process exits.
 - If a host answers without a desktop, the UI attaches to it. A desktop-started host of another build is replaced when it is idle. When it has shells or a window, the UI asks first ("Shellfox was updated. N terminals are still running in the previous version." with Stop them and continue, or Quit), as this build can't show them. The dialog is a message box on Windows, zenity, kdialog or xmessage on Linux, and osascript on macOS. A `host run` host is attached as is.
