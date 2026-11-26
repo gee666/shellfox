@@ -8,11 +8,19 @@ use shellfox_host::SettingsRequest;
 use std::{path::PathBuf, time::Duration};
 
 pub(crate) fn scratch() -> tempfile::TempDir {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("workspace root")
-        .join("tmp");
+    // The host refuses a data root under a group- or world-writable ancestor,
+    // and a checkout can sit under one (a drvfs mount, a copy that kept Windows
+    // modes). The user's private runtime dir is safe wherever the checkout is.
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| cfg!(unix) && dir.is_dir());
+    let root = runtime.unwrap_or_else(|| {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("workspace root")
+            .join("tmp")
+    });
     std::fs::create_dir_all(&root).expect("project tmp");
     tempfile::Builder::new()
         .prefix("service-test-")
