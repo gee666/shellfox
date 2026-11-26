@@ -37,22 +37,33 @@ impl Service {
             .ok_or_else(unavailable)?
             .admit_owner(controller)
     }
-    pub(crate) fn handle_system_native(
+    /// A system request as a job for the device file worker: installing the
+    /// CLI or the file manager integration writes files and must not hold the
+    /// owner. The handler's fence (stop, ownership loss, revoked controller)
+    /// is checked again on the worker, before and after the action.
+    pub(crate) fn system_native_job(
         &self,
         request: SystemNativeRequest,
         controller: u64,
-    ) -> SystemResult<SystemNativeResponse> {
+    ) -> SystemResult<Box<dyn FnOnce() -> SystemResult<SystemNativeResponse> + Send>> {
         accepting(self)?;
         let handler = self
             .system_native_handler
             .as_ref()
             .ok_or_else(unavailable)?
             .clone();
-        let authority = ServiceSystemAuthority {
-            service: self,
-            handler: &handler,
-        };
-        handler.handle(controller, request, &authority)
+        Ok(Box::new(move || {
+            handler.handle(controller, request, &HandlerAuthority(&handler))
+        }))
+    }
+    /// The job, run inline: what the worker does, for tests of the handler.
+    #[cfg(test)]
+    pub(crate) fn handle_system_native(
+        &self,
+        request: SystemNativeRequest,
+        controller: u64,
+    ) -> SystemResult<SystemNativeResponse> {
+        self.system_native_job(request, controller)?()
     }
     /// Detach/security revocation never reuses an old numeric controller grant.
     pub(crate) fn revoke_system_native(&mut self, controller: u64) {
@@ -67,14 +78,10 @@ impl Service {
         }
     }
 }
-struct ServiceSystemAuthority<'a> {
-    service: &'a Service,
-    handler: &'a SystemNativeHandler,
-}
-impl SystemNativeAuthority for ServiceSystemAuthority<'_> {
+struct HandlerAuthority<'a>(&'a SystemNativeHandler);
+impl SystemNativeAuthority for HandlerAuthority<'_> {
     fn validate_system_controller(&self, controller: u64) -> SystemResult<()> {
-        accepting(self.service)?;
-        self.handler.validate_owner(controller)
+        self.0.validate_owner(controller)
     }
 }
 fn accepting(service: &Service) -> SystemResult<()> {

@@ -60,14 +60,10 @@ fn real_native_dispatch_requires_owner_admission_not_a_nonzero_or_pty_identity()
             },
         ))
         .unwrap();
-    assert!(service
-        .execute_native(
-            NativeAction::System(SystemNativeRequest::Status {
-                scope: SystemScope::User
-            }),
-            73
-        )
-        .is_err());
+    let status = || SystemNativeRequest::Status {
+        scope: SystemScope::User,
+    };
+    assert!(system(&service, status(), 73).is_err());
     // Ordinary private metadata and non-System native work may use
     // the same numeric controller but cannot mint System authority.
     service
@@ -75,52 +71,28 @@ fn real_native_dispatch_requires_owner_admission_not_a_nonzero_or_pty_identity()
         .unwrap();
     service.execute_native(NativeAction::Status, 73).unwrap();
     assert_eq!(
-        service
-            .handle_system_native(
-                SystemNativeRequest::Status {
-                    scope: SystemScope::User
-                },
-                73
-            )
-            .unwrap_err()
-            .code,
+        service.handle_system_native(status(), 73).unwrap_err().code,
         ErrorCode::AuthFailed
     );
     service.admit_system_native(73).unwrap();
-    let NativeResponse::System(SystemNativeResponse::Status(status)) = service
-        .execute_native(
-            NativeAction::System(SystemNativeRequest::Status {
-                scope: SystemScope::User,
-            }),
-            73,
-        )
-        .unwrap()
+    let NativeResponse::System(SystemNativeResponse::Status(found)) =
+        system(&service, status(), 73).unwrap()
     else {
         panic!("real system response")
     };
-    assert!(!status.facts.cli.as_ref().unwrap().installed);
-    let NativeResponse::System(SystemNativeResponse::Cli(state)) = service
-        .execute_native(
-            NativeAction::System(SystemNativeRequest::SetCli {
-                scope: SystemScope::User,
-                installed: true,
-            }),
-            73,
-        )
-        .unwrap()
+    assert!(!found.facts.cli.as_ref().unwrap().installed);
+    let install = SystemNativeRequest::SetCli {
+        scope: SystemScope::User,
+        installed: true,
+    };
+    let NativeResponse::System(SystemNativeResponse::Cli(state)) =
+        system(&service, install, 73).unwrap()
     else {
         panic!("real CLI response")
     };
     assert!(state.installed);
     service.execute_native(NativeAction::DetachAll, 73).unwrap();
-    assert!(service
-        .execute_native(
-            NativeAction::System(SystemNativeRequest::Status {
-                scope: SystemScope::User
-            }),
-            73
-        )
-        .is_err());
+    assert!(system(&service, status(), 73).is_err());
 }
 #[test]
 fn registration_and_requests_bind_the_actual_service_loss_and_stop_fences() {
@@ -207,4 +179,16 @@ fn native_controller_registry_is_bounded_and_revocation_releases_only_that_grant
             129,
         )
         .unwrap();
+}
+
+/// A System request the way the device file worker runs it.
+fn system(
+    service: &crate::Service,
+    request: SystemNativeRequest,
+    controller: u64,
+) -> anyhow::Result<NativeResponse> {
+    service
+        .handle_system_native(request, controller)
+        .map(NativeResponse::System)
+        .map_err(|error| anyhow::anyhow!(error.message))
 }

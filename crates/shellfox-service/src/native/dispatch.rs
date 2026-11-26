@@ -78,11 +78,9 @@ impl crate::Service {
                     receipt: self.host().creation_request_receipt(request_id)?,
                 }
             }
-            NativeAction::System(request) => NativeResponse::System(
-                self.handle_system_native(request, controller)
-                    .map_err(|error| anyhow::anyhow!(error.message))?,
-            ),
-            NativeAction::Ssh(_) => anyhow::bail!("SSH profiles use the device file route."),
+            NativeAction::Ssh(_) | NativeAction::System(_) => {
+                anyhow::bail!("Device file actions run on the device file worker.")
+            }
             NativeAction::Remote(_) => {
                 anyhow::bail!("Remote controls require the owned async manager route.")
             }

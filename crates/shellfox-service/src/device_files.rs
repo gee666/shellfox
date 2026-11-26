@@ -1,7 +1,7 @@
 //! SSH profiles and the attached desktop's window file live in the data
-//! directory, outside the metadata store. Their reads and writes run on one
-//! worker thread, in order, so a stalled disk delays only their replies,
-//! never the service owner.
+//! directory, outside the metadata store, and the system settings install
+//! files elsewhere. Their reads and writes run on one worker thread, in
+//! order, so a stalled disk delays only their replies, never the service owner.
 use crate::{
     local::DesktopReply,
     native::{NativeAction, NativeResponse},
@@ -84,7 +84,7 @@ impl Service {
     /// Actions that read or write a device file. The attached desktop keeps
     /// its window bounds in a file; other clients keep them in the store.
     pub(crate) fn uses_device_files(action: &NativeAction, attached: bool) -> bool {
-        matches!(action, NativeAction::Ssh(_))
+        matches!(action, NativeAction::Ssh(_) | NativeAction::System(_))
             || attached
                 && matches!(
                     action,
@@ -96,10 +96,11 @@ impl Service {
     pub(crate) fn enqueue_device_files(
         &mut self,
         action: NativeAction,
+        controller: u64,
         cancel: CancellationToken,
         reply: DeviceReply,
     ) {
-        let job = match self.device_file_job(action, cancel) {
+        let job = match self.device_file_job(action, controller, cancel) {
             Ok(job) => job,
             Err(error) => return reply.send(Err(error)),
         };
@@ -111,6 +112,7 @@ impl Service {
     fn device_file_job(
         &self,
         action: NativeAction,
+        controller: u64,
         cancel: CancellationToken,
     ) -> Result<Box<dyn FnOnce() -> Result<NativeResponse> + Send>> {
         action.validate()?;
@@ -133,6 +135,16 @@ impl Service {
                         }
                     };
                     store.request(request, check).map(NativeResponse::Ssh)
+                }))
+            }
+            NativeAction::System(request) => {
+                let job = self
+                    .system_native_job(request, controller)
+                    .map_err(|error| anyhow::anyhow!(error.message))?;
+                Ok(Box::new(move || {
+                    job()
+                        .map(NativeResponse::System)
+                        .map_err(|error| anyhow::anyhow!(error.message))
                 }))
             }
             NativeAction::ReadWindowState => {
@@ -193,14 +205,24 @@ mod tests {
         assert!(Service::uses_device_files(&save, true));
         assert!(!Service::uses_device_files(&save, false));
         let (reply, saved) = oneshot::channel();
-        service.enqueue_device_files(save, CancellationToken::new(), DeviceReply::Native(reply));
+        service.enqueue_device_files(
+            save,
+            0,
+            CancellationToken::new(),
+            DeviceReply::Native(reply),
+        );
         assert!(matches!(
             saved.await.unwrap().unwrap(),
             NativeResponse::Applied
         ));
         let (reply, read) = oneshot::channel();
         let action = NativeAction::ReadWindowState;
-        service.enqueue_device_files(action, CancellationToken::new(), DeviceReply::Native(reply));
+        service.enqueue_device_files(
+            action,
+            0,
+            CancellationToken::new(),
+            DeviceReply::Native(reply),
+        );
         assert!(matches!(
             read.await.unwrap().unwrap(),
             NativeResponse::WindowState(Some(read)) if read == state

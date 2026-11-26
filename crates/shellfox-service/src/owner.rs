@@ -371,11 +371,6 @@ impl ServiceOwner {
                                 );
                                 continue;
                             }
-                            if Service::uses_device_files(&action, false) {
-                                let reply = crate::device_files::DeviceReply::Native(reply);
-                                service.enqueue_device_files(*action, cancel, reply);
-                                continue;
-                            }
                             if matches!(*action, crate::native::NativeAction::TabStats) {
                                 service
                                     .enqueue_tab_stats(crate::tab_stats::StatsReply::Native(reply));
@@ -390,6 +385,11 @@ impl ServiceOwner {
                                     let _ = reply.send(Err(anyhow::anyhow!(error.message)));
                                     continue;
                                 }
+                            }
+                            if Service::uses_device_files(&action, false) {
+                                let reply = crate::device_files::DeviceReply::Native(reply);
+                                service.enqueue_device_files(*action, controller, cancel, reply);
+                                continue;
                             }
                             if let Some(target) = action.close_target() {
                                 let admitted = action.validate().and_then(|()| {

@@ -133,7 +133,7 @@ impl PrivateOwner {
                 }
                 if Service::uses_device_files(&action, true) {
                     let reply = crate::device_files::DeviceReply::Desktop(reply);
-                    return service.enqueue_device_files(action, cancel, reply);
+                    return service.enqueue_device_files(action, controller, cancel, reply);
                 }
                 let result = service
                     .with_grant_recipient(cancel, |service| {
