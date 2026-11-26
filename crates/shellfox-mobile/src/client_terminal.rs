@@ -256,7 +256,16 @@ pub(super) fn events(mobile: &Mobile, response: PollResponse) -> Result<serde_js
                     }
                     continue;
                 };
-                match cursor.observe(&event, connection).map_err(|_| STALE)? {
+                let mut disposition = cursor.observe(&event, connection).map_err(|_| STALE)?;
+                // A retryable error means the host stopped this view's output,
+                // e.g. a TUI redraw outgrew its replay window. It sends nothing
+                // more until the view reattaches, as 0.9.15's mobile did.
+                let retryable =
+                    matches!(&event, TerminalEvent::Error { error, .. } if error.retryable);
+                if retryable && matches!(disposition, EventDisposition::Deliver) {
+                    disposition = EventDisposition::Reattach;
+                }
+                match disposition {
                     EventDisposition::Ignore => continue,
                     EventDisposition::Reattach => {
                         b.lane.fence();

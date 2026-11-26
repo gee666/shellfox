@@ -8,6 +8,8 @@ use std::{
 };
 #[path = "client_tests_flow.rs"]
 mod bounded_flow;
+#[path = "client_tests_scrollback.rs"]
+mod electron_scrollback;
 #[path = "client_tests_files.rs"]
 mod file_commands;
 #[path = "client_tests_input_ex.rs"]
