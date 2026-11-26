@@ -41,7 +41,7 @@ mod windows;
 
 pub use config::{PtyCommand, PtyConfig, UnixPrivilegeMode};
 pub use environment::{EnvironmentPolicy, TerminalEnvironment};
-pub use error::SpawnError;
+pub use error::{InputBusy, SpawnError};
 pub(crate) use isolation::{validate_isolated_path, IsolationPathKind};
 pub use output::{PtyOutput, OUTPUT_CHUNK_BYTES, OUTPUT_QUEUE_CHUNKS};
 pub use portable_pty::ExitStatus;

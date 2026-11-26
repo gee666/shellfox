@@ -34,3 +34,14 @@ impl From<anyhow::Error> for SpawnError {
         }
     }
 }
+
+/// The shell isn't reading its input as fast as it arrives. This input was not
+/// written; the terminal stays open and accepts input again once the shell reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputBusy;
+impl std::fmt::Display for InputBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("The terminal isn't reading its input yet; this input was not written.")
+    }
+}
+impl std::error::Error for InputBusy {}

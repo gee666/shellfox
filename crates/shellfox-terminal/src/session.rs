@@ -225,7 +225,11 @@ impl PtySession {
             "PTY is not ready for input"
         );
         let result = inner.writer.write(bytes);
-        if result.is_err() {
+        // Backpressure leaves input enabled; any other failure ends it.
+        if result
+            .as_ref()
+            .is_err_and(|error| !error.is::<crate::InputBusy>())
+        {
             inner.ready = false;
         }
         result

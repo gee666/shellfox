@@ -325,7 +325,17 @@ impl Owner {
             .as_mut()
             .ok_or_else(|| RuntimeError::unavailable("missing PTY"))?
             .write(bytes)
-            .map_err(RuntimeError::unavailable)
+            .map_err(|error| {
+                // Backpressure is never Unavailable, which fails the terminal.
+                if error.is::<shellfox_terminal::InputBusy>() {
+                    RuntimeError {
+                        code: ErrorCode::ResourceLimit,
+                        message: error.to_string(),
+                    }
+                } else {
+                    RuntimeError::unavailable(error)
+                }
+            })
     }
     pub(crate) fn replies(&mut self) -> Result<(), RuntimeError> {
         let replies = self
@@ -334,7 +344,12 @@ impl Owner {
             .map_err(RuntimeError::unavailable)?;
         // Final output is parsed for display, but a retired PTY receives no replies.
         if self.source_kind == SourceKind::OwnedPty && self.phase == Phase::Active {
-            self.write(&replies)?;
+            match self.write(&replies) {
+                // A shell not reading its input misses these query replies;
+                // that must not close it.
+                Err(error) if error.code == ErrorCode::ResourceLimit => {}
+                result => result?,
+            }
         }
         Ok(())
     }

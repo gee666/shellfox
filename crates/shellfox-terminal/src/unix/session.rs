@@ -273,7 +273,11 @@ impl PtySession {
         let state = self.inner.as_mut().context("PTY closed")?;
         ensure!(state.ready && !state.stopping, "PTY input disabled");
         let result = state.writer.write(bytes);
-        if result.is_err() {
+        // Backpressure leaves input enabled; any other failure ends it.
+        if result
+            .as_ref()
+            .is_err_and(|error| !error.is::<crate::InputBusy>())
+        {
             state.ready = false;
         }
         result
