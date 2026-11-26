@@ -11,7 +11,7 @@ import type {UploadIdentity} from './upload';
 
 interface UiProps {children?: ReactNode; accessibilityLabel?: string; onPress?: () => void; disabled?: boolean; accessibilityState?: {selected?: boolean}}
 interface NativeProbe {
-  terminalHandle: string; readOnly?: boolean; focused?: boolean; modifiers?: number;
+  terminalHandle: string; readOnly?: boolean; focused?: boolean; keyboardRequest?: number; modifiers?: number;
   onState?: (event: {nativeEvent: {terminalHandle: string; state: string}}) => void;
   onError?: (event: {nativeEvent: {terminalHandle: string; code: number}}) => void;
 }
@@ -98,6 +98,17 @@ afterEach(()=>{cleanup();vi.useRealTimers();});
 for(const platform of ['android','ios'] as const){
   describe(`owned keyboard desire, ${platform} shared source`,()=>{
     beforeEach(()=>{probe.platform=platform;});
+    it('asks native to present a hidden IME again without a focused false-then-true pair',async()=>{
+      // The IME hides during a layout recovery, so the request survives it.
+      const f=await fixture();keyboard();f.visibility(true);state('recovering');f.visibility(false);state('ready');focused(true);
+      const mark=probe.focusLog.length,request=probe.native?.keyboardRequest??0;
+      keyboard();
+      // Fabric may mount only the last of two quick commits, so an edge is not a request.
+      expect(probe.focusLog.slice(mark)).not.toContain(false);focused(true);
+      expect(probe.native?.keyboardRequest).toBe(request+1);
+      keyboard();expect(probe.native?.keyboardRequest).toBe(request+2);
+      f.visibility(true);keyboard();focused(false);expect(probe.native?.keyboardRequest).toBe(request+2);noWork(f);
+    });
     it('keeps original presentation through recovery without granting input',async()=>{
       const f=await fixture();keyboard();focused(true);
       fireEvent.click(screen.getByRole('button',{name:'Ctrl',exact:true}));
@@ -126,8 +137,9 @@ for(const platform of ['android','ios'] as const){
       state('ready');readonly(false);focused(true);noWork(f);
     });
     it('explicit queued JS HIDE wins during recovery and later visibility cannot revive it',async()=>{
-      const f=await fixture();keyboard();const hide=probe.keyboardPress;expect(hide).toBeDefined();
-      state('recovering');act(()=>hide?.());f.visibility(true);f.visibility(false);state('ready');
+      // A press rendered while the IME was shown is HIDE, even when it runs later.
+      const f=await fixture();keyboard();f.visibility(true);const hide=probe.keyboardPress;expect(hide).toBeDefined();
+      state('recovering');act(()=>hide?.());f.visibility(false);f.visibility(true);f.visibility(false);state('ready');
       readonly(false);focused(false);f.visibility(true);focused(false);noWork(f);
     });
     it('uses ordinary hide semantics after ready, including an indistinguishable late fence hide',async()=>{
@@ -248,8 +260,10 @@ describe('key bar toggles follow what is on screen (0.9.15 rules)',()=>{
   });
   it('shows the keyboard toggle inactive when the OS hid the IME, and a tap opens it again',async()=>{
     const f=await fixture();keyboard();focused(true);expect(pressed('Keyboard')).toBe(false);
-    // The IME never appeared (hardware keyboard, or hidden before ready): request focus again.
-    probe.focusLog.length=0;keyboard();focused(true);expect(probe.focusLog).toContain(false);expect(probe.dismiss).toHaveBeenCalled();
+    // The IME never appeared (hardware keyboard, or hidden before ready): present it again.
+    const request=probe.native?.keyboardRequest??0;
+    probe.focusLog.length=0;keyboard();focused(true);expect(probe.focusLog).not.toContain(false);
+    expect(probe.native?.keyboardRequest).toBe(request+1);
     f.visibility(true);expect(pressed('Keyboard')).toBe(true);
     keyboard();focused(false);expect(pressed('Keyboard')).toBe(true);
     f.visibility(false);expect(pressed('Keyboard')).toBe(false);

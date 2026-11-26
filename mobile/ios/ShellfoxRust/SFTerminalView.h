@@ -35,6 +35,9 @@ static NSString *const SFTerminalTypedInputNotification = @"SFTerminalTypedInput
 - (void)send:(NSDictionary *)event;
 - (void)withTerminal:(void (^)(SFTerminal *terminal))work;
 - (void)detach;
+/// The user asked again for the keyboard the terminal already requests, but the
+/// OS has hidden it. Presents it again, or once input is ready.
+- (void)presentKeyboardAgain;
 @end
 
 typedef NS_ENUM(NSInteger, SFFocusActionSource) { SFFocusKeyboard, SFFocusSurface, SFFocusAccessibility, SFFocusReadiness };

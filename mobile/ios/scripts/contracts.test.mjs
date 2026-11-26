@@ -86,6 +86,7 @@ test('Fabric uses generated descriptors, props and coarse event types only', () 
   assert.match(props, /int modifiers\{0\}/);
   assert.match(props, /Float fontSize/);
   assert.match(props, /bool focused\{false\}/);
+  assert.match(props, /int keyboardRequest\{0\}/);
   assert.match(props, /bool selecting\{false\}/);
   assert.match(events, /void onInput\(OnInput value\)/);
   assert.match(events, /void onSelection\(OnSelection value\)/);

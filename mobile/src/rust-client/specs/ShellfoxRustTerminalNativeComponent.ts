@@ -5,6 +5,8 @@ export interface NativeProps extends ViewProps {
   terminalHandle: string;
   readOnly?: boolean;
   focused?: boolean;
+  /** Changes when the user asks again for an IME the OS has hidden. */
+  keyboardRequest?: CodegenTypes.Int32;
   selecting?: boolean;
   onInput?: CodegenTypes.DirectEventHandler<Readonly<{ terminalHandle: string }>>;
   onSelection?: CodegenTypes.DirectEventHandler<Readonly<{

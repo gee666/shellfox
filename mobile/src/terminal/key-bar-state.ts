@@ -15,7 +15,7 @@ export function keyBarState(mode: KeyboardMode, imeVisible: boolean) {
 
 /**
  * Keyboard toggle. `reopen` means the terminal already wants the IME but it
- * is not shown (hidden by the OS, or never shown), so focus must be requested again.
+ * is not shown (hidden by the OS, or never shown), so the native view presents it again.
  */
 export function keyboardTap(mode: KeyboardMode, imeVisible: boolean): 'hide' | 'show' | 'reopen' {
   if (imeVisible) return 'hide';

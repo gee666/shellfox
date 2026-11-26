@@ -19,6 +19,8 @@ internal class ShellfoxRustTerminalManager : SimpleViewManager<ShellfoxRustTermi
   override fun setReadOnly(view: ShellfoxRustTerminalView, value: Boolean) { view.readOnly = value }
   @ReactProp(name = "focused", defaultBoolean = false)
   override fun setFocused(view: ShellfoxRustTerminalView, value: Boolean) = view.setFocused(value)
+  @ReactProp(name = "keyboardRequest", defaultInt = 0)
+  override fun setKeyboardRequest(view: ShellfoxRustTerminalView, value: Int) = view.setKeyboardRequest(value)
   @ReactProp(name = "selecting", defaultBoolean = false)
   override fun setSelecting(view: ShellfoxRustTerminalView, value: Boolean) = view.setSelecting(value)
   @ReactProp(name = "modifiers", defaultInt = 0)

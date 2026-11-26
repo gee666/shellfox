@@ -12,6 +12,8 @@ using namespace facebook::react;
 @end
 @implementation ShellfoxRustTerminalComponentView {
   SFTerminalView *_terminal;
+  // Last mounted keyboardRequest; a change presents the IME again.
+  int _keyboardRequest;
 }
 + (ComponentDescriptorProvider)componentDescriptorProvider {
   return concreteComponentDescriptorProvider<ShellfoxRustTerminalComponentDescriptor>();
@@ -84,6 +86,10 @@ using namespace facebook::react;
   const auto &next = *std::static_pointer_cast<const ShellfoxRustTerminalProps>(props);
   _terminal.readOnly = next.readOnly;
   _terminal.keyboardRequested = next.focused;
+  if (next.keyboardRequest != _keyboardRequest) {
+    _keyboardRequest = next.keyboardRequest;
+    [_terminal presentKeyboardAgain];
+  }
   _terminal.selecting = next.selecting;
   _terminal.modifiers = next.modifiers;
   _terminal.fontSize = next.fontSize > 0 ? next.fontSize : 14;
@@ -101,6 +107,7 @@ using namespace facebook::react;
   _terminal.terminalHandle = @"";
   _terminal.modifiers = 0;
   _terminal.keyboardRequested = NO;
+  _keyboardRequest = 0;
   _terminal.selecting = NO;
   [super prepareForRecycle];
 }

@@ -49,6 +49,10 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
   const [keyboardWanted, setKeyboardWanted] = useState<{ driver: NativeViewDriver; tabId: string } | null>(null);
   const wantsKeyboard = keyboardWanted?.driver === driver && keyboardWanted.tabId === tabId;
   const wantKeyboard = (value: boolean) => setKeyboardWanted(value ? { driver, tabId } : null);
+  // Each change asks the native view to present the IME again for the current
+  // request. A focused false-then-true pair is not enough: Fabric mounts only
+  // the latest of two quick commits, so the native view may never see the false.
+  const [keyboardRequest, setKeyboardRequest] = useState(0);
   useEffect(() => setKeyboardWanted(null), [driver, tabId, readOnly]);
   const [selecting, setSelecting] = useState(false);
   const [selection, setSelection] = useState('');
@@ -142,7 +146,6 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
     if (appeared) clearKeyboardMode(false, 'ime_shown');
   }, [keyboardMode, keyboardVisible, clearKeyboardMode]);
   useEffect(() => { if (keyboardVisible) setKeyboardWanted(null); }, [keyboardVisible]);
-  // Also the second half of a reopen: the native view must see focused go false, then true.
   useEffect(() => {
     if (appliesWantedKeyboard(wantsKeyboard, keyboardMode, keyboardVisible, inputEnabled)) chooseKeyboardMode('system', 'show');
   });
@@ -161,7 +164,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
       keyboardVerticalOffset={keyboardOffset} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.fill}>
         {session && <NativeTerminal terminalHandle={session.handle} style={[styles.fill, { backgroundColor: colors.bg, opacity: blocked ? 0 : 1 }]}
-          readOnly={!inputEnabled} focused={keyboardMode === 'system'} selecting={selecting}
+          readOnly={!inputEnabled} focused={keyboardMode === 'system'} keyboardRequest={keyboardRequest} selecting={selecting}
           modifiers={modifierBits(modifiers)} fontSize={terminalFontSize(fontSize)}
           accessible={!blocked} accessibilityElementsHidden={blocked}
           importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'} pointerEvents={blocked ? 'none' : 'auto'}
@@ -232,7 +235,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
         specialKeyboard={specialActive} onKeyboard={() => {
           const tap = keyboardTap(keyboardMode, keyboardVisible);
           wantKeyboard(wantsKeyboardAfterTap(tap));
-          if (tap === 'reopen') { chooseKeyboardMode('closed'); return; }
+          if (tap === 'reopen') { setKeyboardRequest(value => value + 1); return; }
           const next = tap === 'hide' ? 'closed' : 'system';
           // Receipt of this JS branch only. A later snapshot is not causally
           // correlated without a token, and HIDE need not yield one.

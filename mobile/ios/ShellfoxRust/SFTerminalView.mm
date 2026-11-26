@@ -95,6 +95,14 @@
     if (value) [self focusInputForAction:SFFocusKeyboard attempt:NO];
   }
 }
+- (void)presentKeyboardAgain {
+  if (!self.keyboardRequested) return;
+  if (!self.inputReady) { [self focusInputForAction:SFFocusKeyboard attempt:NO]; return; }
+  // A first responder whose IME the OS hid stays first responder. Resign so
+  // becoming it again presents the keyboard.
+  [_input resignFirstResponder];
+  [self focusInputForAction:SFFocusKeyboard attempt:YES];
+}
 - (void)setSelecting:(BOOL)value {
   if (_selecting == value) return;
   _selecting = value;

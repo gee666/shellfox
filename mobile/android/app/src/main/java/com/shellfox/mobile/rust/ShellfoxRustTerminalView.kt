@@ -117,6 +117,13 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
       (context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.hideSoftInputFromWindow(windowToken, 0)
     }
   }
+  private var keyboardRequest = 0
+  /** The user asked again for the keyboard this view already requests, but the OS hid it. */
+  fun setKeyboardRequest(value: Int) {
+    if (value == keyboardRequest) return
+    keyboardRequest = value
+    if (focusRequested && isAttachedToWindow) focusAction(FocusActionSource.KEYBOARD)
+  }
   fun setSelecting(value: Boolean) { touch.setSelecting(value) }
   fun selectionChanged() {
     copy { text ->
