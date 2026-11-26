@@ -124,7 +124,7 @@ impl PrivateOwner {
                         service.ssh_profiles.is_none(),
                         "SSH profiles are already installed."
                     );
-                    service.ssh_profiles = Some(store);
+                    service.ssh_profiles = Some(std::sync::Arc::new(store));
                     Ok(())
                 });
                 let _ = reply.send(result);

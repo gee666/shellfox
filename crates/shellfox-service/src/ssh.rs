@@ -26,7 +26,8 @@ impl Store {
     ) -> Result<crate::local::SshReadReply> {
         crate::local::read_ssh_profiles(Some(&self.directory), request)
     }
-    fn request(
+    /// Runs on the device file worker; `check` re-checks the grant before a write.
+    pub(crate) fn request(
         &self,
         request: Request,
         check: impl Fn() -> shellfox_ssh::Result<()>,
@@ -78,19 +79,6 @@ impl Store {
     }
 }
 impl crate::Service {
-    pub(crate) fn execute_ssh_settings(&self, request: Request) -> Result<Response> {
-        self.assert_accepting()?;
-        let store = self
-            .ssh_profiles
-            .as_ref()
-            .context("SSH profile storage is unavailable.")?;
-        store.request(request, || {
-            if self.grant_recipient.is_cancelled() {
-                return Err(Error::Permissions);
-            }
-            self.assert_accepting().map_err(|_| Error::Permissions)
-        })
-    }
     pub(crate) fn read_ssh_settings(
         &self,
         request: crate::local::SshRead,

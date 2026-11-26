@@ -8,6 +8,7 @@ pub mod crash_report;
 mod creation;
 pub mod desktop_launch;
 pub mod desktop_session;
+mod device_files;
 mod electron_import;
 pub mod facts;
 mod grant;
@@ -117,7 +118,9 @@ pub struct Service {
     metadata_closing: bool,
     closing: Option<close::Closing>,
     automation: owner_automation::AutomationState,
-    ssh_profiles: Option<crate::ssh::Store>,
+    ssh_profiles: Option<std::sync::Arc<crate::ssh::Store>>,
+    /// SSH profile and window file I/O, off the owner thread.
+    device_files: device_files::DeviceFiles,
     system_native_handler: Option<std::sync::Arc<system::SystemNativeHandler>>,
     event_wake: Option<shellfox_runtime::EventWake>,
     runtime_signal: std::sync::Arc<owner::wait::RuntimeSignal>,

@@ -34,6 +34,7 @@ impl Service {
             closing: None,
             automation: owner_automation::AutomationState::new(supervisor.to_owned()),
             ssh_profiles: None,
+            device_files: Default::default(),
             system_native_handler: None,
             event_wake: None,
             runtime_signal: Default::default(),

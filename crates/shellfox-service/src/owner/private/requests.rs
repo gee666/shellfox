@@ -131,9 +131,13 @@ impl PrivateOwner {
                     service.enqueue_desktop_catalog(controller, reply);
                     return;
                 }
+                if Service::uses_device_files(&action, true) {
+                    let reply = crate::device_files::DeviceReply::Desktop(reply);
+                    return service.enqueue_device_files(action, cancel, reply);
+                }
                 let result = service
                     .with_grant_recipient(cancel, |service| {
-                        service.execute_attached_desktop(action, controller)
+                        service.execute_native(action, controller)
                     })
                     .and_then(crate::local::DesktopReply::try_from)
                     .and_then(encode);

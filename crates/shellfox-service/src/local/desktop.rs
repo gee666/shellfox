@@ -287,49 +287,5 @@ impl Validate for DesktopReply {
     }
 }
 
-impl crate::Service {
-    pub(crate) fn execute_attached_desktop(
-        &mut self,
-        action: NativeAction,
-        controller: u64,
-    ) -> anyhow::Result<NativeResponse> {
-        use crate::system::{NativeSystemFiles, SystemFiles};
-        let window_file = || -> anyhow::Result<std::path::PathBuf> {
-            Ok(self.directory.join("desktop-window.json"))
-        };
-        match action {
-            NativeAction::ReadWindowState => {
-                self.assert_owned()?;
-                let file = NativeSystemFiles
-                    .read(&window_file()?)
-                    .map_err(|error| anyhow::anyhow!(error.message))?;
-                Ok(NativeResponse::WindowState(
-                    file.as_ref()
-                        .filter(|file| file.bytes.len() < 4096)
-                        .and_then(|file| WindowState::parse(&file.bytes)),
-                ))
-            }
-            NativeAction::SaveWindowState(ref state) => {
-                self.assert_accepting()?;
-                action.validate()?;
-                let path = window_file()?;
-                let file = NativeSystemFiles
-                    .read(&path)
-                    .map_err(|error| anyhow::anyhow!(error.message))?;
-                NativeSystemFiles
-                    .replace(
-                        &path,
-                        file.as_ref(),
-                        Some(&serde_json::to_vec(state)?),
-                        false,
-                    )
-                    .map_err(|error| anyhow::anyhow!(error.message))?;
-                Ok(NativeResponse::Applied)
-            }
-            other => self.execute_native(other, controller),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests;

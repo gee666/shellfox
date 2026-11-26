@@ -82,7 +82,7 @@ impl crate::Service {
                 self.handle_system_native(request, controller)
                     .map_err(|error| anyhow::anyhow!(error.message))?,
             ),
-            NativeAction::Ssh(request) => NativeResponse::Ssh(self.execute_ssh_settings(request)?),
+            NativeAction::Ssh(_) => anyhow::bail!("SSH profiles use the device file route."),
             NativeAction::Remote(_) => {
                 anyhow::bail!("Remote controls require the owned async manager route.")
             }

@@ -371,6 +371,11 @@ impl ServiceOwner {
                                 );
                                 continue;
                             }
+                            if Service::uses_device_files(&action, false) {
+                                let reply = crate::device_files::DeviceReply::Native(reply);
+                                service.enqueue_device_files(*action, cancel, reply);
+                                continue;
+                            }
                             if matches!(*action, crate::native::NativeAction::TabStats) {
                                 service
                                     .enqueue_tab_stats(crate::tab_stats::StatsReply::Native(reply));
