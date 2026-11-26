@@ -24,6 +24,7 @@ mod frontend_composition;
 mod host_client;
 mod host_lost;
 mod host_process;
+mod host_stall;
 mod input;
 mod integration;
 mod launch_lock;

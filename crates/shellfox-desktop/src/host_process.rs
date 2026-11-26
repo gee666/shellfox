@@ -321,8 +321,8 @@ fn stop_started(grace: Duration) {
     }
 }
 
-/// Ends a host this UI started that stopped answering. No-op for a host this
-/// UI didn't start.
+/// Kills a host this UI started: one it could not reach, or a hung one the
+/// user chose to restart. No-op for a host this UI didn't start.
 pub(crate) fn kill_started() {
     if let Some(started) = STARTED
         .lock()

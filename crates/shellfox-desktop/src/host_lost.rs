@@ -35,34 +35,18 @@ fn outcome(owned: bool, closed: HostClosed, quitting: bool) -> Outcome {
 /// A live host answers a snapshot well within this.
 const PING_DEADLINE: Duration = Duration::from_secs(10);
 const PING_EVERY: Duration = Duration::from_secs(5);
-/// Unanswered pings in a row before a host that keeps its lifetime open counts as lost.
-const MISSED_PINGS: u32 = 3;
 
-/// How the watched host ended.
-#[derive(Debug, PartialEq, Eq)]
-enum Ended {
+/// What the watch reports to the UI.
+enum Report {
+    Stall(crate::host_stall::Change),
     Closed(HostClosed),
-    /// The host kept this UI's lifetime open but stopped answering.
-    Unresponsive,
 }
 
-/// Resolves once `ping` failed `MISSED_PINGS` times in a row.
-async fn unresponsive<F, P>(mut ping: P, every: Duration)
-where
-    P: FnMut() -> F,
-    F: std::future::Future<Output = bool>,
-{
-    let mut missed = 0;
-    while missed < MISSED_PINGS {
-        tokio::time::sleep(every).await;
-        missed = if ping().await { 0 } else { missed + 1 };
-    }
-}
-
-/// Watches the host on a lifetime of its own for as long as the app runs, and
-/// pings it, so a hung host ends the views as surely as one that exited.
+/// Watches the host on a lifetime of its own for as long as the app runs.
+/// It also pings the host: a host that stops answering gets a notice and is
+/// waited for, never ended, since a slow or frozen host keeps its terminals.
 pub(crate) fn watch(config: HostEndpointConfig, host: AppHost, cx: &mut App) {
-    let (sender, ended) = tokio::sync::oneshot::channel();
+    let (sender, mut reports) = tokio::sync::mpsc::unbounded_channel();
     let watched = config.clone();
     let thread = std::thread::Builder::new()
         .name("shellfox-host-watch".into())
@@ -80,45 +64,55 @@ pub(crate) fn watch(config: HostEndpointConfig, host: AppHost, cx: &mut App) {
                         )
                         .await
                         .ok()?;
-                        let ping = || async {
-                            let snapshot = client
-                                .execute(shellfox_service::local_api::LocalApiRequest::Snapshot {});
-                            matches!(
-                                tokio::time::timeout(PING_DEADLINE, snapshot).await,
-                                Ok(Ok(_))
-                            )
+                        let pings = async {
+                            let mut host = crate::host_stall::Responsiveness::default();
+                            loop {
+                                tokio::time::sleep(PING_EVERY).await;
+                                let snapshot = client.execute(
+                                    shellfox_service::local_api::LocalApiRequest::Snapshot {},
+                                );
+                                let answered = matches!(
+                                    tokio::time::timeout(PING_DEADLINE, snapshot).await,
+                                    Ok(Ok(_))
+                                );
+                                if let Some(change) = host.ping(answered) {
+                                    let _ = sender.send(Report::Stall(change));
+                                }
+                            }
                         };
                         Some(tokio::select! {
-                            closed = client.closed() => Ended::Closed(closed),
-                            () = unresponsive(ping, PING_EVERY) => Ended::Unresponsive,
+                            closed = client.closed() => closed,
+                            () = pings => unreachable!("pings run until the host closes"),
                         })
                     })
                 });
-            let _ = sender.send(closed.unwrap_or(Ended::Closed(HostClosed::Lost)));
+            let _ = sender.send(Report::Closed(closed.unwrap_or(HostClosed::Lost)));
         });
     if let Err(error) = thread {
         eprintln!("Shellfox host watch unavailable: {error:#}");
         return;
     }
     cx.spawn(async move |cx| {
-        let Ok(closed) = ended.await else { return };
-        let _ = cx.update(|cx| host_ended(closed, config, host, cx));
+        while let Some(report) = reports.recv().await {
+            match report {
+                Report::Stall(change) => {
+                    let _ = cx.update(|cx| crate::host_stall::apply(change, cx));
+                }
+                Report::Closed(closed) => {
+                    let _ = cx.update(|cx| {
+                        crate::host_stall::hide(cx);
+                        host_ended(closed, config, host, cx)
+                    });
+                    return;
+                }
+            }
+        }
     })
     .detach();
 }
 
-fn host_ended(ended: Ended, config: HostEndpointConfig, host: AppHost, cx: &mut App) {
+fn host_ended(closed: HostClosed, config: HostEndpointConfig, host: AppHost, cx: &mut App) {
     let quitting = crate::host_process::quit_announced() || host.is_stopped().unwrap_or(true);
-    let closed = match ended {
-        Ended::Closed(closed) => closed,
-        Ended::Unresponsive => {
-            eprintln!("Shellfox host stopped answering.");
-            // A hung host this UI started would keep its shells and block a
-            // fresh host; end it so Restart starts one.
-            crate::host_process::kill_started();
-            HostClosed::Lost
-        }
-    };
     let outcome = outcome(!host.is_external(), closed, quitting);
     if outcome == Outcome::Expected {
         return;
@@ -185,7 +179,7 @@ fn reconnect_when_back(config: HostEndpointConfig, cx: &mut App) {
 }
 
 /// Starts a new UI process, which attaches to (or starts) a host, and quits this one.
-fn relaunch(cx: &mut App) {
+pub(crate) fn relaunch(cx: &mut App) {
     let arguments = cx
         .try_global::<Relaunch>()
         .map(|relaunch| relaunch.0.clone())
@@ -200,19 +194,7 @@ fn relaunch(cx: &mut App) {
 
 /// One small window replaces the windows whose views lost their host.
 fn show(notice: Notice, cx: &mut App) {
-    let options = WindowOptions {
-        titlebar: Some(gpui::TitlebarOptions {
-            title: Some("Shellfox".into()),
-            ..Default::default()
-        }),
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-            None,
-            size(px(380.), px(130.)),
-            cx,
-        ))),
-        is_resizable: false,
-        ..Default::default()
-    };
+    let options = notice_options(cx);
     let stale = cx.windows();
     if let Err(error) = cx.open_window(options, |_, cx| cx.new(|_| notice)) {
         eprintln!("Shellfox host notice unavailable: {error:#}");
@@ -224,16 +206,36 @@ fn show(notice: Notice, cx: &mut App) {
     }
 }
 
+/// A small fixed window for a host notice.
+pub(crate) fn notice_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        titlebar: Some(gpui::TitlebarOptions {
+            title: Some("Shellfox".into()),
+            ..Default::default()
+        }),
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(380.), px(130.)),
+            cx,
+        ))),
+        is_resizable: false,
+        ..Default::default()
+    }
+}
+
+pub(crate) fn notice_palette(cx: &App) -> Palette {
+    cx.try_global::<crate::startup_chrome::StartupPalette>()
+        .map(|colors| colors.palette)
+        .unwrap_or_else(|| Palette::new("#ec4899", "#111016"))
+}
+
 struct Notice {
     message: &'static str,
     restart: bool,
 }
 impl Render for Notice {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let palette = cx
-            .try_global::<crate::startup_chrome::StartupPalette>()
-            .map(|colors| colors.palette)
-            .unwrap_or_else(|| Palette::new("#ec4899", "#111016"));
+        let palette = notice_palette(cx);
         let mut buttons = div().flex().justify_end().gap(px(8.));
         if self.restart {
             buttons = buttons.child(
@@ -275,19 +277,5 @@ mod tests {
             Outcome::AwaitHost
         );
         assert_eq!(outcome(false, HostClosed::Lost, false), Outcome::AwaitHost);
-    }
-
-    #[tokio::test]
-    async fn a_host_that_stops_answering_counts_as_lost() {
-        let answers = [true, false, false, true, false, false, false];
-        let pinged = std::cell::Cell::new(0);
-        let ping = || {
-            let answer = answers.get(pinged.get()).copied().unwrap_or(true);
-            pinged.set(pinged.get() + 1);
-            async move { answer }
-        };
-        unresponsive(ping, Duration::from_millis(1)).await;
-        // One answer resets the count: only three misses in a row end the host.
-        assert_eq!(pinged.get(), 7);
     }
 }
