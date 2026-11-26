@@ -284,16 +284,17 @@ impl BootGuard {
                     status(LocalBootStatus::NoOwnerClean);
                     return outcome;
                 }
-                // A host that can't confirm its cleanup must still end, or it
-                // keeps its ownership and no new host can start.
-                Err(error) if attempts >= 300 => {
-                    eprintln!(
-                        "Shellfox host: cleanup not confirmed after 30 s: {error:#}. Exiting."
-                    );
-                    std::process::exit(1);
-                }
-                Err(_) => {
+                // Cleanup waits for the owner, which may be slow (a stalled
+                // disk, a frozen process). Exiting would drop terminals whose
+                // close isn't confirmed, so keep retrying and log every 30 s.
+                Err(error) => {
                     attempts += 1;
+                    if attempts % 300 == 0 {
+                        eprintln!(
+                            "Shellfox host: cleanup not confirmed after {} s: {error:#}. Still retrying.",
+                            attempts / 10
+                        );
+                    }
                     tokio::time::sleep(Duration::from_millis(100)).await
                 }
             }

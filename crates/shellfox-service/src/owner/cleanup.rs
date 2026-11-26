@@ -11,17 +11,19 @@ pub(super) fn committed() -> ShutdownOutcome {
         presentation: crate::PresentationShutdownState::NoKnownFailure,
     }
 }
-/// Retries cleanup for up to 30 s. After that the process exits instead of
-/// reporting a confirmed shutdown; the OS then closes the lifetime socket, so
-/// clients see the host as lost.
+/// Retries cleanup until it is confirmed. It never gives up and exits: an
+/// exit would drop terminals whose close isn't confirmed. Each 30 s without
+/// confirmation is logged.
 pub(super) fn finish(service: Service) -> ShutdownOutcome {
-    const ATTEMPTS: usize = 300;
+    const LOG_EVERY: usize = 300;
     let mut attempts = 0;
     finish_with(service, |_, error| {
         attempts += 1;
-        if attempts >= ATTEMPTS {
-            eprintln!("Service cleanup could not be confirmed after 30 s: {error}. Exiting.");
-            std::process::exit(1);
+        if attempts % LOG_EVERY == 0 {
+            eprintln!(
+                "Shellfox host: service cleanup not confirmed after {} s: {error}. Still retrying.",
+                attempts / 10
+            );
         }
         std::thread::sleep(Duration::from_millis(100))
     })

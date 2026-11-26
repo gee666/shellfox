@@ -29,7 +29,7 @@ mod tests;
 mod cleanup;
 mod client;
 mod health;
-pub(crate) use health::{OwnerFailure, OwnerHealth, WEDGED_AFTER};
+pub(crate) use health::{OwnerHealth, Step, SLOW_PASS};
 mod controller;
 use controller::controller_id;
 mod task;
@@ -117,6 +117,7 @@ impl ServiceOwner {
                     return;
                 }
                 service.runtime_handle = runtime_handle;
+                service.owner_health = owner_health.clone();
                 let mut active = false;
                 let mut remote_install: Option<std::sync::Arc<approvals::RemoteInstall>> = None;
                 let mut controllers = HashMap::new();
@@ -135,6 +136,7 @@ impl ServiceOwner {
                     owner_health.pass_started();
                     wake.rearm();
                     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        owner_health.step(Step::Power);
                         service.pump_power();
                         service.pump();
                     }))
@@ -144,6 +146,7 @@ impl ServiceOwner {
                         // through the same cleanup path as dispatcher failures.
                         break;
                     }
+                    owner_health.step(Step::Private);
                     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         private.pump(&mut service)
                     }))
@@ -151,6 +154,7 @@ impl ServiceOwner {
                     {
                         break;
                     }
+                    owner_health.step(Step::Dispatch);
                     if active
                         && !service.stopping
                         && !std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -165,6 +169,7 @@ impl ServiceOwner {
                     {
                         break;
                     }
+                    owner_health.step(Step::Launches);
                     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         service.finish_launches()
                     }))
@@ -202,6 +207,7 @@ impl ServiceOwner {
                             received
                         }
                     };
+                    owner_health.step(Step::Task);
                     let received = match received {
                         Ok(task) if service.metadata_busy() && !task.flows(&service) => {
                             deferred.push_back(task);

@@ -2,14 +2,22 @@ use super::*;
 
 impl Service {
     pub(crate) fn pump(&mut self) {
+        use crate::owner::Step;
+        let step = |service: &Self, step| service.owner_health.step(step);
+        step(self, Step::TerminalEvents);
         let tabs: Vec<_> = self.terminals.keys().copied().collect();
         for tab in tabs {
             let _ = self.drain(tab);
         }
+        step(self, Step::Closing);
         self.pump_closing();
+        step(self, Step::Grants);
         let _ = self.pump_grant_retirements();
+        step(self, Step::Catalog);
         self.pump_native_catalog();
+        step(self, Step::Automation);
         self.pump_automation();
+        step(self, Step::Activity);
         if self.stopping || self.metadata_closing {
             // Resource cleanup keeps every live touch, but SQL persistence waits
             // until cleanup/metadata-close has completed or safely failed.
@@ -19,9 +27,12 @@ impl Service {
             }
         } else {
             self.pump_activity();
+            step(self, Step::Retention);
             self.pump_retention();
         }
+        step(self, Step::Frames);
         self.native_capture_frames();
+        step(self, Step::Watches);
         self.publish_native_watches();
     }
     pub(crate) fn drain(&mut self, tab: TabId) -> Result<()> {

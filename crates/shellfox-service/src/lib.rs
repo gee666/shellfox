@@ -119,6 +119,8 @@ pub struct Service {
     runtime_signal: std::sync::Arc<owner::wait::RuntimeSignal>,
     /// The runtime that started the owner, for small async watchers.
     runtime_handle: Option<tokio::runtime::Handle>,
+    /// Names the owner pass step in slow-pass logs.
+    owner_health: owner::OwnerHealth,
     /// When this host opened its data, as RFC 3339 UTC.
     started_at: String,
     /// The start a create or addTab began; its reply waits in launch_replies.

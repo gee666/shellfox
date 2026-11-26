@@ -38,6 +38,7 @@ impl Service {
             event_wake: None,
             runtime_signal: Default::default(),
             runtime_handle: None,
+            owner_health: crate::owner::OwnerHealth::new(),
             launch_begun: None,
             launch_replies: Vec::new(),
             _root_lifetime: None,

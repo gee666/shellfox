@@ -229,14 +229,15 @@ async fn run_started(
     };
     let lost = ownership.lost();
     let health = service.health();
-    let owner_failure = health.failed(crate::owner::WEDGED_AFTER);
-    tokio::pin!(owner_failure);
+    // A slow owner is only logged; the host ends only with its owner thread.
+    let owner_ended = health.ended(crate::owner::SLOW_PASS);
+    tokio::pin!(owner_ended);
     // The owner may be busy; a stop or lost ownership must not wait for it.
     let watches = tokio::select! {
         biased;
         _ = server.stop.cancelled() => return Ok(()),
         _ = lost.cancelled() => anyhow::bail!("Native host ownership lost; refusing further metadata access."),
-        failure = &mut owner_failure => return owner_failed(failure),
+        () = &mut owner_ended => return owner_ended_error(),
         watches = client.native_watches() => watches?,
     };
     let polls = std::sync::Arc::new(long_poll::LongPolls::new(watches, client.remote_state()));
@@ -272,29 +273,16 @@ async fn run_started(
             },
             _ = server.stop.cancelled() => {}
             _ = lost.cancelled() => {}
-            failure = &mut owner_failure => return owner_failed(failure),
+            () = &mut owner_ended => return owner_ended_error(),
         }
     }
     Ok(())
 }
 
-/// A host whose owner ended or hangs can't answer anyone. It exits, so every
-/// client's lifetime closes and the UI offers a restart.
-fn owner_failed(failure: crate::owner::OwnerFailure) -> Result<()> {
-    match failure {
-        crate::owner::OwnerFailure::Ended => {
-            anyhow::bail!("The service owner stopped; the host exits.")
-        }
-        crate::owner::OwnerFailure::Wedged => {
-            // Cleanup needs the owner, so it can't run: exit now and let the
-            // terminal supervisors see their host go.
-            eprintln!(
-                "Shellfox host: the service owner has not answered for {} s; the host exits.",
-                crate::owner::WEDGED_AFTER.as_secs()
-            );
-            std::process::exit(1);
-        }
-    }
+/// The owner thread left its loop (a panic or a failed pass) and cleans up
+/// its terminals itself: nothing is left to answer, so the host ends.
+fn owner_ended_error() -> Result<()> {
+    anyhow::bail!("The service owner stopped; the host exits.")
 }
 
 fn preflight_boot_paths(data: &Path, helper: &Path) -> Result<()> {
