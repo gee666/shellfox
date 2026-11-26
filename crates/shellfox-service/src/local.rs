@@ -17,6 +17,8 @@ mod launch;
 mod owner_death_tests;
 mod request;
 mod runtime_codes;
+#[cfg(test)]
+mod stalled_disk_tests;
 pub use desktop::{DesktopProviderRequest, DesktopReply, DesktopRequest};
 pub(crate) mod ssh_read;
 use crate::{

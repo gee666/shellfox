@@ -6,6 +6,7 @@ impl ServiceOwner {
         lost: &CancellationToken,
         lifetime: Option<shellfox_transport::RootLifetimeGuard>,
         wake: shellfox_runtime::EventWake,
+        durability: &std::sync::Arc<Durability>,
     ) -> std::result::Result<Service, StartupFailure> {
         #[cfg(windows)]
         let start_wsl_discovery = lifetime.is_some();
@@ -29,9 +30,12 @@ impl ServiceOwner {
         let runtime = crate::settings_runtime::SettingsRuntimeAdapter::new(lost.clone());
         #[cfg(windows)]
         let runtime = runtime.with_wsl_catalog(service.catalog.wsl.cache.clone());
+        // From here on a slow disk delays replies that changed metadata, never the owner.
+        service.durability = durability.clone();
         if let Err(error) = service
             .host()
             .install_settings_runtime(std::sync::Arc::new(runtime))
+            .and_then(|()| service.host().start_journal(durability.hooks()))
         {
             return Err(StartupFailure {
                 cause: error.into(),

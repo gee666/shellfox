@@ -42,6 +42,8 @@ pub(crate) struct Closing {
     deadline: Instant,
     gate: Option<CommitGate>,
     done: CloseDone,
+    /// The request that started the close: its commit is that request's change.
+    cause: Option<crate::owner::Cause>,
     /// Test-only: a parked close never advances.
     #[cfg(test)]
     parked: bool,
@@ -102,6 +104,7 @@ impl Service {
                     deadline: Instant::now() + STOP_DEADLINE,
                     gate,
                     done,
+                    cause: self.durability.current(),
                     #[cfg(test)]
                     parked: false,
                 });
@@ -165,6 +168,7 @@ impl Service {
         let Some(mut closing) = self.closing.take() else {
             return;
         };
+        let _cause = self.durability.enter(closing.cause);
         let result = match self.advance_close(&mut closing) {
             Ok(None) => {
                 self.closing = Some(closing);
@@ -407,6 +411,7 @@ impl Service {
             done: Box::new(move |result| {
                 let _ = send.send(result);
             }),
+            cause: None,
             parked: true,
         });
         self.metadata_closing = true;

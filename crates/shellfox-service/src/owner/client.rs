@@ -70,13 +70,19 @@ impl OwnerClient {
         }
         let (reply, response) = oneshot::channel();
         let cancel = shellfox_protocol::CancellationToken::new();
+        let cause = self.durability.cause();
         match self.sender.try_send(Task::Native {
             cancel: cancel.clone(),
             action: Box::new(action),
             client_id: self.client_id,
+            cause,
             reply,
         }) {
-            Ok(()) => Ok(NativeAccepted::owner(response, cancel)),
+            Ok(()) => Ok(NativeAccepted::owner(
+                response,
+                cancel,
+                self.durability.settle(cause),
+            )),
             Err(TrySendError::Full(Task::Native { action, .. })) => {
                 Err(NativeAdmissionError::Full(action))
             }
@@ -104,6 +110,7 @@ impl OwnerClient {
             sender: self.sender.clone(),
             client_id: uuid::Uuid::new_v4(),
             remote: self.remote.clone(),
+            durability: self.durability.clone(),
         }
     }
     #[cfg(test)]
@@ -115,17 +122,23 @@ impl OwnerClient {
         request.validate()?;
         let (reply, response) = oneshot::channel();
         let recipient = crate::grant::requests::RecipientCancellation::new();
+        let cause = self.durability.cause();
         match self.sender.try_send(Task::Execute {
             cancel: recipient.token(),
             request,
             client_id: self.client_id,
+            cause,
             reply,
         }) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => bail!("Service owner queue is full."),
             Err(TrySendError::Disconnected(_)) => bail!("Service owner stopped."),
         }
-        Ok(super::LocalApiAccepted::new(response, recipient))
+        Ok(super::LocalApiAccepted::new(
+            response,
+            recipient,
+            self.durability.settle(cause),
+        ))
     }
     pub async fn execute(&self, request: LocalApiRequest) -> Result<LocalApiResponse> {
         self.try_execute(request)?

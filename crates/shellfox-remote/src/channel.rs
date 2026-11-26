@@ -52,6 +52,11 @@ pub trait ServiceHost {
     fn keep(&mut self, request: OwnerRequest) -> Option<OwnerRequest> {
         Some(request)
     }
+    /// Answers a dispatched request. A host may hold the answer, for example
+    /// until the change the request made is saved.
+    fn complete(&mut self, request: OwnerRequest, result: OwnerResult) {
+        request.complete(result);
+    }
 }
 
 type Wake = Arc<dyn Fn() + Send + Sync>;
@@ -162,10 +167,10 @@ impl OwnerRequest {
         match result {
             Ok(value) => {
                 if let Some(request) = host.keep(self) {
-                    request.complete(Ok(value));
+                    host.complete(request, Ok(value));
                 }
             }
-            Err(error) => self.complete(Err(error)),
+            Err(error) => host.complete(self, Err(error)),
         }
     }
 }

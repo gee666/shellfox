@@ -7,13 +7,15 @@ pub(super) enum Task {
         cancel: shellfox_protocol::CancellationToken,
         request: LocalApiRequest,
         client_id: uuid::Uuid,
+        cause: super::Cause,
         reply: oneshot::Sender<Result<LocalApiResponse>>,
     },
-    Private(Box<private::PrivateTask>),
+    Private(Box<private::PrivateTask>, super::Cause),
     Native {
         cancel: shellfox_protocol::CancellationToken,
         action: Box<crate::native::NativeAction>,
         client_id: uuid::Uuid,
+        cause: super::Cause,
         reply: oneshot::Sender<Result<crate::native::NativeResponse>>,
     },
     Approvals(Box<super::approvals::ApprovalTask>),
@@ -33,6 +35,16 @@ pub(super) enum Task {
 }
 
 impl Task {
+    /// The request this task answers; its reply waits for the changes it made.
+    pub(super) fn cause(&self) -> Option<super::Cause> {
+        match self {
+            Self::Execute { cause, .. } | Self::Native { cause, .. } | Self::Private(_, cause) => {
+                Some(*cause)
+            }
+            Self::Approvals(task) => Some(task.cause()),
+            _ => None,
+        }
+    }
     /// Whether this task may run while a close is in flight (see close.rs).
     pub(super) fn flows(&self, service: &crate::Service) -> bool {
         match self {
@@ -44,7 +56,7 @@ impl Task {
             | Self::Watches { .. } => true,
             Self::Execute { request, .. } => service.local_api_flows(request),
             Self::Native { action, .. } => service.native_flows(action),
-            Self::Private(task) => task.flows(service),
+            Self::Private(task, _) => task.flows(service),
             // Shutdown only wakes the loop; `abandon` ends it, and shutdown fails the close.
             Self::Shutdown | Self::InstallRemote(_) => false,
         }
@@ -70,7 +82,7 @@ impl Task {
                 }
                 _ => None,
             },
-            Self::Private(task) => task.start_target(private),
+            Self::Private(task, _) => task.start_target(private),
             _ => None,
         }
     }
@@ -78,7 +90,7 @@ impl Task {
     pub(super) fn client(&self) -> Option<uuid::Uuid> {
         match self {
             Self::Execute { client_id, .. } | Self::Native { client_id, .. } => Some(*client_id),
-            Self::Private(task) => task.client(),
+            Self::Private(task, _) => task.client(),
             _ => None,
         }
     }
@@ -89,7 +101,7 @@ impl Task {
             Self::Native { action, .. } => {
                 matches!(action.as_ref(), crate::native::NativeAction::DetachAll)
             }
-            Self::Private(task) => task.detaches(),
+            Self::Private(task, _) => task.detaches(),
             _ => false,
         };
         detaching.then(|| self.client()).flatten()
@@ -99,7 +111,7 @@ impl Task {
         match self {
             Self::Execute { reply, .. } => drop(reply.send(Err(error))),
             Self::Native { reply, .. } => drop(reply.send(Err(error))),
-            Self::Private(task) => task.fail(error),
+            Self::Private(task, _) => task.fail(error),
             _ => {}
         }
     }

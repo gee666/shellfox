@@ -205,7 +205,10 @@ fn failure(error: anyhow::Error) -> shellfox_protocol::Reply<serde_json::Value> 
 }
 fn failure_code(error: anyhow::Error) -> (shellfox_protocol::ErrorCode, String) {
     match error.downcast_ref::<crate::ShutdownFailure>() {
-        Some(failure @ crate::ShutdownFailure::ActivityPersistence(_)) => (
+        Some(
+            failure @ (crate::ShutdownFailure::ActivityPersistence(_)
+            | crate::ShutdownFailure::MetadataPersistence(_)),
+        ) => (
             shellfox_protocol::ErrorCode::StorageFailed,
             failure.to_string(),
         ),

@@ -164,6 +164,7 @@ impl RemoteState {
                 "Owned terminal cleanup not confirmed; metadata retained.",
             )),
         };
-        request.complete(response);
+        // The close committed under its own cause, in an earlier pass.
+        service.finish_remote(request, response, service.durability.barrier());
     }
 }

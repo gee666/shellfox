@@ -39,6 +39,7 @@ impl Service {
             runtime_signal: Default::default(),
             runtime_handle: None,
             owner_health: crate::owner::OwnerHealth::new(),
+            durability: crate::owner::Durability::new(),
             launch_begun: None,
             launch_replies: Vec::new(),
             _root_lifetime: None,

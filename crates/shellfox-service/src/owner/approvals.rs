@@ -14,7 +14,13 @@ pub(super) enum ApprovalOperation {
 }
 pub(super) struct ApprovalTask {
     operation: ApprovalOperation,
+    cause: Cause,
     reply: oneshot::Sender<std::result::Result<ApprovalStoreSnapshot, AppError>>,
+}
+impl ApprovalTask {
+    pub(super) fn cause(&self) -> Cause {
+        self.cause
+    }
 }
 fn unavailable(message: &str) -> AppError {
     AppError {
@@ -26,6 +32,7 @@ fn unavailable(message: &str) -> AppError {
 struct ActorRepository {
     sender: SyncSender<Task>,
     lost: CancellationToken,
+    durability: Arc<Durability>,
 }
 impl ActorRepository {
     async fn request(
@@ -36,13 +43,20 @@ impl ActorRepository {
             return Err(unavailable("Original approval owner is lost."));
         }
         let (reply, received) = oneshot::channel();
+        let cause = self.durability.cause();
         self.sender
-            .try_send(Task::Approvals(Box::new(ApprovalTask { operation, reply })))
+            .try_send(Task::Approvals(Box::new(ApprovalTask {
+                operation,
+                cause,
+                reply,
+            })))
             .map_err(|_| unavailable("Approval request was not queued; no retry was made."))?;
         // No caller cancellation token is sent. An accepted commit keeps running.
         let result = received.await.map_err(|_| {
             unavailable("Approval reply is unknown; commit may have occurred. No retry was made.")
         })?;
+        // A commit answers once it is on disk, even a failed one's pending intent.
+        self.durability.settled(cause).await;
         if self.lost.is_cancelled() {
             return Err(unavailable(
                 "Ownership changed; approval commit outcome is unavailable.",
@@ -84,6 +98,7 @@ impl OwnerClient {
         Arc::new(ActorRepository {
             sender: self.sender.clone(),
             lost,
+            durability: self.durability.clone(),
         })
     }
 }

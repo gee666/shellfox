@@ -157,6 +157,9 @@ impl RemoteState {
             return;
         };
         let cancel = request.cancellation_token();
+        // The request runs as its own cause: its answer waits for its changes.
+        let durability = service.durability.clone();
+        let _cause = durability.enter(Some(durability.cause()));
         service.with_grant_recipient(cancel, |service| request.dispatch(&mut self.bind(service)));
         // A close this dispatch started may already be done.
         service.pump_closing();
@@ -191,6 +194,26 @@ impl RemoteState {
         RemoteService {
             state: self,
             service,
+        }
+    }
+}
+impl Service {
+    /// Answers a peer request once change `needed` is on disk.
+    pub(crate) fn finish_remote(
+        &self,
+        request: shellfox_remote::OwnerRequest,
+        result: shellfox_remote::OwnerResult,
+        needed: Option<u64>,
+    ) {
+        match (needed, self.runtime_handle.as_ref()) {
+            (Some(change), Some(runtime)) => {
+                let durable = self.durability.durable(change);
+                runtime.spawn(async move {
+                    durable.await;
+                    request.complete(result);
+                });
+            }
+            _ => request.complete(result),
         }
     }
 }
@@ -368,6 +391,14 @@ impl ServiceHost for RemoteService<'_> {
                 self.execute(&actor, command)
             }
         }
+    }
+    fn complete(
+        &mut self,
+        request: shellfox_remote::OwnerRequest,
+        result: shellfox_remote::OwnerResult,
+    ) {
+        let needed = self.service.durability.needed();
+        self.service.finish_remote(request, result, needed);
     }
     fn keep(
         &mut self,

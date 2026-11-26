@@ -28,6 +28,8 @@ mod tests;
 
 mod cleanup;
 mod client;
+mod durability;
+pub(crate) use durability::{Cause, Durability};
 mod health;
 pub(crate) use health::{OwnerHealth, Step, SLOW_PASS};
 mod controller;
@@ -53,6 +55,7 @@ pub struct OwnerClient {
     sender: SyncSender<Task>,
     client_id: uuid::Uuid,
     remote: Option<crate::remote::native::RemoteControl>,
+    durability: std::sync::Arc<Durability>,
 }
 pub(crate) struct ServiceOwner {
     sender: SyncSender<Task>,
@@ -61,6 +64,7 @@ pub(crate) struct ServiceOwner {
     thread: Option<JoinHandle<()>>,
     abandon: CancellationToken,
     health: OwnerHealth,
+    durability: std::sync::Arc<Durability>,
     cleanup_done: Option<crate::ShutdownOutcome>,
     cleanup_error: Option<String>,
 }
@@ -79,6 +83,8 @@ impl ServiceOwner {
         let owner_abandon = abandon.clone();
         let health = OwnerHealth::new();
         let owner_health = health.clone();
+        let durability = Durability::new();
+        let owner_durability = durability.clone();
         let wake = OwnerWake::new(sender.clone());
         let runtime_handle = tokio::runtime::Handle::try_current().ok();
         let thread = std::thread::Builder::new()
@@ -97,6 +103,7 @@ impl ServiceOwner {
                     &lost,
                     lifetime,
                     owner_notifier(&wake),
+                    &owner_durability,
                 ) {
                     Ok(service) => service,
                     Err(failure) => {
@@ -208,6 +215,9 @@ impl ServiceOwner {
                         }
                     };
                     owner_health.step(Step::Task);
+                    // The task runs as its request: replies wait for its changes.
+                    let _cause =
+                        owner_durability.enter(received.as_ref().ok().and_then(Task::cause));
                     let received = match received {
                         Ok(task) if service.metadata_busy() && !task.flows(&service) => {
                             deferred.push_back(task);
@@ -269,6 +279,7 @@ impl ServiceOwner {
                             request,
                             client_id,
                             reply,
+                            ..
                         }) => {
                             if lost.is_cancelled() {
                                 let _ = reply.send(Err(anyhow::anyhow!("Native ownership lost.")));
@@ -324,7 +335,7 @@ impl ServiceOwner {
                                 }
                             }
                         }
-                        Ok(Task::Private(task)) => {
+                        Ok(Task::Private(task, _)) => {
                             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 private.handle(&mut service, *task, &mut controllers)
                             }))
@@ -338,6 +349,7 @@ impl ServiceOwner {
                             action,
                             client_id,
                             reply,
+                            ..
                         }) => {
                             if lost.is_cancelled() {
                                 let _ = reply.send(Err(anyhow::anyhow!("Native ownership lost.")));
@@ -443,6 +455,7 @@ impl ServiceOwner {
             thread: Some(thread),
             abandon,
             health,
+            durability,
             cleanup_done: None,
             cleanup_error: None,
         })
@@ -464,6 +477,7 @@ impl ServiceOwner {
             sender: self.sender.clone(),
             client_id,
             remote: None,
+            durability: self.durability.clone(),
         }
     }
     pub async fn shutdown(&mut self) -> Result<crate::ShutdownOutcome> {

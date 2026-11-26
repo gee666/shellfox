@@ -10,6 +10,7 @@ fn owner_queue_admission_is_bounded_and_views_share_no_controller_ids() {
         sender,
         client_id: uuid::Uuid::new_v4(),
         remote: None,
+        durability: super::Durability::new(),
     };
     let mut pending = Vec::new();
     for _ in 0..super::CAPACITY {
@@ -41,6 +42,7 @@ fn native_admission_returns_exact_unsent_action_only_before_enqueue() {
         sender,
         client_id: uuid::Uuid::new_v4(),
         remote: None,
+        durability: super::Durability::new(),
     };
     let _pending = client
         .try_native(NativeAction::ChangedSince { revision: 0 })
@@ -99,6 +101,7 @@ async fn post_admission_failures_are_not_retryable_queue_errors() {
         sender,
         client_id: uuid::Uuid::new_v4(),
         remote: None,
+        durability: super::Durability::new(),
     };
     let operation = client.native(NativeAction::ChangedSince { revision: 0 });
     let owner = async {
@@ -131,6 +134,7 @@ fn remote_without_owned_manager_is_unsent_not_a_fake_state_or_owner_task() {
         sender,
         client_id: uuid::Uuid::new_v4(),
         remote: None,
+        durability: super::Durability::new(),
     };
     assert!(
         matches!(client.try_native(NativeAction::Remote(RemoteRequest::State)),

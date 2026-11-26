@@ -19,6 +19,8 @@ pub struct ShutdownOutcome {
 pub enum ShutdownFailure {
     ResourceCleanup(anyhow::Error),
     ActivityPersistence(anyhow::Error),
+    /// Committed metadata isn't on disk yet; the journal keeps retrying.
+    MetadataPersistence(anyhow::Error),
 }
 impl std::fmt::Display for ShutdownFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -29,13 +31,18 @@ impl std::fmt::Display for ShutdownFailure {
             Self::ActivityPersistence(_) => {
                 "Owned processes stopped but activity persistence failed; pending touches retained."
             }
+            Self::MetadataPersistence(_) => {
+                "Owned processes stopped but metadata isn't saved to disk yet; it is kept and retried."
+            }
         })
     }
 }
 impl std::error::Error for ShutdownFailure {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(match self {
-            Self::ResourceCleanup(error) | Self::ActivityPersistence(error) => error.as_ref(),
+            Self::ResourceCleanup(error)
+            | Self::ActivityPersistence(error)
+            | Self::MetadataPersistence(error) => error.as_ref(),
         })
     }
 }

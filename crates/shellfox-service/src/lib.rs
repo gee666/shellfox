@@ -93,6 +93,10 @@ mod windows_profiles;
 
 pub(crate) use shellfox_terminal::elevated::ADMINISTRATOR_PROFILE_ID as ADMIN_POWERSHELL_PROFILE;
 
+/// How long one shutdown attempt waits for the metadata journal. Cleanup
+/// retries until it is on disk.
+const METADATA_FLUSH_WAIT: Duration = Duration::from_secs(1);
+
 pub struct Service {
     host: Host,
     terminals: HashMap<TabId, terminals::OwnedTerminal>,
@@ -121,6 +125,8 @@ pub struct Service {
     runtime_handle: Option<tokio::runtime::Handle>,
     /// Names the owner pass step in slow-pass logs.
     owner_health: owner::OwnerHealth,
+    /// Attributes metadata changes to the request that made them.
+    durability: std::sync::Arc<owner::Durability>,
     /// When this host opened its data, as RFC 3339 UTC.
     started_at: String,
     /// The start a create or addTab began; its reply waits in launch_replies.
@@ -189,6 +195,10 @@ impl Service {
                 .map_err(ShutdownFailure::ActivityPersistence)?;
             ActivityShutdownState::Committed
         };
+        // The store lock is released after this; every change must be on disk first.
+        self.host.flush(METADATA_FLUSH_WAIT).map_err(|error| {
+            ShutdownFailure::MetadataPersistence(anyhow::anyhow!(error.message))
+        })?;
         let presentation = self.presentation_shutdown_state();
         Ok(ShutdownOutcome {
             activity,

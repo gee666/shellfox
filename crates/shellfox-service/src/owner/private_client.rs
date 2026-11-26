@@ -6,12 +6,14 @@ impl OwnerClient {
     /// A full inbox is a burst (every view fetching and acknowledging frames at
     /// once), so the request waits for room. Its connection deadline and its
     /// caller going away still end the wait.
-    pub(super) async fn submit_private(&self, task: PrivateTask) -> Result<()> {
-        let mut task = Task::Private(Box::new(task));
+    /// Returns the request's cause: see `settled`.
+    pub(super) async fn submit_private(&self, task: PrivateTask) -> Result<Cause> {
+        let cause = self.durability.cause();
+        let mut task = Task::Private(Box::new(task), cause);
         let mut pause = Duration::from_millis(1);
         loop {
             match self.sender.try_send(task) {
-                Ok(()) => return Ok(()),
+                Ok(()) => return Ok(cause),
                 Err(TrySendError::Full(refused)) => task = refused,
                 Err(TrySendError::Disconnected(_)) => {
                     bail!("Private owner stopped before admission.")
@@ -48,6 +50,7 @@ impl OwnerClient {
             sender: self.sender.clone(),
             client_id,
             remote: self.remote.clone(),
+            durability: self.durability.clone(),
         }
     }
     pub(crate) async fn open_lifetime(&self, epoch: uuid::Uuid) -> Result<uuid::Uuid> {
@@ -84,7 +87,7 @@ impl OwnerClient {
     }
     /// Cleanup is never refused for a full queue: it waits for room instead.
     async fn submit_private_cleanup(&self, task: PrivateTask) -> Result<()> {
-        let task = Task::Private(Box::new(task));
+        let task = Task::Private(Box::new(task), self.durability.cause());
         let task = match self.sender.try_send(task) {
             Err(TrySendError::Full(task)) => task,
             Ok(()) => return Ok(()),
@@ -135,17 +138,20 @@ impl OwnerClient {
         }
         let (reply, response) = oneshot::channel();
         let recipient = crate::grant::requests::RecipientCancellation::new();
-        self.submit_private(PrivateTask::Request {
-            cancel: recipient.token(),
-            request,
-            client_id: self.client_id,
-            epoch,
-            reply,
-        })
-        .await?;
-        response.await.context(
+        let cause = self
+            .submit_private(PrivateTask::Request {
+                cancel: recipient.token(),
+                request,
+                client_id: self.client_id,
+                epoch,
+                reply,
+            })
+            .await?;
+        let reply = response.await.context(
             "Private owner reply lost; mutation outcome is uncertain and was not retried.",
-        )?
+        )?;
+        self.durability.settled(cause).await;
+        reply
     }
     /// Trusted in-process native API only. No corresponding wire DTO exists.
     pub async fn desktop_register(&self) -> Result<DesktopRegistration> {
@@ -163,16 +169,19 @@ impl OwnerClient {
         submission: LaunchRequestKind,
     ) -> Result<LaunchReceipt> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::Submit {
-            owner,
-            intent,
-            submission,
-            reply,
-        })
-        .await?;
-        response
+        let cause = self
+            .submit_private(PrivateTask::Submit {
+                owner,
+                intent,
+                submission,
+                reply,
+            })
+            .await?;
+        let reply = response
             .await
-            .context("Desktop submit reply lost; intent must not be replayed.")?
+            .context("Desktop submit reply lost; intent must not be replayed.")?;
+        self.durability.settled(cause).await;
+        reply
     }
     pub async fn desktop_unregister(&self, token: DesktopClientToken) -> Result<()> {
         let (reply, response) = oneshot::channel();
@@ -182,11 +191,14 @@ impl OwnerClient {
     }
     pub async fn desktop_claim(&self, delivery: DesktopLaunchDelivery) -> Result<LaunchClaim> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::Claim { delivery, reply })
+        let cause = self
+            .submit_private(PrivateTask::Claim { delivery, reply })
             .await?;
-        response
+        let reply = response
             .await
-            .context("Desktop claim reply lost; UI effects must not be applied.")?
+            .context("Desktop claim reply lost; UI effects must not be applied.")?;
+        self.durability.settled(cause).await;
+        reply
     }
     pub async fn desktop_complete(
         &self,
@@ -194,14 +206,17 @@ impl OwnerClient {
         handling: LaunchHandling,
     ) -> Result<LaunchReceipt> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::Complete {
-            delivery,
-            handling,
-            reply,
-        })
-        .await?;
-        response
+        let cause = self
+            .submit_private(PrivateTask::Complete {
+                delivery,
+                handling,
+                reply,
+            })
+            .await?;
+        let reply = response
             .await
-            .context("Desktop completion reply lost; UI effects must not be replayed.")?
+            .context("Desktop completion reply lost; UI effects must not be replayed.")?;
+        self.durability.settled(cause).await;
+        reply
     }
 }
