@@ -228,6 +228,13 @@ impl Service {
         };
         #[cfg_attr(not(windows), allow(unused_mut))]
         let mut config = self.launch_config(launch)?;
+        // Rejected here, before any spawn, on every OS, as 0.9's node-pty spawn
+        // threw at once. The PTY checks it again, but on its own thread: macOS
+        // and Linux would report it later than Windows does.
+        anyhow::ensure!(
+            config.cwd.is_absolute() && config.cwd.is_dir(),
+            "PTY cwd must be an existing absolute directory"
+        );
         #[cfg(windows)]
         let wsl_account = match wsl_launch {
             Some((profile, binding, cwd)) => self.catalog.wsl.cache.ready()?.pin_launch_account(

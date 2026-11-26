@@ -375,11 +375,13 @@ impl Service {
         let Some(tab) = created else {
             return Ok(after);
         };
-        if self
-            .begin_start(tab)
-            .map_err(|error| crate::owner::launching::failure(&error))?
-        {
+        let failure = |error: anyhow::Error| crate::owner::launching::failure(&error);
+        if self.begin_start(tab).map_err(failure)? {
             self.launch_begun = Some(tab);
+        } else {
+            // Already settled: a start that failed this fast (macOS rejects a
+            // missing cwd at once) is reported here, never as a created tab.
+            self.start_terminal(tab).map_err(failure)?;
         }
         Ok(self.host().snapshot()?)
     }

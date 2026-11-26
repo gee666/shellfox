@@ -100,11 +100,8 @@ fn failed_startup_retains_generation_until_confirmed_close() {
         .create_session(CreateSession {
             request_id: SessionId::new(),
             title: Some("failed launch fixture".into()),
-            cwd: data
-                .path()
-                .join("missing-cwd")
-                .to_string_lossy()
-                .into_owned(),
+            // The test binary is no PTY supervisor, so this start fails.
+            cwd: data.path().to_string_lossy().into_owned(),
             profile_id: ProfileId::new("cmd").unwrap(),
         })
         .unwrap();

@@ -6,12 +6,9 @@ use shellfox_core::{AddTab, CreateSession};
 fn a_close_in_flight_lets_reads_through_and_holds_metadata_writes() {
     let data = scratch();
     let mut service = Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
-    // A failed launch still registers a runtime that the close must stop.
-    let cwd = data
-        .path()
-        .join("missing-cwd")
-        .to_string_lossy()
-        .into_owned();
+    // A failed launch still registers a runtime that the close must stop. The
+    // test binary is no PTY supervisor, so a start in an existing folder fails.
+    let cwd = data.path().to_string_lossy().into_owned();
     let profile_id = shellfox_core::ProfileId::new("cmd").unwrap();
     let created = service
         .host()
@@ -269,11 +266,10 @@ async fn a_create_reports_a_failed_start_once() {
         })
         .await
         .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .starts_with("The shell could not be started"),
-        "{error:#}"
+    // Rejected before any spawn, so every OS says the same at once.
+    assert_eq!(
+        error.to_string(),
+        "The shell could not be started: PTY cwd must be an existing absolute directory"
     );
     let crate::local_api::LocalApiResponse::Snapshot(saved) =
         client.execute(LocalApiRequest::Snapshot {}).await.unwrap()
@@ -281,7 +277,7 @@ async fn a_create_reports_a_failed_start_once() {
         panic!("snapshot")
     };
     let tab = saved.sessions[0].tabs[0].id;
-    // Reported once; the failed owner stays registered until a close confirms it.
+    // The saved tab stays, as in 0.9, and closes like any other.
     client
         .execute(LocalApiRequest::CloseTab { id: tab })
         .await

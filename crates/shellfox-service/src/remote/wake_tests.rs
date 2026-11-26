@@ -268,17 +268,14 @@ async fn a_peer_revoked_during_its_close_commits_nothing() {
     let mut service =
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
     let mut state = RemoteState::new(Default::default(), None, None);
-    // A failed launch leaves a runtime the close has to stop.
+    // A failed launch leaves a runtime the close has to stop: the test binary
+    // is no PTY supervisor.
     let created = service
         .host()
         .create_session(shellfox_core::CreateSession {
             request_id: SessionId::new(),
             title: None,
-            cwd: scratch
-                .path()
-                .join("missing-cwd")
-                .to_string_lossy()
-                .into_owned(),
+            cwd: scratch.path().to_string_lossy().into_owned(),
             profile_id: shellfox_core::ProfileId::new("cmd").unwrap(),
         })
         .unwrap();
