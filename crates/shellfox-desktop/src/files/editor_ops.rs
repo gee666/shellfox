@@ -128,15 +128,13 @@ impl Root {
         let Some(files) = &mut self.files.panel else {
             return;
         };
-        if files.busy {
+        if files.busy() {
             return;
         }
-        files.request += 1;
-        let request = files.request;
+        let request = files.activity.begin();
         let epoch = files.source_epoch;
         let backend = files.backend.clone();
         let task_backend = backend.clone();
-        files.busy = true;
         files.pending_file_action = None;
         files.document_path = Some(path.clone());
         files.document_error = None;
@@ -158,10 +156,9 @@ impl Root {
                 let Some(files) = &mut root.files.panel else {
                     return;
                 };
-                if files.request != request || !files.backend.same_origin(&backend) {
+                if !files.backend.same_origin(&backend) || !files.activity.finish(request) {
                     return;
                 }
-                files.busy = false;
                 files.operation = None;
                 if !current {
                     files.document_error = Some(
@@ -237,7 +234,7 @@ impl Root {
         let Some(files) = &mut self.files.panel else {
             return;
         };
-        if files.busy {
+        if files.busy() {
             return;
         }
         let Some(editor) = &files.editor else { return };
@@ -256,11 +253,9 @@ impl Root {
             revision: editor.file.revision.clone(),
             utf8_bom: editor.file.utf8_bom,
         };
-        files.request += 1;
-        let serial = files.request;
+        let serial = files.activity.begin();
         let backend = files.backend.clone();
         let task_backend = backend.clone();
-        files.busy = true;
         files.document_error = None;
         let cancellation = EditorCancellation::default();
         files.operation = Some(FileOperation::Save(cancellation.clone()));
@@ -274,7 +269,7 @@ impl Root {
                 let Some((files, presented)) = root.file_write_recipient(serial, &backend) else {
                     return;
                 };
-                files.busy = false;
+                files.activity.finish(serial);
                 files.operation = None;
                 let continue_on_save = std::mem::take(&mut files.save_and_continue);
                 let Some(editor) = &mut files.editor else {
@@ -323,8 +318,11 @@ impl Root {
     }
 
     pub(crate) fn cancel_file_operation(&mut self, cx: &mut Context<Self>) {
-        if let Some(operation) = self.files.panel.as_ref().and_then(|f| f.operation.as_ref()) {
-            operation.cancel();
+        if let Some(files) = &mut self.files.panel {
+            if let Some(operation) = &files.operation {
+                operation.cancel();
+            }
+            files.end_reads(cx);
         }
         cx.notify();
     }

@@ -143,7 +143,7 @@ impl Root {
                 width,
                 height,
                 palette,
-                files.busy,
+                files.busy(),
                 cx,
             ));
         } else if let Some(preview) = &files.preview {
@@ -246,7 +246,7 @@ fn file_toolbar(
                 Control::Save.wrap(
                     root,
                     "Save file",
-                    dirty && !files.busy && !editor.reload_required,
+                    dirty && !files.busy() && !editor.reload_required,
                     None,
                     control("save-file", "save", palette)
                         .tooltip(crate::assets::tooltip(

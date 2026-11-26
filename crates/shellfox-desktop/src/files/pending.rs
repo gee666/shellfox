@@ -67,7 +67,7 @@ impl Root {
     }
 
     pub(crate) fn discard_and_continue_file_action(&mut self, cx: &mut Context<Self>) {
-        let Some(files) = self.files.panel.as_mut().filter(|files| !files.busy) else {
+        let Some(files) = self.files.panel.as_mut().filter(|files| !files.busy()) else {
             return;
         };
         let Some(action) = files.pending_file_action.take() else {
@@ -92,7 +92,7 @@ impl Root {
         let Some(files) = &mut self.files.panel else {
             return;
         };
-        if !files.busy
+        if !files.busy()
             && files.pending_file_action.is_some()
             && files
                 .editor

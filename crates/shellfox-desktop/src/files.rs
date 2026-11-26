@@ -2,6 +2,7 @@ use crate::{editor_composition::EditorOutcome, field::Field, root::Root};
 use gpui::{Context, Entity};
 use shellfox_files::FileList;
 use std::sync::Arc;
+mod activity;
 mod backend;
 pub(crate) use backend::{DocumentBackend, PeerFileScope};
 pub(crate) mod completion;
@@ -101,8 +102,7 @@ pub struct Files {
     pub(crate) width_focus: gpui::FocusHandle,
     pub(crate) height_focus: gpui::FocusHandle,
     pub(crate) confirm_focus: crate::files::view::confirmation::ConfirmationFocus,
-    pub busy: bool,
-    pub request: u64,
+    pub(crate) activity: activity::Activity,
     pub(crate) pending_file_action: Option<pending::FileAction>,
     pub(crate) save_and_continue: bool,
 }
@@ -111,12 +111,17 @@ impl Drop for Files {
         if let Some(operation) = &self.operation {
             operation.cancel();
         }
+        self.activity.stop_revalidation();
         if let Some(transfer) = &self.transfer {
             transfer.cancel.cancel();
         }
     }
 }
 impl Files {
+    pub(crate) fn busy(&self) -> bool {
+        self.activity.busy()
+    }
+
     pub(crate) fn saving(&self) -> bool {
         matches!(self.operation, Some(FileOperation::Save(_)))
     }
@@ -154,7 +159,7 @@ impl Root {
         close_guard(
             panels.clone().any(|files| files.dirty(cx)),
             panels.into_iter().any(|files| {
-                (files.busy && !matches!(files.operation, Some(FileOperation::Revalidate(_))))
+                files.busy()
                     || files.transfer.is_some()
                     || files
                         .image_editor
@@ -249,14 +254,14 @@ impl Root {
 
     fn prepare_files(&mut self, cx: &mut Context<Self>) -> Option<String> {
         self.sync_file_source(cx);
-        if self.files.panel.as_ref().is_some_and(|f| f.busy) {
+        // Reads end on cancel. Only a save owns its result until the reply arrives.
+        self.cancel_file_operation(cx);
+        if self.files.panel.as_ref().is_some_and(Files::busy) {
             if let Some(files) = &mut self.files.panel {
                 files.visible = true;
             }
-            self.cancel_file_operation(cx);
-            self.error = Some(
-                "Wait for the original file operation to finish before changing sources.".into(),
-            );
+            self.error =
+                Some("Wait for the original save to finish before changing sources.".into());
             cx.notify();
             return None;
         }
@@ -320,8 +325,7 @@ impl Root {
             width_focus: cx.focus_handle(),
             height_focus: cx.focus_handle(),
             confirm_focus: crate::files::view::confirmation::ConfirmationFocus::new(cx),
-            busy: false,
-            request: 0,
+            activity: Default::default(),
             pending_file_action: None,
             save_and_continue: false,
         });
@@ -331,11 +335,10 @@ impl Root {
         if self.files_source_current() {
             return;
         }
-        if self.files.panel.as_ref().is_some_and(|f| f.busy) {
-            self.cancel_file_operation(cx);
-            self.error = Some(
-                "Wait for the original operation to complete before discarding its draft.".into(),
-            );
+        self.cancel_file_operation(cx);
+        if self.files.panel.as_ref().is_some_and(Files::busy) {
+            self.error =
+                Some("Wait for the original save to complete before discarding its draft.".into());
             cx.notify();
             return;
         }

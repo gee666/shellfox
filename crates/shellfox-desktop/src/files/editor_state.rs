@@ -4,14 +4,13 @@ use std::sync::Arc;
 
 pub(crate) enum FileOperation {
     Open(EditorCancellation),
-    Revalidate(EditorCancellation),
     Save(EditorCancellation),
 }
 
 impl FileOperation {
     pub(super) fn cancel(&self) {
         match self {
-            Self::Open(cancel) | Self::Revalidate(cancel) | Self::Save(cancel) => cancel.cancel(),
+            Self::Open(cancel) | Self::Save(cancel) => cancel.cancel(),
         }
     }
 }

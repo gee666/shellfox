@@ -110,7 +110,7 @@ impl Root {
             .into_iter()
             .find(|control| frame.id_for(control.key()).ok() == Some(action.target))
         else {
-            if !files.browser || files.busy {
+            if !files.browser || files.busy() {
                 return false;
             }
             let location = files.location.read(cx);
@@ -140,11 +140,11 @@ impl Root {
                 Some(EditorOutcome::Ready(_))
             );
         match control {
-            Control::Browse if files.browser && files.backend.is_local() && !files.busy => {
+            Control::Browse if files.browser && files.backend.is_local() && !files.busy() => {
                 files.browser_focus.browse.focus(window);
                 self.browse_files(window, cx);
             }
-            Control::SubmitPath if files.browser && !files.busy => self.submit_file_path(cx),
+            Control::SubmitPath if files.browser && !files.busy() => self.submit_file_path(cx),
             Control::Browser => self.toggle_file_browser(window, cx),
             Control::Close => self.request_file_action(FileAction::Hide, cx),
             Control::Maximize if !self.files_narrow(window) || files.maximized => {
@@ -152,7 +152,7 @@ impl Root {
             }
             Control::CopyPath if files.opened_path().is_some() => self.copy_open_file_path(cx),
             Control::Save
-                if !files.busy
+                if !files.busy()
                     && files
                         .editor
                         .as_ref()

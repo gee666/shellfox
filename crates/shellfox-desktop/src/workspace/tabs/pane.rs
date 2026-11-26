@@ -223,11 +223,12 @@ impl Root {
             ));
         }
         if files_available && session.is_some() {
-            let folder_available = self.selected_tab().is_some_and(|id| {
-                self.tabs.views.get(&id).is_some_and(|view| {
-                    view.read(cx).runtime_phase() == Some(shellfox_runtime::Phase::Active)
-                })
-            }) && !self.files.panel.as_ref().is_some_and(|files| files.busy);
+            let folder_available =
+                self.selected_tab().is_some_and(|id| {
+                    self.tabs.views.get(&id).is_some_and(|view| {
+                        view.read(cx).runtime_phase() == Some(shellfox_runtime::Phase::Active)
+                    })
+                }) && !self.files.panel.as_ref().is_some_and(|files| files.busy());
             let key = TabFocus::Folder;
             let button = icon_button("open-terminal-folder", "folder-terminal", palette)
                 .tooltip(tooltip("Open terminal folder", palette))

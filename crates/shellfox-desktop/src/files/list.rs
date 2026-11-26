@@ -104,12 +104,10 @@ impl Root {
         let Some(files) = &mut self.files.panel else {
             return;
         };
-        if files.busy && !(files.tree.loading && matches!(navigation, Navigation::Terminal(_))) {
+        if files.busy() && !(files.tree.loading && matches!(navigation, Navigation::Terminal(_))) {
             return;
         }
-        files.request += 1;
-        let request = files.request;
-        files.busy = true;
+        let request = files.activity.begin();
         let epoch = files.source_epoch;
         let backend = files.backend.clone();
         let task_backend = backend.clone();
@@ -161,10 +159,9 @@ impl Root {
                 let Some(files) = &mut root.files.panel else {
                     return;
                 };
-                if files.request != request || !files.backend.same_origin(&backend) {
+                if !files.backend.same_origin(&backend) || !files.activity.finish(request) {
                     return;
                 }
-                files.busy = false;
                 files.tree.loading = false;
                 files
                     .location

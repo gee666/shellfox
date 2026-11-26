@@ -14,25 +14,30 @@ impl Files {
         self.pending_file_action = None;
         self.save_and_continue = false;
         self.confirm_focus.forget();
-        // A save already owns its destination. Hiding its panel must not cancel it
-        // or discard its receipt. Reads, on the other hand, are presentation work.
-        if self.busy && !self.saving() {
-            self.request += 1;
-            self.busy = false;
-            self.location
-                .update(cx, |field, cx| field.set_read_only(false, cx));
-            if let Some(operation) = self.operation.take() {
-                if matches!(operation, super::FileOperation::Open(_)) {
-                    self.document_error =
-                        Some("File load was cancelled when switching scopes.".into());
-                }
-                operation.cancel();
-            }
-        }
+        self.end_reads(cx);
         if let Some(ImageEditor::Ready(draft)) = &mut self.image_editor {
             draft.anchor = None;
         }
         self.tree.cancel_loading();
+    }
+
+    /// Ends pending reads now; their late replies are ignored. Reads are
+    /// presentation work. A save owns its destination, so it keeps running and
+    /// reports whether the write happened.
+    pub(super) fn end_reads(&mut self, cx: &mut Context<Root>) {
+        if self.saving() || !(self.busy() || self.activity.revalidating()) {
+            return;
+        }
+        self.activity.abandon();
+        self.tree.cancel_loading();
+        self.location
+            .update(cx, |field, cx| field.set_read_only(false, cx));
+        if let Some(operation) = self.operation.take() {
+            if matches!(operation, super::FileOperation::Open(_)) {
+                self.document_error = Some("File load was cancelled.".into());
+            }
+            operation.cancel();
+        }
     }
 }
 
@@ -43,7 +48,7 @@ impl Root {
         backend: &DocumentBackend,
     ) -> Option<(&mut Files, bool)> {
         let matches = |files: &Files| {
-            files.request == request && files.saving() && files.backend.same_origin(backend)
+            files.activity.current(request) && files.saving() && files.backend.same_origin(backend)
         };
         if self.files.panel.as_ref().is_some_and(matches) {
             let presented = self.files_source_current();
@@ -136,7 +141,7 @@ impl Root {
             .files
             .panel
             .as_ref()
-            .is_some_and(|files| files.listing.is_none() && !files.busy)
+            .is_some_and(|files| files.listing.is_none() && !files.busy())
         {
             self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
         }
@@ -167,7 +172,7 @@ impl Root {
                 .files
                 .panel
                 .as_ref()
-                .is_some_and(|files| files.listing.is_none() && !files.busy)
+                .is_some_and(|files| files.listing.is_none() && !files.busy())
             {
                 self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
             }
@@ -192,7 +197,7 @@ impl Root {
         let removable = |files: &Files| {
             files.source == source
                 && !files.dirty(cx)
-                && !files.busy
+                && !files.busy()
                 && files.transfer.is_none()
                 && !files
                     .image_editor
@@ -248,7 +253,7 @@ impl Root {
             .panel
             .iter()
             .chain(&self.files.retained)
-            .any(|files| files.backend.wsl_tab() == Some(tab) && (files.dirty(cx) || files.busy))
+            .any(|files| files.backend.wsl_tab() == Some(tab) && (files.dirty(cx) || files.busy()))
     }
 
     pub(crate) fn retire_wsl_file_tabs(

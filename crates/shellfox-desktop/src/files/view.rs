@@ -186,8 +186,8 @@ impl Root {
                             .on_click(cx.listener(|root, _, _, cx| root.resume_file_draft(cx))),
                     )
                 })
-                .when(files.busy,|panel|panel.child(text_button("cancel-retired-files","Cancel original operation",palette).on_click(cx.listener(|root,_,_,cx|root.cancel_file_operation(cx)))))
-                .when(!files.busy,|panel|panel.child(text_button("discard-retired-files","Discard old draft and switch Files",palette).on_click(cx.listener(|root,_,_,cx|root.discard_retired_files(cx)))))
+                .when(files.busy(),|panel|panel.child(text_button("cancel-retired-files","Cancel original operation",palette).on_click(cx.listener(|root,_,_,cx|root.cancel_file_operation(cx)))))
+                .when(!files.busy(),|panel|panel.child(text_button("discard-retired-files","Discard old draft and switch Files",palette).on_click(cx.listener(|root,_,_,cx|root.discard_retired_files(cx)))))
                 .into_any_element();
         }
         let narrow = self.files_narrow(window);

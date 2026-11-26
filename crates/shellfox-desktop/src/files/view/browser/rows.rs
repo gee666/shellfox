@@ -285,7 +285,7 @@ impl Root {
             return false;
         }
         let Some(files) = self.files.panel.as_ref().filter(|files| {
-            files.visible && files.browser && !files.busy && files.pending_file_action.is_none()
+            files.visible && files.browser && !files.busy() && files.pending_file_action.is_none()
         }) else {
             return false;
         };

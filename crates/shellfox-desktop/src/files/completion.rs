@@ -85,7 +85,7 @@ impl Root {
         }
         files.completion.seen = input;
         files.completion.state.reset();
-        if files.busy {
+        if files.busy() {
             return;
         }
         if files
@@ -119,7 +119,7 @@ impl Root {
         let Some(files) = &mut self.files.panel else {
             return false;
         };
-        if files.busy
+        if files.busy()
             || files.missing_folder.is_some()
             || !files.location.read(cx).is_focused(window)
         {
@@ -167,7 +167,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(files) = self.files.panel.as_mut().filter(|files| !files.busy) else {
+        let Some(files) = self.files.panel.as_mut().filter(|files| !files.busy()) else {
             return;
         };
         let input = &files.location.read(cx).text;
@@ -187,7 +187,7 @@ impl Root {
         };
         if !files.visible
             || !files.browser
-            || files.busy
+            || files.busy()
             || files.missing_folder.is_some()
             || files.location.read(cx).is_composing()
         {
@@ -211,7 +211,7 @@ impl Root {
                     && root.files.panel.as_ref().is_some_and(|files| {
                         files.visible
                             && files.browser
-                            && !files.busy
+                            && !files.busy()
                             && files.completion.state.ticket == ticket
                             && files.location.read(cx).text == path
                             && !files.location.read(cx).is_composing()

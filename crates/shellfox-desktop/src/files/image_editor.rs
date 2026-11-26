@@ -98,7 +98,7 @@ impl Root {
             cx.notify();
             return;
         }
-        if files.busy {
+        if files.busy() {
             return;
         }
         let Some(Preview::Image {
@@ -137,7 +137,7 @@ impl Root {
 
     pub(crate) fn image_draft(&mut self) -> Option<&mut Draft> {
         let files = self.files.panel.as_mut()?;
-        if files.busy {
+        if files.busy() {
             return None;
         }
         files
@@ -164,7 +164,7 @@ impl Root {
         let Some(draft) = files.image_editor.as_mut().and_then(ImageEditor::ready_mut) else {
             return;
         };
-        if files.busy || draft.working {
+        if files.activity.busy() || draft.working {
             return;
         }
         if draft.edits >= 256 {
@@ -235,7 +235,7 @@ impl Root {
         else {
             return;
         };
-        if files.busy || draft.working || draft.reload_required || draft.edits == 0 {
+        if files.activity.busy() || draft.working || draft.reload_required || draft.edits == 0 {
             return;
         }
         let path = path.clone();
@@ -244,11 +244,9 @@ impl Root {
         let pixels = draft.current.clone();
         let backend = files.backend.clone();
         let worker = backend.clone();
-        files.request += 1;
-        let request_id = files.request;
+        let request_id = files.activity.begin();
         let cancel = EditorCancellation::default();
         files.operation = Some(FileOperation::Save(cancel.clone()));
-        files.busy = true;
         draft.error = None;
         let task = cx.background_executor().spawn(async move {
             let bytes = pixels::encode(&pixels, format)?;
@@ -277,7 +275,7 @@ impl Root {
                     return;
                 };
                 files.operation = None;
-                files.busy = false;
+                files.activity.finish(request_id);
                 let Some(draft) = files.image_editor.as_mut().and_then(ImageEditor::ready_mut)
                 else {
                     return;

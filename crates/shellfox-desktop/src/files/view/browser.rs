@@ -29,7 +29,7 @@ impl Root {
             .as_ref()
             .and_then(|listing| listing.parent_path.clone());
         files.completion.track_focus(&files.location, window, cx);
-        let busy = files.busy;
+        let busy = files.busy();
         let loading =
             files.tree.loading || (files.listing.is_none() && busy && files.operation.is_none());
         let home = if files.backend.is_local() {

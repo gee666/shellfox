@@ -1,4 +1,4 @@
-use super::{FileOperation, Files, Preview, image_editor::ImageEditor};
+use super::{Files, Preview, image_editor::ImageEditor};
 use crate::{
     peers::source::{Phase, Source},
     root::Root,
@@ -43,6 +43,10 @@ impl Files {
         }
     }
 
+    fn idle(&self) -> bool {
+        !self.busy() && !self.activity.revalidating()
+    }
+
     fn unconfirmed_save(&self) -> bool {
         self.editor
             .as_ref()
@@ -70,7 +74,7 @@ impl Root {
 
     fn may_revalidate(&self, files: &Files, explicit: bool) -> bool {
         files.visible
-            && !files.busy
+            && files.idle()
             && files.transfer.is_none()
             && !files.unconfirmed_save()
             && (explicit
@@ -96,7 +100,7 @@ impl Root {
         let (fresh, preferred) = if cached {
             if !files.check_cached_revision
                 || !files.visible
-                || files.busy
+                || !files.idle()
                 || self.close.closing
                 || self.peer_ui.frozen
                 || files.unconfirmed_save()
@@ -123,13 +127,10 @@ impl Root {
         };
         let path = files.opened_revision().map(|file| file.path().to_owned());
         let previous = files.backend.clone();
-        files.request += 1;
-        let request = files.request;
-        files.busy = true;
         let retry = Instant::now() + Duration::from_secs(2);
         files.resume_retry = Some(retry);
         let cancel = EditorCancellation::default();
-        files.operation = Some(FileOperation::Revalidate(cancel.clone()));
+        let request = files.activity.begin_revalidation(cancel.clone());
         let reading = fresh.clone();
         let read_cancel = cancel.clone();
         let read = cx.background_executor().spawn(async move {
@@ -153,11 +154,11 @@ impl Root {
                 let Some(files) = &mut root.files.panel else {
                     return;
                 };
-                if files.request != request || !files.backend.same_origin(&previous) {
+                if !files.backend.same_origin(&previous)
+                    || !files.activity.finish_revalidation(request)
+                {
                     return;
                 }
-                files.busy = false;
-                files.operation = None;
                 if !current || cancel.is_cancelled() || files.unconfirmed_save() {
                     cx.notify();
                     return;

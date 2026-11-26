@@ -326,7 +326,7 @@ impl Root {
             return;
         };
         let location = files.location.read(cx);
-        if files.busy || files.missing_folder.is_some() || location.is_composing() {
+        if files.busy() || files.missing_folder.is_some() || location.is_composing() {
             return;
         }
         let path = location.text.trim();
