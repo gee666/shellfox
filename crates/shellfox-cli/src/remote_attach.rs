@@ -195,6 +195,11 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
                 (Next::Continue, ack)
             }
             (EventDisposition::Deliver, TerminalEvent::Exit { .. }) => (Next::Finished, None),
+            // A retryable error (e.g. output outgrew the view's window) asks for
+            // a fresh snapshot, as 0.9's attach did.
+            (EventDisposition::Deliver, TerminalEvent::Error { error, .. }) if error.retryable => {
+                (Next::Reattach, None)
+            }
             (EventDisposition::Deliver, TerminalEvent::Error { error, .. }) => {
                 return Err(CliError::app(error.clone()))
             }
