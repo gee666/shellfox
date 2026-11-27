@@ -164,13 +164,15 @@ fn run_agent(service: &mut Service, tab: &Tab) -> Result<()> {
         "for i in $(seq 30); do echo working $i; sleep 0.1; done; while :; do sleep 1; done";
     tab.run(
         service,
-        format!("mkdir -p {agent} && cp /bin/bash {agent}/claude && {agent}/claude -c '{script}'; rm -r {agent}"),
+        format!("mkdir -p {agent} && cp /bin/bash {agent}/claude && {agent}/claude -c '{script}'"),
     )?;
     wait_for(service, tab.id, 1, AgentState::Busy)?;
     // Quiet output ends the working pulse; the agent stays.
     wait_for(service, tab.id, 1, AgentState::Running)?;
     tab.interrupt(service)?;
-    wait_for(service, tab.id, 0, AgentState::Shell)
+    wait_for(service, tab.id, 0, AgentState::Shell)?;
+    // Ctrl+C ends the whole command line, so this cleans up separately.
+    tab.run(service, format!("rm -r {agent}"))
 }
 
 #[test]
