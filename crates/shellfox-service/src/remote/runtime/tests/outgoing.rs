@@ -20,7 +20,10 @@ async fn peer_requests_beyond_the_in_flight_limit_wait_instead_of_failing() {
         })
         .await
         .unwrap();
-    until(&control, |s| s.peers.iter().any(|p| p.id == "n-peer" && p.online)).await;
+    until(&control, |s| {
+        s.peers.iter().any(|p| p.id == "n-peer" && p.online)
+    })
+    .await;
     let peer = wire::AuthenticatedPeerId::new("n-peer").unwrap();
     let limit = super::super::outgoing::MAX_OUTGOING;
     let requests: Vec<_> = (0..limit + 4)

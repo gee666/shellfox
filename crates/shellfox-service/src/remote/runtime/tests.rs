@@ -1,6 +1,6 @@
+mod outgoing;
 mod pairing;
 mod retained;
-mod outgoing;
 mod saved;
 use super::*;
 use shellfox_transport::{LoopbackOrigin, Secret, VerifiedHelper};
