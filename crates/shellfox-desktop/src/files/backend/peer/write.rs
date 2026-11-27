@@ -141,7 +141,7 @@ impl PeerDocumentBackend {
             let request = cursor
                 .write(&buf[..length])
                 .map_err(|e| anyhow!("Peer write transfer refused: {e:?}"))?;
-            let reply = self.execute(&request).await?;
+            let reply = self.execute_cancellable(&request, cancel).await?;
             self.check_cancel(cancel)?;
             cursor
                 .written(&reply)

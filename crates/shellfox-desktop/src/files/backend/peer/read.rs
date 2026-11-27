@@ -85,7 +85,7 @@ impl PeerDocumentBackend {
             let request = cursor
                 .request()
                 .map_err(|e| anyhow!("Peer read transfer refused: {e:?}"))?;
-            let chunk = self.execute(&request).await?;
+            let chunk = self.execute_cancellable(&request, cancel).await?;
             self.check_cancel(cancel)?;
             let data = cursor
                 .receive(&chunk)

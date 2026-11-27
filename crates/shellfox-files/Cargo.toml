@@ -11,6 +11,7 @@ cap-fs-ext = "3.4.5"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
 thiserror = "2"
+tokio-util = "0.7"
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 

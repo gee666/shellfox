@@ -11,6 +11,8 @@ use std::{
 };
 mod read;
 mod requests;
+#[cfg(test)]
+mod tests;
 mod write;
 use requests::file_error;
 
@@ -79,6 +81,15 @@ impl PeerDocumentBackend {
             wire::Reply::Success(value) => Ok(value),
             wire::Reply::Failure(error) => Err(file_error(error.code, error.message)),
         }
+    }
+    /// For transfer chunks only: cancel abandons the chunk in flight, and the
+    /// caller then cancels the transfer so the peer discards it.
+    async fn execute_cancellable<R: wire::Request>(
+        &self,
+        request: &R,
+        cancel: &EditorCancellation,
+    ) -> Result<R::Response> {
+        until_cancelled(cancel, self.execute(request)).await
     }
     fn check_cancel(&self, cancel: &EditorCancellation) -> Result<()> {
         self.check()?;
@@ -192,6 +203,17 @@ impl PeerDocumentBackend {
             }
         }
         Ok(())
+    }
+}
+/// Drops `work` as soon as `cancel` fires.
+async fn until_cancelled<T>(
+    cancel: &EditorCancellation,
+    work: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Err(anyhow!("File operation cancelled.")),
+        result = work => result,
     }
 }
 struct SaveAttempt<'a> {
