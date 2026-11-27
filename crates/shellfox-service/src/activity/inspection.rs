@@ -60,6 +60,10 @@ impl std::error::Error for InspectionFailure {}
 /// Implementations must bound collection itself, not merely truncate afterwards.
 pub trait ProcessInspector {
     fn inspect(&mut self, identity: Identity) -> Result<OwnedProcessSnapshot, InspectionFailure>;
+    /// Status-only guest evidence for a WSL tab; None for every other tab.
+    fn guest(&mut self, _identity: Identity) -> Option<super::GuestEvidence> {
+        None
+    }
 }
 pub(super) fn validate(snapshot: &OwnedProcessSnapshot) -> Result<(), InspectionFailure> {
     if snapshot.processes.len() > MAX_OWNED_PROCESSES {

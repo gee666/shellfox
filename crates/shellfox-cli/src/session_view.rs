@@ -14,7 +14,7 @@ use shellfox_service::{
 
 /// The fallback record when the host has no v1 record for a session (an older
 /// host, or a session the v1 shape omits): 0.9's live `status`, `activityStatus`
-/// and `counts`, and each tab's `lifecycle`, `status` and `generation`.
+/// and `counts`, and each tab's `lifecycle`, `status`, `generation` and live title.
 /// The host reports whether a tab has agents, not how many, so `agents` is 0 or 1.
 pub fn record(session: &Session, activity: &[NativeTabActivity]) -> Value {
     let mut value = serde_json::to_value(session).unwrap_or(Value::Null);
@@ -50,7 +50,19 @@ pub fn record(session: &Session, activity: &[NativeTabActivity]) -> Value {
             tab["lifecycle"] = json!(if live.is_some() { "open" } else { "closed" });
             tab["status"] = json!(status);
             tab["agents"] = json!(agents);
-            tab["generation"] = json!(live.map(|a| a.generation));
+            // Set only while the tab has no explicit name, as the host's records.
+            if let Some(title) = live.and_then(|a| a.process_title.as_deref()) {
+                tab["title"] = json!(title);
+            }
+            // As in the host's records: a tab that isn't running has no generation.
+            match live {
+                Some(a) => tab["generation"] = json!(a.generation),
+                None => {
+                    if let Some(tab) = tab.as_object_mut() {
+                        tab.remove("generation");
+                    }
+                }
+            }
         }
     }
     let summary = session_facts(&facts, session.settled_at.is_some(), false);

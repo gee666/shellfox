@@ -80,6 +80,7 @@ fn malformed_publication_and_publisher_drop_invalidate_old_sources() {
                 observation: None,
                 busy: false,
                 activity_available: false,
+                title: None,
             }],
             CancellationToken::new()
         )

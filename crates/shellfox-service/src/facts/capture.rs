@@ -21,11 +21,13 @@ pub(crate) fn terminal(service: &Service, terminal: &OwnedTerminal) -> TerminalS
     if let StartupEvidence::Failed { acknowledged, .. } = &mut facts.startup {
         *acknowledged = terminal.startup_error_acknowledged;
     }
+    facts.title = super::title::published(&terminal.runtime);
     facts
 }
 /// Whether `source` still shows the current metadata revision and every
-/// member terminal's identity, phase and startup result. Clients read a tab's
-/// lifecycle from these facts, so a change here can't wait for the next poll.
+/// member terminal's identity, phase, startup result and published title.
+/// Clients read a tab's lifecycle and title from these facts, so a change
+/// here can't wait for the next poll.
 pub(crate) fn lifecycle_current(service: &Service, source: &SourceFacts) -> bool {
     fn startup(evidence: &StartupEvidence) -> u8 {
         match evidence {
@@ -50,6 +52,7 @@ pub(crate) fn lifecycle_current(service: &Service, source: &SourceFacts) -> bool
                 terminal.runtime.identity(),
                 terminal.runtime.phase(),
                 started,
+                super::title::published(&terminal.runtime),
             )
         })
         .collect();
@@ -60,10 +63,12 @@ pub(crate) fn lifecycle_current(service: &Service, source: &SourceFacts) -> bool
             .iter()
             .zip(&source.terminals)
             .all(|(now, published)| {
-                *now == (
-                    published.identity,
-                    published.phase,
-                    startup(&published.startup),
-                )
+                (now.0, now.1, now.2, now.3.as_deref())
+                    == (
+                        published.identity,
+                        published.phase,
+                        startup(&published.startup),
+                        published.title.as_deref(),
+                    )
             })
 }

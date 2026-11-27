@@ -18,6 +18,9 @@ pub struct TerminalSourceFacts {
     pub observation: Option<Observation>,
     pub busy: bool,
     pub activity_available: bool,
+    /// The live program's OSC 0/2 title, bounded for display. Only tabs
+    /// without an explicit name show it.
+    pub title: Option<String>,
 }
 /// Immutable owner evidence for asynchronous providers. No raw native identities,
 /// process paths/arguments, Runtime references, Host connection or execution rights.
@@ -89,9 +92,13 @@ impl SourceFactsPublisher {
     ) -> Result<(), crate::activity::InspectionFailure> {
         let valid = snapshot.sessions.len() <= 10_000
             && terminals.len() <= crate::activity::MAX_WATCHES
-            && terminals
-                .iter()
-                .all(|terminal| terminal.startup.validate().is_ok())
+            && terminals.iter().all(|terminal| {
+                terminal.startup.validate().is_ok()
+                    && terminal
+                        .title
+                        .as_deref()
+                        .is_none_or(|title| shellfox_core::validation::title(title).is_ok())
+            })
             && !cancelled.is_cancelled()
             && settings.validate().is_ok()
             && snapshot.preferences.validate().is_ok()

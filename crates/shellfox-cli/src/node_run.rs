@@ -74,7 +74,7 @@ pub fn run(
         Action::Version => print_value(&env!("SHELLFOX_VERSION"))?,
         Action::Update { check } if crate::desktop_handoff::desktop_binary().is_some() => {
             if json {
-                return Err(CliError::usage("Desktop updates use api getUpdateStatus or api downloadUpdate for JSON automation."));
+                return Err(CliError::usage("Desktop updates do not support --json. Run update or update --check without --json, or use Update in the app."));
             }
             let desktop =
                 crate::desktop_handoff::desktop_binary().context("Desktop binary missing")?;

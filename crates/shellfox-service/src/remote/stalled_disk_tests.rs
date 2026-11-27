@@ -73,6 +73,7 @@ async fn a_peer_rename_answers_once_the_disk_has_it() {
                     generation: None,
                     terminal_kind: Some(wire::TerminalKind::Embedded),
                     exit_code: Some(None),
+                    process_title: None,
                 },
             )]
             .into(),

@@ -1,5 +1,6 @@
 //! `terminals` commands: metadata calls, and one-shot writes that never start a shell.
 use super::*;
+use crate::manager_local_terminal::controlled_elsewhere;
 
 pub(super) async fn terminals(host: &Host<'_>, op: TerminalOp, options: &Options) -> Result<Value> {
     Ok(match op {
@@ -61,6 +62,9 @@ pub(super) async fn terminals(host: &Host<'_>, op: TerminalOp, options: &Options
         }
         TerminalOp::Close(tab) => {
             confirm(options.json, options.yes, &format!("Close terminal {tab}"))?;
+            if let Host::Local(local) = host {
+                return local.close_tab(tab, None).await;
+            }
             let generation = generation(host, tab).await?;
             host.call(call(
                 "closeTab",
@@ -68,6 +72,7 @@ pub(super) async fn terminals(host: &Host<'_>, op: TerminalOp, options: &Options
             )?)
             .await?
         }
+        TerminalOp::Read(input) => host.call(Call::ReadTerminal(input)).await?,
         TerminalOp::Write { tab, data, take } => {
             let data = match data {
                 Some(data) => data,
@@ -136,7 +141,7 @@ async fn write_local(local: &Local<'_>, tab: TabId, data: String, take: bool) ->
     let attach = |takeover| local.0.execute(LocalApiRequest::Attach { tab, takeover });
     let attachment = match attach(false).await {
         Ok(LocalApiResponse::Attachment(attachment)) => attachment,
-        // Another client holds it.
+        Err(error) if !controlled_elsewhere(&error) => return Err(error),
         Err(_) if take => match attach(true).await? {
             LocalApiResponse::Attachment(attachment) => attachment,
             _ => return Err(control_required()),
@@ -146,7 +151,11 @@ async fn write_local(local: &Local<'_>, tab: TabId, data: String, take: bool) ->
     // Write only to the shell that was found open, never to a newer one.
     if attachment.generation != generation {
         let _ = local.0.execute(LocalApiRequest::Detach {}).await;
-        return Err(missing());
+        return Err(CliError::coded(
+            "TARGET_LOST",
+            "This terminal generation is stale.",
+            false,
+        ));
     }
     let input = LocalApiRequest::Input {
         tab,
@@ -184,15 +193,11 @@ pub(crate) async fn write_peer(
         if let Some(settled) = attachment.get("settledAt") {
             payload["settledAt"] = settled.clone();
         }
+        // As in 0.9, the peer's own refusal (a stale generation too) passes
+        // through; an unanswered request already says its outcome is unknown.
         match host.call(call("writeTerminal", payload)?).await {
             Ok(value) => Ok(value),
-            Err(error)
-                if error
-                    .downcast_ref::<CliError>()
-                    .is_some_and(|e| e.code != "TARGET_LOST") =>
-            {
-                Err(error)
-            }
+            Err(error) if error.downcast_ref::<CliError>().is_some() => Err(error),
             Err(_) => Err(uncertain()),
         }
     }

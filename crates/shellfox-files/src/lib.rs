@@ -5,6 +5,7 @@ mod browser_wsl;
 mod content;
 mod contracts;
 mod directory_ops;
+mod directory_wsl;
 mod editor;
 mod error;
 pub mod handle;

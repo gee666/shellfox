@@ -1,6 +1,6 @@
 use super::{
-    inspection::validate, matching, Health, InspectionFailure, Observation, OwnedProcessSnapshot,
-    ProcessIdentity, ProcessInspector, ProcessPlatform, RootState,
+    guest, inspection::validate, matching, GuestEvidence, Health, InspectionFailure, Observation,
+    OwnedProcessSnapshot, ProcessIdentity, ProcessInspector, ProcessPlatform, RootState,
 };
 use shellfox_core::SettingsProcessRule;
 use shellfox_runtime::Identity;
@@ -151,9 +151,10 @@ impl ActivityMonitor {
             attempted += 1;
             watch.next_poll = now_ms.saturating_add(PROCESS_POLL_MS);
             let result = if rules_valid {
-                inspector
-                    .inspect(watch.identity)
-                    .and_then(|snapshot| watch.observe(snapshot, rules, now_ms))
+                inspector.inspect(watch.identity).and_then(|snapshot| {
+                    let guest = inspector.guest(watch.identity);
+                    watch.observe(snapshot, guest.as_ref(), rules, now_ms)
+                })
             } else {
                 Err(InspectionFailure::Malformed)
             };
@@ -249,6 +250,7 @@ impl Watch {
     fn observe(
         &mut self,
         snapshot: OwnedProcessSnapshot,
+        guest: Option<&GuestEvidence>,
         rules: &[SettingsProcessRule],
         now_ms: u64,
     ) -> Result<(Observation, Vec<ProcessIdentity>), InspectionFailure> {
@@ -302,17 +304,27 @@ impl Watch {
         let mut descendants = Vec::new();
         for process in snapshot.processes.iter().filter(|process| !process.is_root) {
             descendants.push(process.identity.clone());
-            if !process.accessible || process.executable.is_none() {
+            let Some(executable) = process.executable.as_deref().filter(|_| process.accessible)
+            else {
                 reason = Some("A descendant is inaccessible.");
                 continue;
-            }
-            let (matched, failure) = matching::match_agent(process, rules, windows);
+            };
+            let (matched, failure) = matching::match_agent(
+                executable,
+                process.process_name.as_deref(),
+                process.argv.as_deref(),
+                rules,
+                windows,
+            );
             if failure.is_some() {
                 reason = failure;
             }
             if matched {
                 agents += 1;
             }
+        }
+        if let Some(guest) = guest.filter(|_| root == RootState::Alive) {
+            guest::count(guest, rules, &mut agents, &mut reason);
         }
         descendants.sort();
         let observation = Observation {

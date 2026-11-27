@@ -376,13 +376,9 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
             ))
         }
         ["settings", "read"] => Action::Manager(crate::manager_args::ManagerCommand::Settings),
-        ["settings", "update", "--input", input] => {
-            let patch = serde_json::from_str::<serde_json::Value>(&read_input(input)?)
-                .map_err(|_| CliError::usage("Invalid JSON input."))?;
-            if !patch.is_object() {
-                return Err(CliError::usage("Settings input must be a JSON object."));
-            }
-            Action::Manager(crate::manager_args::ManagerCommand::SaveSettings(patch))
+        ["settings", "update", "--input", input] => settings_update(input)?,
+        ["settings", "update", inline] if inline.starts_with("--input=") => {
+            settings_update(&inline["--input=".len()..])?
         }
         ["settings", "update", ..] => return Err(CliError::usage("Provide --input with JSON.")),
         ["network", "status"] => host(&["host", "network", "status"]),
@@ -478,6 +474,18 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
 }
 
 /// 0.9's remotePeerIdSchema.
+/// `settings update --input JSON` or `--input=JSON`, as 0.9 accepted both.
+fn settings_update(input: &str) -> Result<Action> {
+    let patch = serde_json::from_str::<serde_json::Value>(&read_input(input)?)
+        .map_err(|_| CliError::usage("Invalid JSON input."))?;
+    if !patch.is_object() {
+        return Err(CliError::usage("Settings input must be a JSON object."));
+    }
+    Ok(Action::Manager(
+        crate::manager_args::ManagerCommand::SaveSettings(patch),
+    ))
+}
+
 fn valid_peer(peer: &str) -> bool {
     (1..=200).contains(&peer.len())
         && peer

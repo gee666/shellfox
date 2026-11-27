@@ -148,22 +148,8 @@ impl FileService {
     pub fn create_directory(&self, input: &Location) -> Result<()> {
         let _guard = Self::mutation_lock()?;
         self.authorized(true)?;
-        let (mut dir, relative, _) = self.base(&input.path)?;
-        for component in relative.components() {
-            let Component::Normal(name) = component else {
-                if component == Component::CurDir {
-                    continue;
-                }
-                return Err(FileError::denied());
-            };
-            match dir.create_dir(name) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(error) => return Err(error.into()),
-            }
-            dir = paths::descend(dir, std::path::Path::new(name))?;
-        }
-        Ok(())
+        let (dir, relative, _) = self.base(&input.path)?;
+        paths::create_all(dir, &relative)
     }
 
     /// Same-filesystem rename with atomic no-overwrite semantics, including directories.

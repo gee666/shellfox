@@ -73,6 +73,7 @@ fn idle_sorts_above_working_when_both_hosts_facts_contain_a_live_agent() {
             }),
             busy: session.title == "Working",
             activity_available: true,
+            title: None,
         };
         NativeTabActivity::from(&source).dot
     });

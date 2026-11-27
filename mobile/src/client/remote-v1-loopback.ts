@@ -45,6 +45,8 @@ async function main() {
     if (event.type === 'data') received.push(event);
     if (event.type === 'settlement') settlements.push(event.settledAt);
   });
+  let changes = 0;
+  const removeChanges = client.subscribe(event => { if (event.type === 'changed') changes++; });
   try {
     client.connect();
     await until(() => client.getState().status === 'connected');
@@ -65,6 +67,21 @@ async function main() {
         : `printf '%s%s\\n' '${marker.slice(0, 14)}' '${marker.slice(14)}'\r`;
     unwrap(await client.writeTerminal({ ...identity, data: command }));
     await until(() => received.map(event => event.data).join('').includes(marker));
+    // The title the shell publishes names the automatic tab; a change event tells the phone to read it.
+    const title = `Loopback ${randomUUID().slice(0, 8)}`;
+    const tabTitle = async () => unwrap(await client.getSnapshot()).sessions.find(({ id }) => id === session.id)?.tabs[0]?.title;
+    assert.match(await tabTitle() ?? '', /^Shell /);
+    const titleCommand = session.tabs[0]?.profileId === 'cmd' ? `title ${title}\r`
+      : windows ? `$Host.UI.RawUI.WindowTitle = '${title}'\r` : `printf '\\033]2;%s\\007' '${title}'\r`;
+    // Read again after each change event, counted before the read so none is missed.
+    let seen = changes, named = false;
+    unwrap(await client.writeTerminal({ ...identity, data: titleCommand }));
+    for (let attempt = 0; attempt < 60 && !named; attempt++) {
+      await until(() => changes > seen);
+      seen = changes;
+      named = await tabTitle() === title;
+    }
+    assert(named, 'published title never reached the phone');
     const last = received.at(-1)?.sequence;
     assert(last !== undefined);
     unwrap(await client.acknowledgeTerminal({ ...identity, sequence: last }));
@@ -131,6 +148,7 @@ async function main() {
     await until(() => client.getState().status !== 'connected');
     assert.equal((await client.getSnapshot()).ok, false);
   } finally {
+    removeChanges();
     remove();
     client.stop();
   }

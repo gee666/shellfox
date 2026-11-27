@@ -49,6 +49,22 @@ impl RemoteService<'_> {
         ProfileId::new(id).map_err(host_error)
     }
 
+    /// The profile a terminal in `cwd` gets when none was asked for: on Windows
+    /// a WSL folder's own distro, as in 0.9.
+    fn folder_v1_profile(&self, cwd: &str) -> Result<ProfileId, AppError> {
+        if !cfg!(windows) {
+            return self.default_v1_profile();
+        }
+        let configured = self
+            .service
+            .host()
+            .snapshot()
+            .map_err(host_error)?
+            .preferences
+            .default_profile_id;
+        creation_profile::for_windows_folder(self.state, &configured, cwd)
+    }
+
     fn launched_session(&self, id: SessionId) -> Result<serde_json::Value, AppError> {
         let snapshot = self.service.host().snapshot().map_err(host_error)?;
         let private = self.private_tabs(&snapshot);
@@ -111,16 +127,7 @@ impl RemoteService<'_> {
             return self.launched_session(session_id);
         }
         super::v1_privilege::ensure_normal_launch()?;
-        let profile = if cfg!(windows) {
-            let configured = host
-                .snapshot()
-                .map_err(host_error)?
-                .preferences
-                .default_profile_id;
-            creation_profile::for_windows_folder(self.state, &configured, &input.cwd)?
-        } else {
-            self.default_v1_profile()?
-        };
+        let profile = self.folder_v1_profile(&input.cwd)?;
         ensure_launch_profile(self.state, profile.as_str())?;
         let snapshot = self
             .service
@@ -170,7 +177,7 @@ impl RemoteService<'_> {
         }
         let profile = match input.profile_id {
             Some(id) => ProfileId::new(id).map_err(host_error)?,
-            None => self.default_v1_profile()?,
+            None => self.folder_v1_profile(input.cwd.as_deref().unwrap_or(&session.cwd))?,
         };
         super::v1_privilege::ensure_normal_launch()?;
         ensure_launch_profile(self.state, profile.as_str())?;

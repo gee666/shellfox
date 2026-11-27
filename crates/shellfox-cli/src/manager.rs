@@ -17,6 +17,8 @@ pub enum Call {
     SaveSettings(Box<SettingsPatch>),
     GetKeepAwake,
     SetKeepAwake(bool),
+    /// Read-only output read; local hosts only.
+    ReadTerminal(shellfox_protocol::ReadTerminal),
     /// 0.9 kept these always on: the call only installs or repairs.
     EnsureIntegration(Integration),
 }
@@ -82,7 +84,35 @@ struct Active {
 }
 
 fn input<T: serde::de::DeserializeOwned>(method: &str, payload: Value) -> Result<T> {
-    serde_json::from_value(payload).map_err(|_| CliError::usage(format!("Invalid {method} input.")))
+    serde_json::from_value(payload)
+        .map_err(|error| CliError::usage(format!("Invalid {method} input: {}", issue(&error))))
+}
+/// serde's reason, like 0.9's "<path> <issue>", without the rejected value:
+/// payloads carry env values and file text.
+fn issue(error: &serde_json::Error) -> String {
+    let message = error.to_string();
+    for kind in ["invalid type", "invalid value", "unknown variant"] {
+        if message.starts_with(kind) {
+            return match message.rsplit_once(", expected ") {
+                Some((_, expected)) => format!("{kind}, expected {expected}"),
+                None => kind.into(),
+            };
+        }
+    }
+    message
+}
+/// 0.9 settings carried `pythonPath`, and `settings read` still prints it, so
+/// a read-modify-write round trip drops it here.
+fn settings_patch(mut payload: Value) -> Value {
+    if let Some(fields) = payload.as_object_mut() {
+        if fields
+            .get("pythonPath")
+            .is_some_and(|value| value.is_null() || value.is_string())
+        {
+            fields.remove("pythonPath");
+        }
+    }
+    payload
 }
 
 pub fn parse(method: &str, payload: Value) -> Result<Call> {
@@ -91,12 +121,18 @@ pub fn parse(method: &str, payload: Value) -> Result<Call> {
         "refreshSessionMembership" => {
             Call::Refresh(input::<SessionInput>(method, payload)?.session_id)
         }
-        "saveSettings" => Call::SaveSettings(Box::new(input(method, payload)?)),
+        "saveSettings" => Call::SaveSettings(Box::new(input(method, settings_patch(payload))?)),
         "getKeepAwake" => {
             input::<Empty>(method, payload)?;
             Call::GetKeepAwake
         }
         "setKeepAwake" => Call::SetKeepAwake(input::<Active>(method, payload)?.active),
+        "readTerminal" => {
+            let read: shellfox_protocol::ReadTerminal = input(method, payload)?;
+            read.validate()
+                .map_err(|_| CliError::usage(format!("Invalid {method} input.")))?;
+            Call::ReadTerminal(read)
+        }
         "setCliIntegration" | "setExplorerIntegration" => {
             let (kind, always) = if method == "setCliIntegration" {
                 (Integration::Cli, "CLI integration is always enabled.")
@@ -139,6 +175,7 @@ impl Call {
             Self::SaveSettings(_) => "saveSettings",
             Self::GetKeepAwake => "getKeepAwake",
             Self::SetKeepAwake(_) => "setKeepAwake",
+            Self::ReadTerminal(_) => "readTerminal",
             Self::EnsureIntegration(kind) => kind.method(),
         }
     }
@@ -224,5 +261,30 @@ mod tests {
             "File-manager integration is always enabled."
         );
         assert_eq!(error("setCliIntegration", json!({})).0, "VALIDATION");
+    }
+    #[test]
+    fn input_errors_name_the_issue_but_not_the_value() {
+        let message = |method, payload| {
+            let error = parse(method, payload).unwrap_err();
+            error.downcast_ref::<CliError>().unwrap().message.clone()
+        };
+        let id = "12345678-1234-4234-8234-123456789abc";
+        let typed = message("setSessionEnv", json!({ "sessionId": id, "env": "s3cret" }));
+        assert!(typed.starts_with("Invalid setSessionEnv input: invalid type, expected"));
+        assert!(!typed.contains("s3cret"));
+        assert!(message("focusSession", json!({})).contains("missing field `sessionId`"));
+    }
+    #[test]
+    fn saved_settings_drop_the_retired_python_path() {
+        let Call::SaveSettings(patch) = parse(
+            "saveSettings",
+            json!({ "pythonPath": null, "historyPageSize": 30 }),
+        )
+        .unwrap() else {
+            panic!("saveSettings");
+        };
+        assert_eq!(patch.history_page_size, Some(30));
+        assert!(parse("saveSettings", json!({ "pythonPath": "/usr/bin/python3" })).is_ok());
+        assert!(parse("saveSettings", json!({ "pythonPath": 1 })).is_err());
     }
 }

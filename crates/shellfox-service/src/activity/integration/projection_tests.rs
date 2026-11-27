@@ -74,6 +74,7 @@ fn source(creation: bool, observation: Option<Observation>) -> SourceFacts {
             observation,
             busy: false,
             activity_available: true,
+            title: None,
         }],
     }
 }

@@ -127,8 +127,11 @@ fn blocked_ack_does_not_block_live_busy_or_ttl_and_meaningful_output_while_busy(
     fixture.close();
 }
 
+/// The bundled Microsoft ConPTY passes an idle TUI's cursor moves through as
+/// written, so the 0.9 filter sees only idle sequences: they refresh the TTL
+/// but are not work. The inbox ConPTY rewrote them into output that did count.
 #[test]
-fn native_row_motion_keeps_the_actual_legacy_meaningful_classification() {
+fn native_row_motion_refreshes_ttl_without_busy() {
     let (mut fixture, _, policy) = Fixture::start("--child-idle-escapes-repeat");
     let sink = policy.live_output_sink(fixture.identity).unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -158,21 +161,17 @@ fn native_row_motion_keeps_the_actual_legacy_meaningful_classification() {
         Response::Replay(chunks) => chunks,
         _ => panic!("missing controlled replay"),
     };
-    let bytes: usize = chunks.iter().map(|chunk| chunk.bytes.len()).sum();
-    assert!(bytes <= 128 * 1024);
-    let line_break = chunks
-        .iter()
-        .any(|chunk| chunk.bytes.contains(&b'\r') || chunk.bytes.contains(&b'\n'));
-    let sgr = chunks
-        .iter()
-        .any(|chunk| chunk.bytes.windows(3).any(|bytes| bytes == b"\x1b[m"));
-    let erase = chunks
-        .iter()
-        .any(|chunk| chunk.bytes.windows(4).any(|bytes| bytes == b"\x1b[2J"));
-    eprintln!("owned row fixture coarse diagnostics: bytes={bytes}, line_break={line_break}, sgr_reset={sgr}, clear_screen={erase}");
-    assert!(update.meaningful_at_ms.is_some());
-    assert!(sink.last_meaningful_output_ms() > previous_meaningful);
-    assert_eq!(sink.status(), (true, true));
+    let rows: &[&[u8]] = &[
+        b"\x1b[?25h\x1b[?2026h\x1b[1;1H\x1b[?2026l",
+        b"\x1b[?25h\x1b[?2026h\x1b[2;1H\x1b[?2026l",
+    ];
+    assert!(
+        !chunks.is_empty() && chunks.iter().all(|chunk| rows.contains(&&chunk.bytes[..])),
+        "ConPTY rewrote the fixture's cursor moves"
+    );
+    assert!(update.output_at_ms.is_some());
+    assert_eq!(update.meaningful_at_ms, None);
+    assert_eq!(sink.last_meaningful_output_ms(), previous_meaningful);
     fixture.close();
 }
 

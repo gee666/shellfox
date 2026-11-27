@@ -307,6 +307,7 @@ mod tests {
             }),
             busy: true,
             activity_available: true,
+            title: None,
         };
         assert_eq!(NativeTabActivity::from(&source).dot, AgentState::Shell);
         assert!(!NativeTabActivity::from(&source).has_agents);

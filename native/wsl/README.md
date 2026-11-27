@@ -8,7 +8,11 @@ Scripts that Shellfox runs inside a WSL distribution on Windows. The host embeds
 
 `launch-shell.py` starts a tab's shell (`crates/shellfox-service/src/windows_profiles.rs`). The host first reads the distribution's default account and refuses root. It then runs `wsl.exe --user <name> --exec /usr/bin/python3 -I -S -c <script> <distro> <uid> <name> <cwd> <bash-hook> <zsh-hook>`. The script exits unless the UID, the account name and `WSL_DISTRO_NAME` all match what the host recorded for that tab, changes to the guest folder, and execs the account's login shell. For bash and zsh it first adds the `shellfox` completion hooks other tabs get (`crates/shellfox-terminal/src/completion.rs`). A tab keeps the account it first launched as, even if the distribution's default user changes later.
 
-The tab is an ordinary ConPTY tab. Its Windows Job holds `wsl.exe`. Shellfox doesn't track or clean up Linux processes inside the distribution; what survives a closed tab there is up to WSL.
+The tab is an ordinary ConPTY tab. Its Windows Job holds `wsl.exe`. Shellfox doesn't own or clean up Linux processes inside the distribution; what survives a closed tab there is up to WSL.
+
+`guest-processes.py` gives WSL tabs their agent status, as 0.9 did (`crates/shellfox-terminal/src/wsl/guest_processes.rs`). The tab's `SHELLFOX_TERMINAL_MARKER` reaches the guest through `WSLENV`. Off the owner thread, the host runs `wsl.exe --distribution <distro> --user <name> --cd / --exec /usr/bin/python3 -I -S -c <script>`, once per distribution and account for all its tabs. If Python fails, it runs `guest-processes.sh` with `/bin/sh -c`. Both take no arguments and print the same bounded, base64-encoded rows for that account's processes that carry a marker. Each run has an 8-second deadline and an 8 MiB output limit. The host matches rows to a tab by its marker and counts the ones that match an agent rule. This is status only: a guest process is never treated as the tab's root or as owned, and none is signalled. A failed, stale or incomplete listing makes the tab's health unknown, never idle.
+
+A Windows tab where the user typed `wsl` gets the same status. Its `wsl.exe` inherits the tab's marker and passes it on through `WSLENV`. While the tab's process tree holds a `wsl.exe`, the host lists every distribution in `wsl.exe --list --running --quiet`, in parallel and as each one's default user, the way 0.9 did. Processes another user runs there (`wsl -u root`) aren't seen.
 
 ## Guest guardian (not wired in)
 

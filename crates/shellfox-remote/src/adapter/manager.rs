@@ -210,7 +210,10 @@ pub fn tab_dto(tab: &core::Tab, facts: &TabFacts) -> AdapterResult<wire::TabDto>
         wire::TabDto {
             id: tab.id,
             session_id: tab.session_id,
-            title: tab.title.clone(),
+            title: match &facts.process_title {
+                Some(title) if tab.use_process_title => title.clone(),
+                _ => tab.title.clone(),
+            },
             cwd: tab.cwd.clone(),
             ordinal: u64::from(tab.ordinal),
             created_at: facts.created_at.clone(),

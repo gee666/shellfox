@@ -29,6 +29,9 @@ impl FileService {
             RootResolution::HandleOnly => None,
         }
     }
+    pub(crate) fn has_root(&self) -> bool {
+        self.root.is_some()
+    }
     pub(crate) fn is_private_scope(&self) -> bool {
         self.root
             .as_ref()

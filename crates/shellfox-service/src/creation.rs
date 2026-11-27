@@ -5,30 +5,35 @@ use shellfox_terminal::ShellProfileId;
 mod tests;
 
 impl Service {
-    /// [`crate::effective_default_profile`] over the trusted native catalog that
+    /// [`crate::folder_profile`] over the trusted native catalog that
     /// [`Self::create_application_session`] accepts.
-    pub(crate) fn default_launch_profile(
+    pub(crate) fn folder_launch_profile(
         &self,
         saved: &shellfox_core::ProfileId,
+        cwd: &str,
     ) -> Result<shellfox_core::ProfileId> {
-        #[cfg(windows)]
-        if saved.as_str().starts_with("wsl:")
-            && self
-                .catalog
-                .wsl
-                .cache
-                .ready()
-                .is_ok_and(|wsl| wsl.settings_profile(saved.as_str()).is_ok())
-        {
-            return Ok(saved.clone());
-        }
         let local = shellfox_terminal::discover_shell_profiles()?;
-        let usable = local
+        #[cfg(windows)]
+        let wsl: Vec<_> = self
+            .catalog
+            .wsl
+            .cache
+            .ready()
+            .map(|wsl| wsl.wire_profiles(true).collect())
+            .unwrap_or_default();
+        #[cfg(not(windows))]
+        let wsl: Vec<shellfox_protocol::TerminalProfile> = Vec::new();
+        let candidates: Vec<_> = local
             .iter()
-            .filter(|p| p.unavailable_reason().is_none())
-            .map(|p| p.id().as_str());
-        crate::effective_default_profile(saved.as_str(), usable)
-            .context("No terminal profile is available on this host.")?
+            .map(|p| crate::LaunchCandidate {
+                id: p.id().as_str(),
+                available: p.unavailable_reason().is_none(),
+                elevated: false,
+            })
+            .chain(wsl.iter().map(Into::into))
+            .collect();
+        crate::folder_profile(&candidates, saved.as_str(), cwd, cfg!(windows))
+            .context("No terminal profile is available for this folder.")?
             .parse()
             .map_err(Into::into)
     }

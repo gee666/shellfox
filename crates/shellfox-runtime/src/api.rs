@@ -130,6 +130,8 @@ pub enum Command {
     Unobserve {
         observer: ObserverLease,
     },
+    /// Lease-free read of the shared output journal: no control, credit or epoch changes.
+    ReadOutput { after: u64, max_bytes: usize },
     /// Encoded by Ghostty with this terminal's live keyboard modes.
     Key {
         lease: Lease,
@@ -340,4 +342,5 @@ pub enum Response {
     },
     Text(Option<String>),
     MouseTracking(bool),
+    OutputRead(crate::OutputRead),
 }

@@ -23,7 +23,7 @@ pub(crate) fn file_failure(error: shellfox_files::FileError) -> anyhow::Error {
 }
 
 impl Local<'_> {
-    async fn file_path(
+    pub(crate) async fn file_path(
         &self,
         session: Option<SessionId>,
         tab: Option<TabId>,

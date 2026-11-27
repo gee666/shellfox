@@ -1,7 +1,7 @@
 use super::*;
 use shellfox_core::ProfileId;
-use wire::{ProfileEnvironment, TerminalProfile};
 
+/// [`crate::folder_profile`] on Windows over the trusted launch catalog.
 pub(super) fn for_windows_folder(
     state: &RemoteState,
     configured: &ProfileId,
@@ -18,55 +18,18 @@ pub(super) fn for_windows_folder(
 }
 
 fn windows_profile<'a>(
-    profiles: &'a [TerminalProfile],
+    profiles: &'a [wire::TerminalProfile],
     configured: &str,
     cwd: &str,
 ) -> Option<&'a str> {
-    let local = |p: &&TerminalProfile| {
-        p.elevation.is_none() && matches!(p.environment, ProfileEnvironment::Local)
-    };
-    if let Some(distro) = wsl_distro(cwd) {
-        return profiles
-            .iter()
-            .find(|p| {
-                p.elevation.is_none()
-                    && matches!(p.environment, ProfileEnvironment::Wsl)
-                    && p.available
-                    && p.distro
-                        .as_deref()
-                        .is_some_and(|name| name.eq_ignore_ascii_case(distro))
-            })
-            .map(|p| p.id.as_str());
-    }
-    // An explicitly configured local profile must be available. A WSL default
-    // is not a local profile and must not receive a Windows drive folder.
-    if let Some(profile) = profiles.iter().filter(local).find(|p| p.id == configured) {
-        return profile.available.then_some(profile.id.as_str());
-    }
-    ["pwsh", "windows-powershell"]
-        .into_iter()
-        .find_map(|id| {
-            profiles
-                .iter()
-                .filter(local)
-                .find(|p| p.id == id && p.available)
-        })
-        .or_else(|| profiles.iter().filter(local).find(|p| p.available))
-        .map(|p| p.id.as_str())
-}
-
-fn wsl_distro(cwd: &str) -> Option<&str> {
-    let (server, path) = cwd.strip_prefix(r"\\")?.split_once('\\')?;
-    if !server.eq_ignore_ascii_case("wsl.localhost") && !server.eq_ignore_ascii_case("wsl$") {
-        return None;
-    }
-    let distro = path.split('\\').next()?;
-    (!distro.is_empty() && !distro.contains('/')).then_some(distro)
+    let candidates: Vec<crate::LaunchCandidate<'a>> = profiles.iter().map(Into::into).collect();
+    crate::folder_profile(&candidates, configured, cwd, true)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wire::{ProfileEnvironment, TerminalProfile};
 
     fn profile(id: &str, distro: Option<&str>, available: bool, elevated: bool) -> TerminalProfile {
         TerminalProfile {

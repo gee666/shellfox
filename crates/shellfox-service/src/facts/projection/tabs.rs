@@ -32,6 +32,7 @@ pub(super) fn project(
                     terminal_kind: Some(wire::TerminalKind::Embedded),
                     error: None,
                     exit_code: Some(Some(exit_code)),
+                    process_title: None,
                 });
             }
             let (lifecycle, observation, error) = runtime_state(runtime)?;
@@ -71,6 +72,7 @@ pub(super) fn project(
         terminal_kind,
         // 0.9 sent null for a shell tab.
         exit_code: Some(None),
+        process_title: runtime.and_then(|runtime| runtime.title.clone()),
     })
 }
 fn runtime_state(
@@ -191,6 +193,7 @@ mod acknowledgement_tests {
             observation: None,
             busy: false,
             activity_available: false,
+            title: None,
         };
         let (phase, _, before) = runtime_state(&facts).unwrap();
         assert!(matches!(phase, wire::TabLifecycle::LaunchUncertain));

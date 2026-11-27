@@ -3,7 +3,8 @@ use crate::{Attachment, Service, TerminalOutput};
 use serde::{Deserialize, Serialize};
 use shellfox_core::{AddTab, CreateSession, SessionId, Settings, Snapshot, TabId};
 pub use shellfox_host::SettingsRequest;
-use shellfox_protocol::{validation::ensure, Validate, ValidationError};
+pub use crate::terminals::ManagerAttachment;
+use shellfox_protocol::{validation::ensure, ReadTerminal, Validate, ValidationError};
 
 pub const METHOD: &str = "private.local.v1";
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -21,6 +22,10 @@ pub enum LocalApiRequest {
     RenameSession {
         id: SessionId,
         title: String,
+    },
+    /// Selects the session and, as in 0.9, opens its shell when none runs.
+    ActivateSession {
+        id: SessionId,
     },
     DeleteSession {
         id: SessionId,
@@ -47,6 +52,11 @@ pub enum LocalApiRequest {
         tab: TabId,
         attachment: Attachment,
         bytes: Vec<u8>,
+    },
+    /// 0.9 `api writeTerminal`, keeping its userInitiated and settledAt.
+    Write {
+        attachment: Attachment,
+        input: shellfox_protocol::WriteTerminal,
     },
     /// Encoded by the host's Ghostty terminal with the application's live modes.
     Key {
@@ -79,9 +89,13 @@ pub enum LocalApiRequest {
         attachment: Attachment,
     },
     /// 0.9 `api attachTerminal`: joins a running terminal only if no other view
-    /// controls it, and answers with the v1 snapshot.
+    /// controls it, and answers with its output after the cursor.
     ManagerAttach {
-        tab: TabId,
+        input: ReadTerminal,
+    },
+    /// Output after the cursor, without taking or changing control.
+    Read {
+        input: ReadTerminal,
     },
     Detach {},
     Stop {},
@@ -107,7 +121,8 @@ pub enum LocalApiResponse {
     TerminalExited {
         last_sequence: u64,
     },
-    ManagerAttachment(Box<shellfox_protocol::TerminalAttachment>),
+    ManagerAttachment(ManagerAttachment),
+    TerminalRead(Box<shellfox_protocol::TerminalRead>),
     Done {},
 }
 impl Validate for LocalApiRequest {
@@ -143,6 +158,10 @@ impl Validate for LocalApiRequest {
                 ensure(bytes.len() <= 64 * 1024)?;
                 validate_attachment(attachment)?;
             }
+            Write { attachment, input } => {
+                input.validate()?;
+                validate_attachment(attachment)?;
+            }
             Key {
                 event, attachment, ..
             } => {
@@ -166,6 +185,7 @@ impl Validate for LocalApiRequest {
                     .map_err(|_| ValidationError)?;
                 validate_attachment(attachment)?;
             }
+            ManagerAttach { input } | Read { input } => input.validate()?,
             Recover { attachment, .. }
             | Poll { attachment, .. }
             | Acknowledge { attachment, .. } => validate_attachment(attachment)?,
@@ -195,7 +215,17 @@ impl Validate for LocalApiResponse {
                 )?;
             }
             Self::Recovery { bytes, .. } => ensure(bytes.len() <= 2 * 1024 * 1024)?,
-            Self::ManagerAttachment(attachment) => attachment.validate()?,
+            Self::ManagerAttachment(ManagerAttachment::Owned {
+                control_epoch,
+                read,
+            }) => {
+                shellfox_protocol::validation::epoch(*control_epoch)?;
+                read.validate()?;
+            }
+            Self::ManagerAttachment(ManagerAttachment::Blocked { control_epoch, .. }) => {
+                shellfox_protocol::validation::epoch(*control_epoch)?;
+            }
+            Self::TerminalRead(read) => read.validate()?,
             Self::Done {} | Self::RecoveryRequired {} | Self::TerminalExited { .. } => {}
         }
         Ok(())
@@ -250,6 +280,7 @@ impl Service {
             RenameSession { id, title } => {
                 LocalApiResponse::Snapshot(self.host().rename_session(id, &title)?)
             }
+            ActivateSession { id } => LocalApiResponse::Snapshot(self.activate_session(id)?),
             DeleteSession { .. } | CloseTab { .. } => {
                 anyhow::bail!("Closes run on the owner's close route.")
             }
@@ -274,6 +305,12 @@ impl Service {
             } => {
                 owner(&attachment, controller)?;
                 self.input(tab, &attachment, bytes)?;
+                LocalApiResponse::Done {}
+            }
+            Write { attachment, input } => {
+                owner(&attachment, controller)?;
+                self.remote_v1_input(input, &attachment)
+                    .map_err(anyhow::Error::new)?;
                 LocalApiResponse::Done {}
             }
             Key {
@@ -336,9 +373,10 @@ impl Service {
                     _ => LocalApiResponse::Output(output),
                 }
             }
-            ManagerAttach { tab } => LocalApiResponse::ManagerAttachment(Box::new(
-                self.manager_attachment(tab, controller)?,
-            )),
+            ManagerAttach { input } => {
+                LocalApiResponse::ManagerAttachment(self.manager_attachment(&input, controller)?)
+            }
+            Read { input } => LocalApiResponse::TerminalRead(Box::new(self.read_terminal(&input)?)),
             Detach {} => {
                 self.detach_controller(controller);
                 LocalApiResponse::Done {}
@@ -350,40 +388,6 @@ impl Service {
         };
         response.validate()?;
         Ok(response)
-    }
-}
-impl Service {
-    /// A tab created here starts its shell at once, as in 0.9 and on the peer
-    /// route, so CLI and automation can write to it. Restored tabs still start
-    /// on their first attach, like 0.9's sessions after a restart. The start
-    /// doesn't block the owner: the owner holds this reply until the shell is
-    /// open (owner/launching.rs). A failed start is LAUNCH_FAILED; the saved
-    /// tab stays, as in 0.9.
-    fn start_new_tab(&mut self, before: &Snapshot, after: Snapshot) -> anyhow::Result<Snapshot> {
-        let existed = |id: TabId| {
-            before
-                .sessions
-                .iter()
-                .any(|s| s.tabs.iter().any(|t| t.id == id))
-        };
-        let created = after
-            .sessions
-            .iter()
-            .flat_map(|s| &s.tabs)
-            .map(|t| t.id)
-            .find(|id| !existed(*id));
-        let Some(tab) = created else {
-            return Ok(after);
-        };
-        let failure = |error: anyhow::Error| crate::owner::launching::failure(&error);
-        if self.begin_start(tab).map_err(failure)? {
-            self.launch_begun = Some(tab);
-        } else {
-            // Already settled: a start that failed this fast (macOS rejects a
-            // missing cwd at once) is reported here, never as a created tab.
-            self.start_terminal(tab).map_err(failure)?;
-        }
-        Ok(self.host().snapshot()?)
     }
 }
 fn owner(attachment: &Attachment, controller: u64) -> anyhow::Result<()> {

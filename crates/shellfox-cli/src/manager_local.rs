@@ -1,7 +1,7 @@
 //! Manager methods on the local host, built on the operations the desktop uses.
 //! Directory helpers run here: the CLI is the same user on the same machine.
 use crate::{manager::Call, output::CliError, session_view};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use shellfox_core::{SessionId, Snapshot, TabId};
 use shellfox_host::HostRequest;
@@ -118,24 +118,70 @@ impl<'a> Local<'a> {
             .find(|a| a.tab == tab && !a.closed)
             .map(|a| a.generation))
     }
-    /// The host's effective default profile; see shellfox_service::effective_default_profile.
-    async fn default_profile(&self, snapshot: &Snapshot) -> Result<shellfox_core::ProfileId> {
+    /// The profile for a terminal in `cwd`; see shellfox_service::folder_profile.
+    async fn folder_profile(
+        &self,
+        snapshot: &Snapshot,
+        cwd: &str,
+    ) -> Result<shellfox_core::ProfileId> {
         let saved = snapshot.preferences.default_profile_id.clone();
         let DesktopReply::TerminalProfiles(catalog) =
             self.desktop(DesktopRequest::TerminalProfiles).await?
         else {
             return Err(unexpected());
         };
-        let usable = shellfox_service::usable_profiles(&catalog.profiles.profiles);
-        shellfox_service::effective_default_profile(saved.as_str(), usable)
+        let candidates: Vec<shellfox_service::LaunchCandidate> =
+            catalog.profiles.profiles.iter().map(Into::into).collect();
+        shellfox_service::folder_profile(&candidates, saved.as_str(), cwd, cfg!(windows))
             .and_then(|id| id.parse().ok())
             .ok_or_else(|| {
                 CliError::coded(
                     "UNSUPPORTED",
-                    "No terminal profile is available on this host.",
+                    "No terminal profile is available for this folder.",
                     false,
                 )
             })
+    }
+    /// As in 0.9, a saved tab whose shell isn't running still closes; a running
+    /// one only at `generation`, when given.
+    pub(crate) async fn close_tab(
+        &self,
+        tab: TabId,
+        generation: Option<shellfox_core::Generation>,
+    ) -> Result<Value> {
+        let live = self.live(tab).await?;
+        if live.zip(generation).is_some_and(|(live, given)| live != given) {
+            return Err(CliError::coded(
+                "TARGET_LOST",
+                "This terminal generation is stale.",
+                false,
+            ));
+        }
+        let before = self.snapshot().await?;
+        let session = before
+            .sessions
+            .iter()
+            .find(|s| s.tabs.iter().any(|t| t.id == tab))
+            .map(|s| s.id)
+            .ok_or_else(|| not_found("Tab not found."))?;
+        let after = self.local_api(LocalApiRequest::CloseTab { id: tab }).await;
+        self.after(session, after).await
+    }
+    /// The session a createSession request made, from the host's receipt.
+    async fn created(&self, request_id: SessionId) -> Result<SessionId> {
+        match self
+            .desktop(DesktopRequest::CreationRequestReceipt { request_id })
+            .await?
+        {
+            DesktopReply::CreationRequestReceipt {
+                request_id: id,
+                receipt: shellfox_host::CreationRequestReceipt::SessionCreated { session_id },
+            } if id == request_id => Ok(session_id),
+            DesktopReply::CreationRequestReceipt { .. } => {
+                anyhow::bail!("The host did not return the new session.")
+            }
+            _ => Err(unexpected()),
+        }
     }
     async fn after(&self, id: SessionId, snapshot: Result<Snapshot>) -> Result<Value> {
         self.session(&snapshot?, id).await
@@ -172,6 +218,7 @@ impl<'a> Local<'a> {
                 return self.session(&snapshot, id).await;
             }
             Call::SaveSettings(patch) => return self.settings(SettingsRequest::Save(patch)).await,
+            Call::ReadTerminal(input) => return self.read_terminal(input).await,
             Call::EnsureIntegration(kind) => {
                 return crate::desktop_handoff::ensure_integration(kind)
             }
@@ -217,31 +264,27 @@ impl<'a> Local<'a> {
             R::GetHomeDirectory(_) => Ok(json!({ "cwd": home()? })),
             R::ResolveDirectory(input) => directory(&input.path, Directory::Resolve),
             R::CompleteDirectory(input) => directory(&input.path, Directory::Complete),
-            R::CreateDirectory(input) if input.session_id.is_none() => {
-                directory(&input.path, Directory::Create)
+            R::CreateDirectory(input) => {
+                let path = self
+                    .file_path(input.session_id, input.tab_id, input.path)
+                    .await?;
+                directory(&path, Directory::Create)
             }
             R::CreateSession(input) => {
                 let before = self.snapshot().await?;
-                let profile_id = match shellfox_service::desktop_launch::folder_profile(&input.cwd)
-                {
-                    Some(profile) => profile,
-                    None => self.default_profile(&before).await?,
-                };
+                let profile_id = self.folder_profile(&before, &input.cwd).await?;
                 let request = shellfox_core::CreateSession {
                     request_id: input.request_id,
                     title: input.title,
                     cwd: input.cwd,
                     profile_id,
                 };
+                let request_id = request.request_id;
                 let after = self
                     .local_api(LocalApiRequest::CreateSession { input: request })
                     .await?;
-                let created = after
-                    .sessions
-                    .iter()
-                    .find(|s| !before.sessions.iter().any(|old| old.id == s.id))
-                    .map(|s| s.id)
-                    .context("The host did not return the new session.")?;
+                // The receipt names the session even when this was a retry.
+                let created = self.created(request_id).await?;
                 self.session(&after, created).await
             }
             R::AddTab(input) => {
@@ -250,7 +293,15 @@ impl<'a> Local<'a> {
                     Some(profile) => profile
                         .parse()
                         .map_err(|_| CliError::usage("Invalid profile ID."))?,
-                    None => self.default_profile(&before).await?,
+                    None => {
+                        let session = before
+                            .sessions
+                            .iter()
+                            .find(|s| s.id == input.session_id)
+                            .ok_or_else(|| not_found("Session not found."))?;
+                        let cwd = input.cwd.as_deref().unwrap_or(&session.cwd);
+                        self.folder_profile(&before, cwd).await?
+                    }
                 };
                 let tab = shellfox_core::AddTab {
                     title: input.title,
@@ -267,8 +318,8 @@ impl<'a> Local<'a> {
             }
             R::ActivateSession(input) => {
                 let after = self
-                    .metadata(HostRequest::ActivateSession {
-                        session_id: input.session_id,
+                    .local_api(LocalApiRequest::ActivateSession {
+                        id: input.session_id,
                     })
                     .await;
                 self.after(input.session_id, after).await
@@ -357,26 +408,7 @@ impl<'a> Local<'a> {
                     .await?;
                 self.settings(SettingsRequest::Get {}).await
             }
-            R::CloseTab(input) => {
-                if self.live(input.tab_id).await? != Some(input.generation) {
-                    return Err(CliError::coded(
-                        "TARGET_LOST",
-                        "Stale terminal generation.",
-                        false,
-                    ));
-                }
-                let before = self.snapshot().await?;
-                let session = before
-                    .sessions
-                    .iter()
-                    .find(|s| s.tabs.iter().any(|t| t.id == input.tab_id))
-                    .map(|s| s.id)
-                    .ok_or_else(|| not_found("Tab not found."))?;
-                let after = self
-                    .local_api(LocalApiRequest::CloseTab { id: input.tab_id })
-                    .await;
-                self.after(session, after).await
-            }
+            R::CloseTab(input) => self.close_tab(input.tab_id, Some(input.generation)).await,
             R::GetSessionStats(input) => {
                 let snapshot = self.snapshot().await?;
                 let mut sessions = self.records(&snapshot).await?;

@@ -73,6 +73,11 @@ fn namespaces_and_aliases_translate_to_host_commands() {
             error.message
         );
     }
+    // 0.9 also took --input=JSON.
+    assert_eq!(
+        action(&["settings", "update", r#"--input={"fontSize":14}"#]),
+        action(&["settings", "update", "--input", r#"{"fontSize":14}"#])
+    );
     assert_eq!(
         action(&["session", "pin", "--help"]),
         Action::Help(Some("session".into()))

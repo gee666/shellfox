@@ -4,7 +4,7 @@ mod local;
 mod router;
 mod service;
 mod types;
-pub use service::{folder_profile, LaunchDirectoryPolicy, ServiceLaunchResolver};
+pub use service::{LaunchDirectoryPolicy, ServiceLaunchResolver};
 #[cfg(test)]
 mod tests;
 pub use local::*;

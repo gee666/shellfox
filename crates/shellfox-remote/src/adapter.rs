@@ -141,6 +141,9 @@ pub struct TabFacts {
     pub generation: Option<core::Generation>,
     pub terminal_kind: Option<wire::TerminalKind>,
     pub exit_code: Option<Option<i64>>,
+    /// The live program's OSC 0/2 title. Shown, as in 0.9, only while the
+    /// tab has no explicit name.
+    pub process_title: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub enum ObservationFacts {

@@ -1,4 +1,5 @@
 //! Activity policy only. The service owns clocks, persistence and process handles.
+mod guest;
 pub(crate) mod hooks;
 mod inspection;
 pub mod integration;
@@ -8,6 +9,7 @@ mod process;
 pub(crate) mod service;
 mod session;
 mod status;
+pub use guest::GuestEvidence;
 pub use inspection::*;
 pub use process::*;
 pub use session::*;

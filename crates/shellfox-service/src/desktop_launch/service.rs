@@ -8,19 +8,6 @@ use shellfox_host::CreationRequestReceipt;
 pub trait LaunchDirectoryPolicy {
     fn validate_directory(&self, cwd: &str) -> Result<String, LaunchError>;
 }
-/// A WSL folder (`\\wsl.localhost\<distro>\...`, as `shellfox start` sends
-/// from WSL) opens in that distro, whatever the default profile. 0.9 did the same.
-pub fn folder_profile(cwd: &str) -> Option<shellfox_core::ProfileId> {
-    let (server, path) = cwd.strip_prefix(r"\\")?.split_once('\\')?;
-    if !server.eq_ignore_ascii_case("wsl.localhost") && !server.eq_ignore_ascii_case("wsl$") {
-        return None;
-    }
-    let distro = path
-        .split('\\')
-        .next()
-        .filter(|distro| !distro.is_empty())?;
-    shellfox_core::ProfileId::new(format!("wsl:{distro}")).ok()
-}
 pub(super) fn launch_title(cwd: &str) -> String {
     let bytes = cwd.as_bytes();
     let drive = bytes.len() >= 3
@@ -140,13 +127,12 @@ impl<D: LaunchDirectoryPolicy> LaunchSessionResolver for ServiceLaunchResolver<'
                     .host()
                     .snapshot()
                     .map_err(|_| LaunchError::Unavailable)?;
-                let profile_id = match folder_profile(&cwd) {
-                    Some(profile) => profile,
-                    None => self
-                        .service
-                        .default_launch_profile(&snapshot.preferences.default_profile_id)
-                        .map_err(|_| LaunchError::Unavailable)?,
-                };
+                // A WSL folder (as `shellfox start` sends it from WSL) opens in
+                // that distro, whatever the default profile, as in 0.9.
+                let profile_id = self
+                    .service
+                    .folder_launch_profile(&snapshot.preferences.default_profile_id, &cwd)
+                    .map_err(|_| LaunchError::Unavailable)?;
                 self.service
                     .create_application_session(CreateSession {
                         request_id: intent.request_id,

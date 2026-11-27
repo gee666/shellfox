@@ -367,3 +367,28 @@ fn v1_snapshot_of_large_history_keeps_the_newest_rows_within_budget() -> TestRes
     assert!(snapshot.windows(8).any(|w| w == b"\x1b[?2004h"));
     Ok(())
 }
+
+#[test]
+fn a_pi_style_snapshot_keeps_wheel_reports_on_the_mirror() -> TestResult {
+    use shellfox_ghostty_vt::{MouseAction, MouseButton, MouseEvent, MouseGeometry};
+    let mut source = Terminal::new(40, 10)?;
+    // pi-tui's full-screen entry outside tmux.
+    source.feed(b"\x1b[?1049h\x1b[?7l\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1004h\x1b[?1006h\x1b[2J\x1b[H\x1b[?25lpi")?;
+    let mut view = Terminal::new(40, 10)?;
+    feed(&mut view, &remote_v1_ansi(&mut source)?)?;
+    let wheel = MouseEvent {
+        action: MouseAction::Press,
+        button: Some(MouseButton::WheelUp),
+        modifiers: Default::default(),
+        x: 5.0,
+        y: 5.0,
+        any_button_pressed: false,
+    };
+    let geometry = MouseGeometry {
+        cell_width: 10,
+        cell_height: 20,
+    };
+    // An SGR wheel report, not the Up key the alternate screen gives without mouse reporting.
+    assert_eq!(view.encode_mouse(&wheel, geometry)?, b"[<64;1;1M");
+    Ok(())
+}

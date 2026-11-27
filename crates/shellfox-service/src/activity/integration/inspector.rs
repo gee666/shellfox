@@ -1,3 +1,4 @@
+use super::{GuestListings, GuestTarget};
 use crate::activity::*;
 use shellfox_core::TabId;
 use shellfox_runtime::{Identity, InspectionPoll, InspectionTicket, ProcessInspection, Runtime};
@@ -8,20 +9,16 @@ use std::{collections::HashMap, ffi::OsString};
 pub enum InspectionScope {
     LocalWindows,
     LocalUnix,
-    /// A WSL tab. Its root is the local wsl.exe; guest processes are out of reach.
+    /// A WSL tab. Its root is the local wsl.exe, which proves the tab alive,
+    /// as in 0.9. Agents come from status-only guest evidence.
     Guest,
     Ssh,
     Unsupported,
 }
 impl InspectionScope {
-    /// The inspection sees the shell and its descendants, so status can use it.
-    pub(super) fn locally_inspectable(self) -> bool {
-        matches!(self, Self::LocalWindows | Self::LocalUnix)
-    }
-    /// The tab's root process can be inspected. For WSL that proves only the
-    /// wsl.exe root, which is enough for automatic expiry, as in 0.9.
-    fn root_inspectable(self) -> bool {
-        self.locally_inspectable() || self == Self::Guest
+    /// The tab's root can be inspected, so status and expiry can use it.
+    pub(super) fn inspectable(self) -> bool {
+        matches!(self, Self::LocalWindows | Self::LocalUnix | Self::Guest)
     }
 
     fn matches_platform(self, platform: InspectionPlatform) -> bool {
@@ -53,6 +50,7 @@ impl RuntimeSource for HashMap<TabId, crate::terminals::OwnedTerminal> {
 struct Entry {
     identity: Identity,
     scope: InspectionScope,
+    guest: Option<GuestTarget>,
     ticket: Option<(InspectionTicket, u64)>,
     minimum_started_at: u64,
     completed_started_at: Option<u64>,
@@ -60,19 +58,44 @@ struct Entry {
 #[derive(Default)]
 pub struct RuntimeInspectionState {
     entries: HashMap<TabId, Entry>,
+    guests: GuestListings,
 }
 impl RuntimeInspectionState {
     pub fn new() -> Self {
         Self::default()
+    }
+    #[cfg(test)]
+    pub(super) fn with_guests(guests: GuestListings) -> Self {
+        Self {
+            entries: HashMap::new(),
+            guests,
+        }
     }
     pub fn watch(
         &mut self,
         identity: Identity,
         scope: InspectionScope,
     ) -> Result<(), InspectionFailure> {
+        self.watch_target(identity, scope, None)
+    }
+    /// A WSL tab whose processes run in `target`.
+    pub fn watch_guest(
+        &mut self,
+        identity: Identity,
+        target: GuestTarget,
+    ) -> Result<(), InspectionFailure> {
+        self.watch_target(identity, InspectionScope::Guest, Some(target))
+    }
+    fn watch_target(
+        &mut self,
+        identity: Identity,
+        scope: InspectionScope,
+        guest: Option<GuestTarget>,
+    ) -> Result<(), InspectionFailure> {
         if let Some(entry) = self.entries.get_mut(&identity.tab_id) {
             if entry.identity == identity {
                 entry.scope = scope;
+                entry.guest = guest;
                 return Ok(());
             }
         } else if self.entries.len() >= MAX_WATCHES {
@@ -83,6 +106,7 @@ impl RuntimeInspectionState {
             Entry {
                 identity,
                 scope,
+                guest,
                 ticket: None,
                 minimum_started_at: 0,
                 completed_started_at: None,
@@ -97,6 +121,9 @@ impl RuntimeInspectionState {
             .is_some_and(|entry| entry.identity == identity)
         {
             self.entries.remove(&identity.tab_id);
+            let entries = &self.entries;
+            self.guests
+                .retain(|target| entries.values().any(|e| e.guest.as_ref() == Some(target)));
         }
     }
     /// Late completion of an older request cannot satisfy an expiry refresh.
@@ -116,7 +143,7 @@ impl RuntimeInspectionState {
             && identities.iter().all(|identity| {
                 self.entries.get(&identity.tab_id).is_some_and(|entry| {
                     entry.identity == *identity
-                        && entry.scope.root_inspectable()
+                        && entry.scope.inspectable()
                         && entry.completed_started_at.is_some_and(|started| {
                             started >= since_ms.max(entry.minimum_started_at)
                         })
@@ -150,7 +177,7 @@ impl ProcessInspector for RuntimeProcessInspector<'_> {
             .get_mut(&identity.tab_id)
             .filter(|entry| entry.identity == identity)
             .ok_or(InspectionFailure::OwnershipMismatch)?;
-        if !entry.scope.root_inspectable() {
+        if !entry.scope.inspectable() {
             return Err(InspectionFailure::Unavailable);
         }
         let runtime = self
@@ -170,6 +197,9 @@ impl ProcessInspector for RuntimeProcessInspector<'_> {
                         return Err(InspectionFailure::OwnershipMismatch);
                     }
                     let snapshot = convert_inspection(identity, result)?;
+                    if entry.scope == InspectionScope::LocalWindows {
+                        entry.guest = GuestTarget::nested(&snapshot);
+                    }
                     entry.completed_started_at = Some(started);
                     return Ok(snapshot);
                 }
@@ -178,6 +208,24 @@ impl ProcessInspector for RuntimeProcessInspector<'_> {
         let ticket = runtime.request_inspection().map_err(map_failure)?;
         entry.ticket = Some((ticket, self.now_ms));
         Err(InspectionFailure::Pending)
+    }
+    fn guest(&mut self, identity: Identity) -> Option<GuestEvidence> {
+        let state = &mut *self.state;
+        let entry = state
+            .entries
+            .get(&identity.tab_id)
+            .filter(|entry| entry.identity == identity)?;
+        // The tab UUID is its SHELLFOX_TERMINAL_MARKER.
+        Some(match &entry.guest {
+            Some(target) => state.guests.evidence(
+                target,
+                identity.tab_id.to_string(),
+                entry.minimum_started_at,
+                self.now_ms,
+            ),
+            None if entry.scope == InspectionScope::Guest => GuestEvidence::Unavailable,
+            None => return None,
+        })
     }
 }
 fn map_failure(error: shellfox_runtime::InspectionFailure) -> InspectionFailure {
@@ -298,15 +346,4 @@ fn text(value: OsString, total: &mut usize, exact: &mut bool) -> Result<String, 
 }
 
 #[cfg(test)]
-mod scope_tests {
-    use super::{InspectionPlatform as P, InspectionScope as S};
-
-    #[test]
-    fn a_wsl_root_counts_but_its_status_stays_hidden() {
-        assert!(S::Guest.root_inspectable() && !S::Guest.locally_inspectable());
-        assert!(S::Guest.matches_platform(P::Windows));
-        assert!(!S::Guest.matches_platform(P::Unix));
-        assert!(S::LocalUnix.matches_platform(P::Unix));
-        assert!(!S::Unsupported.root_inspectable());
-    }
-}
+mod scope_tests;

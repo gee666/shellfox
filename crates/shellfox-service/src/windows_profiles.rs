@@ -131,13 +131,14 @@ impl WslProfiles {
         Ok(())
     }
 
+    /// The tab's account: the bound one, else the distribution's default user.
     pub(crate) fn pin_launch_account(
         &self,
         id: &str,
         binding: Option<&WslLaunchBinding>,
         cwd: &str,
         config: &mut PtyConfig,
-    ) -> Result<Option<WslLaunchAccount>> {
+    ) -> Result<WslLaunchAccount> {
         let distro = self.select(id)?;
         let observed;
         let account = match binding {
@@ -180,7 +181,7 @@ impl WslProfiles {
             shellfox_terminal::completion::bash_prompt_command(false, None),
             shellfox_terminal::completion::zsh_env().into(),
         ]);
-        Ok(matches!(binding, Some(WslLaunchBinding::Pending)).then(|| account.clone()))
+        Ok(account.clone())
     }
 }
 

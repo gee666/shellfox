@@ -204,6 +204,16 @@ fn failure(error: anyhow::Error) -> shellfox_protocol::Reply<serde_json::Value> 
     })
 }
 fn failure_code(error: anyhow::Error) -> (shellfox_protocol::ErrorCode, String) {
+    if let Some(app) = error.downcast_ref::<shellfox_protocol::AppError>() {
+        return (app.code, app.message.clone());
+    }
+    // Host metadata messages exclude paths and payloads, so the caller can see them.
+    if let Some(host) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<shellfox_core::Error>())
+    {
+        return (crate::remote::host_code(host.code), host.message.clone());
+    }
     match error.downcast_ref::<crate::ShutdownFailure>() {
         Some(
             failure @ (crate::ShutdownFailure::ActivityPersistence(_)
@@ -228,5 +238,23 @@ fn failure_code(error: anyhow::Error) -> (shellfox_protocol::ErrorCode, String) 
             "Private host operation failed; metadata and unconfirmed ownership retained.".into(),
             )
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use shellfox_protocol::ErrorCode;
+
+    #[test]
+    fn host_errors_keep_their_code_and_message() {
+        let missing =
+            shellfox_core::Error::new(shellfox_core::ErrorCode::NotFound, "Session not found.");
+        let (code, message) =
+            super::failure_code(anyhow::Error::new(missing).context("Rename failed."));
+        assert_eq!(
+            (code, message.as_str()),
+            (ErrorCode::NotFound, "Session not found.")
+        );
+        let (code, _) = super::failure_code(anyhow::anyhow!("plain"));
+        assert_eq!(code, ErrorCode::Internal);
     }
 }

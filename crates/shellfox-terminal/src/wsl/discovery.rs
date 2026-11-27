@@ -4,7 +4,7 @@ use std::{
     process::Command,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WslProfileId(String);
 impl WslProfileId {
     pub fn parse(id: &str) -> Result<Self, WslError> {
@@ -85,6 +85,14 @@ impl OsWsl {
     /// This only lists installed distro names. It does not start a guest.
     pub fn list(&self) -> Result<Vec<WslProfileId>, WslError> {
         decode_distro_list(&self.list_output()?)
+    }
+    /// Running distributions only. It does not start a guest.
+    #[cfg(windows)]
+    pub fn running(&self) -> Result<Vec<WslProfileId>, WslError> {
+        decode_distro_list(&super::discovery_process::bounded_command(
+            self.command(&["--list", "--running", "--quiet"]),
+            64 * 1024,
+        )?)
     }
     fn list_output(&self) -> Result<Vec<u8>, WslError> {
         super::discovery_process::bounded_command(self.command(&["--list", "--quiet"]), 64 * 1024)

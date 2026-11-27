@@ -11,6 +11,8 @@ pub mod desktop_session;
 mod device_files;
 mod electron_import;
 pub mod facts;
+mod folder_profile;
+pub use folder_profile::{folder_profile, LaunchCandidate};
 mod grant;
 pub mod headless_layout;
 mod launch;

@@ -1,4 +1,4 @@
-use crate::activity::integration::{ActivityFlush, InspectionScope, SourceFactsWatch};
+use crate::activity::integration::{ActivityFlush, GuestTarget, InspectionScope, SourceFactsWatch};
 use crate::*;
 #[cfg(test)]
 mod tests;
@@ -50,11 +50,25 @@ impl Service {
     pub fn source_facts_watch(&self) -> SourceFactsWatch {
         self.activity.watch.clone()
     }
+    /// `guest` is set for a WSL tab, whose command is its wsl.exe.
     pub(crate) fn register_activity(
         &mut self,
         identity: Identity,
         config: &shellfox_terminal::PtyConfig,
+        guest: Option<GuestTarget>,
     ) -> Result<RuntimeHooks> {
+        if let Some(target) = guest {
+            let wsl = config
+                .command
+                .as_ref()
+                .and_then(|command| command.program.to_str())
+                .context("WSL launch command was not prepared")?;
+            self.activity
+                .owner
+                .watch_guest(identity, wsl.to_owned(), target)
+                .map_err(|_| anyhow::anyhow!("Owned activity watch unavailable."))?;
+            return Ok(self.activity_hooks(identity));
+        }
         let profile = config.profile.and_then(|id| {
             shellfox_terminal::discover_shell_profiles()
                 .ok()?
@@ -69,8 +83,6 @@ impl Service {
             .to_owned();
         let scope = if profile.is_none() {
             InspectionScope::Unsupported
-        } else if config.profile == Some(shellfox_terminal::ShellProfileId::Wsl) {
-            InspectionScope::Guest
         } else if cfg!(windows) {
             InspectionScope::LocalWindows
         } else if cfg!(any(target_os = "linux", target_os = "macos")) {
@@ -82,13 +94,16 @@ impl Service {
             .owner
             .watch(identity, expected, scope)
             .map_err(|_| anyhow::anyhow!("Owned activity watch unavailable."))?;
+        Ok(self.activity_hooks(identity))
+    }
+    fn activity_hooks(&mut self, identity: Identity) -> RuntimeHooks {
         let live_output = self
             .activity
             .owner
             .live_output_sink(identity)
             .map(|sink| sink as Arc<dyn shellfox_runtime::LiveOutputSink>);
         self.activity.dirty = true;
-        Ok(RuntimeHooks { live_output })
+        RuntimeHooks { live_output }
     }
     pub(crate) fn activity_input_reply(
         &mut self,

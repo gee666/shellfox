@@ -6,7 +6,8 @@ const CHUNK_BYTES: usize = 4096;
 const CREDIT_BYTES: usize = 128 * 1024;
 const PENDING_CHUNKS: usize = 256;
 const REPLAY_BYTES: usize = 1024 * 1024;
-const REPLAY_CHUNKS: usize = 512;
+/// As in 0.9: shells often write in small pieces, so the byte bound decides.
+const REPLAY_CHUNKS: usize = 8192;
 const RECOVERY_REQUIRED: &str = "Output replay expired; ANSI screen recovery is required.";
 
 /// One controller's credit, backed only by a bounded raw-byte history.
@@ -254,6 +255,10 @@ impl Delivery {
         let first = self.first_sequence()?;
         let index = usize::try_from(sequence.checked_sub(first)?).ok()?;
         self.history.get(index)
+    }
+
+    pub(crate) fn history_from(&self, skip: usize) -> impl Iterator<Item = &Chunk> {
+        self.history.iter().skip(skip)
     }
 
     pub(crate) fn last_sent(&self) -> u64 {

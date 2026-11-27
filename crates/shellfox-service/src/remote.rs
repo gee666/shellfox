@@ -8,6 +8,8 @@ mod stalled_disk_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod title_tests;
+#[cfg(test)]
 mod v1_loopback_tests;
 #[cfg(test)]
 mod wake_tests;
@@ -30,7 +32,6 @@ mod stats;
 mod uploads;
 mod v1_activity;
 mod v1_delivery;
-pub(crate) use v1_delivery::screen_chunks;
 mod v1_launch;
 mod v1_one_shot;
 mod v1_privilege;
@@ -230,16 +231,19 @@ fn failure(code: ErrorCode, message: &str) -> AppError {
         retryable: false,
     }
 }
-fn host_error(error: shellfox_core::Error) -> AppError {
+/// The wire code for a host metadata error; local and peer routes share it.
+pub(crate) fn host_code(code: shellfox_core::ErrorCode) -> ErrorCode {
     use shellfox_core::ErrorCode as Core;
-    let code = match error.code {
+    match code {
         Core::Validation => ErrorCode::Validation,
         Core::NotFound => ErrorCode::NotFound,
         Core::Unsupported | Core::CleanupRequired => ErrorCode::Unsupported,
         _ => ErrorCode::StorageFailed,
-    };
+    }
+}
+fn host_error(error: shellfox_core::Error) -> AppError {
     failure(
-        code,
+        host_code(error.code),
         "Host metadata operation failed. No mutation was retried.",
     )
 }

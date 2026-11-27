@@ -6,9 +6,10 @@ use crate::{manager_local::Local, output::CliError};
 use anyhow::Result;
 use serde_json::{json, Value};
 use shellfox_core::{Generation, TabId};
-use shellfox_protocol::RemoteCommand as R;
+use shellfox_protocol::{ReadTerminal, RemoteCommand as R};
 use shellfox_service::{
-    local_api::{LocalApiRequest, LocalApiResponse},
+    local::LocalRequestFailure,
+    local_api::{LocalApiRequest, LocalApiResponse, ManagerAttachment},
     Attachment,
 };
 
@@ -36,10 +37,56 @@ fn unconfirmed() -> anyhow::Error {
     )
 }
 
+/// The host refused an attach because another client controls the terminal.
+pub(crate) fn controlled_elsewhere(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<LocalRequestFailure>()
+        .is_some_and(|failure| {
+            failure.error.code == shellfox_protocol::ErrorCode::TerminalControlRequired
+        })
+}
+
+/// 0.9's attachment JSON: the read plus this view's control.
+fn attachment_value(tab: TabId, attachment: ManagerAttachment) -> Result<Value> {
+    Ok(match attachment {
+        ManagerAttachment::Owned {
+            control_epoch,
+            read,
+        } => {
+            let mut value = serde_json::to_value(read)?;
+            value["control"] = json!("owned");
+            value["controlEpoch"] = json!(control_epoch);
+            value
+        }
+        ManagerAttachment::Blocked {
+            session_id,
+            generation,
+            control_epoch,
+        } => json!({
+            "tabId": tab,
+            "sessionId": session_id,
+            "generation": generation,
+            "control": "blocked",
+            "controlEpoch": control_epoch,
+        }),
+    })
+}
+
 impl Local<'_> {
-    /// The running terminal's generation, checked against the caller's.
+    /// `api readTerminal` and `terminals read`: output after the cursor, read
+    /// while any other client keeps control.
+    pub(crate) async fn read_terminal(&self, input: ReadTerminal) -> Result<Value> {
+        match self.0.execute(LocalApiRequest::Read { input }).await? {
+            LocalApiResponse::TerminalRead(read) => Ok(serde_json::to_value(read)?),
+            _ => Err(unexpected()),
+        }
+    }
+
+    /// The running terminal's generation, checked against the caller's. As in
+    /// 0.9, a caller naming a generation that isn't running gets TARGET_LOST.
     async fn running(&self, tab: TabId, expected: Option<Generation>) -> Result<Generation> {
-        let generation = self.live(tab).await?.ok_or_else(not_found)?;
+        let missing = || if expected.is_some() { stale() } else { not_found() };
+        let generation = self.live(tab).await?.ok_or_else(missing)?;
         if expected.is_some_and(|expected| expected != generation) {
             return Err(stale());
         }
@@ -58,6 +105,12 @@ impl Local<'_> {
         let attach = |takeover| self.0.execute(LocalApiRequest::Attach { tab, takeover });
         let attachment = match attach(take).await {
             Ok(LocalApiResponse::Attachment(attachment)) => attachment,
+            Err(error) if !controlled_elsewhere(&error) => {
+                return Err(match error.downcast::<LocalRequestFailure>() {
+                    Ok(failure) => CliError::app(failure.error),
+                    Err(error) => error,
+                })
+            }
             _ => return Err(control_required()),
         };
         let result = if attachment.generation != generation {
@@ -76,12 +129,18 @@ impl Local<'_> {
     pub(crate) async fn terminal_call(&self, command: R) -> Result<Value> {
         match command {
             R::AttachTerminal(input) => {
-                self.running(input.tab_id, input.generation).await?;
-                let attach = LocalApiRequest::ManagerAttach { tab: input.tab_id };
+                // A replaced generation is answered with a replayLost snapshot.
+                self.running(input.tab_id, None).await?;
+                let input = ReadTerminal {
+                    tab_id: input.tab_id,
+                    after_sequence: input.after_sequence,
+                    generation: input.generation,
+                };
                 // Control stays with this view until the process exits, as in 0.9.
-                match self.0.execute(attach).await? {
+                let tab = input.tab_id;
+                match self.0.execute(LocalApiRequest::ManagerAttach { input }).await? {
                     LocalApiResponse::ManagerAttachment(attachment) => {
-                        Ok(serde_json::to_value(attachment)?)
+                        attachment_value(tab, attachment)
                     }
                     _ => Err(unexpected()),
                 }
@@ -94,15 +153,9 @@ impl Local<'_> {
             }
             R::WriteTerminal(input) => {
                 let generation = self.running(input.tab_id, Some(input.generation)).await?;
-                let tab = input.tab_id;
-                let bytes = input.data.into_bytes();
                 let written = self
-                    .with_control(tab, generation, false, |attachment| {
-                        Some(LocalApiRequest::Input {
-                            tab,
-                            attachment,
-                            bytes,
-                        })
+                    .with_control(input.tab_id, generation, false, |attachment| {
+                        Some(LocalApiRequest::Write { attachment, input })
                     })
                     .await;
                 match written {

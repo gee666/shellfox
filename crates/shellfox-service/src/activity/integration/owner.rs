@@ -1,6 +1,6 @@
 use super::{
-    ActivityClock, InspectionScope, LiveActivitySink, LiveActivityUpdate, RuntimeInspectionState,
-    RuntimeProcessInspector, RuntimeSource, TerminalSourceFacts,
+    ActivityClock, GuestTarget, InspectionScope, LiveActivitySink, LiveActivityUpdate,
+    RuntimeInspectionState, RuntimeProcessInspector, RuntimeSource, TerminalSourceFacts,
 };
 use crate::activity::*;
 use shellfox_core::{SettingsProcessRule, TabId};
@@ -57,11 +57,38 @@ impl OwnerActivity {
         expected_shell: String,
         scope: InspectionScope,
     ) -> Result<(), InspectionFailure> {
+        self.watch_target(identity, expected_shell, scope, None)
+    }
+    /// A WSL tab: `expected_shell` is its wsl.exe, `target` where its
+    /// processes run.
+    pub fn watch_guest(
+        &mut self,
+        identity: Identity,
+        expected_shell: String,
+        target: GuestTarget,
+    ) -> Result<(), InspectionFailure> {
+        self.watch_target(
+            identity,
+            expected_shell,
+            InspectionScope::Guest,
+            Some(target),
+        )
+    }
+    fn watch_target(
+        &mut self,
+        identity: Identity,
+        expected_shell: String,
+        scope: InspectionScope,
+        guest: Option<GuestTarget>,
+    ) -> Result<(), InspectionFailure> {
         if !self.terminals.contains_key(&identity.tab_id) && self.terminals.len() >= MAX_WATCHES {
             return Err(InspectionFailure::Bounds);
         }
         self.monitor.watch(identity, expected_shell)?;
-        self.inspections.watch(identity, scope)?;
+        match guest {
+            Some(target) => self.inspections.watch_guest(identity, target)?,
+            None => self.inspections.watch(identity, scope)?,
+        }
         if self
             .terminals
             .get(&identity.tab_id)
@@ -242,7 +269,7 @@ impl OwnerActivity {
         let (busy, activity_available) =
             entry.map_or((false, false), |entry| entry.activity.status());
         let mut observation = entry
-            .filter(|entry| entry.scope.locally_inspectable())
+            .filter(|entry| entry.scope.inspectable())
             .and_then(|_| self.monitor.observation(identity))
             .cloned();
         if !activity_available {
@@ -260,6 +287,7 @@ impl OwnerActivity {
             observation,
             busy,
             activity_available,
+            title: None,
         }
     }
 }

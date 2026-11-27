@@ -48,6 +48,22 @@ fn session_projection_does_not_need_global_manager_facts() {
 }
 
 #[test]
+fn published_title_names_only_a_tab_without_an_explicit_name() {
+    let mut metadata = snapshot("linux");
+    let mut facts = session_facts();
+    let tab: core::TabId = TAB.parse().unwrap();
+    let title = |session: &core::Session, facts: &SessionFacts| {
+        session_dto(session, facts).unwrap().tabs[0].title.clone()
+    };
+    facts.tabs.get_mut(&tab).unwrap().process_title = Some("Agent".into());
+    assert_eq!(title(&metadata.sessions[0], &facts), "Shell");
+    metadata.sessions[0].tabs[0].use_process_title = true;
+    assert_eq!(title(&metadata.sessions[0], &facts), "Agent");
+    facts.tabs.get_mut(&tab).unwrap().process_title = None;
+    assert_eq!(title(&metadata.sessions[0], &facts), "Shell");
+}
+
+#[test]
 fn settings_preserve_host_fields_and_project_only_shared_preferences() {
     let metadata = snapshot("linux");
     let settings = settings_dto(

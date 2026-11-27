@@ -100,6 +100,8 @@ pub enum TerminalOp {
         data: Option<String>,
         take: bool,
     },
+    /// Output after `--after`, read without taking control.
+    Read(shellfox_protocol::ReadTerminal),
 }
 
 #[derive(Debug, PartialEq)]

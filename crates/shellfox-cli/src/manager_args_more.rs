@@ -93,6 +93,7 @@ pub(super) fn terminals(operation: &str, rest: &[&str]) -> Result<TerminalOp> {
         "create" => (&["--title", "--profile", "--cwd", "--id"], &["--current"]),
         "rename" | "list" | "reorder" => (&["--id"], &["--current"]),
         "write" => (&[], &["--stdin", "--take"]),
+        "read" => (&["--after", "--generation"], &[]),
         _ => (&[], &[]),
     };
     let args = Arguments::parse(rest, valued, booleans)?;
@@ -165,6 +166,27 @@ pub(super) fn terminals(operation: &str, rest: &[&str]) -> Result<TerminalOp> {
                 data: positional.get(1).cloned(),
                 take: args.has("--take"),
             }
+        }
+        "read" => {
+            let after = args
+                .text("--after")
+                .map(|value| {
+                    value
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|n| *n <= shellfox_protocol::MAX_SAFE_INTEGER)
+                        .ok_or_else(|| CliError::usage("--after requires an output sequence."))
+                })
+                .transpose()?;
+            let generation = args
+                .text("--generation")
+                .map(|value| uuid(&value, "--generation requires a full UUID."))
+                .transpose()?;
+            TerminalOp::Read(shellfox_protocol::ReadTerminal {
+                tab_id: tab(&args.arity(1, 1)?[0])?,
+                after_sequence: after,
+                generation,
+            })
         }
         _ => return Err(CliError::usage("Unknown terminals operation.")),
     })

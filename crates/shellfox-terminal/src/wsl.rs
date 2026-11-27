@@ -8,6 +8,8 @@ mod config;
 mod discovery;
 #[path = "wsl/discovery_process.rs"]
 mod discovery_process;
+#[path = "wsl/guest_processes.rs"]
+mod guest_processes;
 #[path = "wsl/protocol.rs"]
 mod protocol;
 #[cfg_attr(not(any(windows, feature = "test-support")), allow(dead_code))]
@@ -25,6 +27,7 @@ pub use config::{
     GuestCommand, GuestSettings, NativeWslCapability, WslConfig, WslConsent, WslSecret,
 };
 pub use discovery::{decode_distro_list, OsWsl, WslProfileId};
+pub use guest_processes::{parse_guest_processes, GuestProcess, GuestProcesses};
 pub use protocol::{GuardianAnchor, GuestIdentity, GuestStatus, RecoveryEvidence, WslError};
 pub use session::{WslGuestGuardian, WslSession, WslSpawnError};
 pub use upload::WslUploadMapping;

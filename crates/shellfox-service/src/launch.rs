@@ -235,22 +235,33 @@ impl Service {
             config.cwd.is_absolute() && config.cwd.is_dir(),
             "PTY cwd must be an existing absolute directory"
         );
+        // A pending binding records the account once the tab runs.
         #[cfg(windows)]
-        let wsl_account = match wsl_launch {
-            Some((profile, binding, cwd)) => self.catalog.wsl.cache.ready()?.pin_launch_account(
-                profile.as_str(),
-                binding.as_ref(),
-                &cwd,
-                &mut config,
-            )?,
-            None => None,
+        let (wsl_account, guest) = match wsl_launch {
+            Some((profile, binding, cwd)) => {
+                let account = self.catalog.wsl.cache.ready()?.pin_launch_account(
+                    profile.as_str(),
+                    binding.as_ref(),
+                    &cwd,
+                    &mut config,
+                )?;
+                let guest = crate::activity::integration::GuestTarget::Tab {
+                    distro: shellfox_terminal::wsl::WslProfileId::parse(profile.as_str())?,
+                    account: account.name().to_owned(),
+                };
+                let pending = matches!(binding, Some(shellfox_core::WslLaunchBinding::Pending));
+                (pending.then_some(account), Some(guest))
+            }
+            None => (None, None),
         };
+        #[cfg(not(windows))]
+        let guest = None;
         let registration = TerminalIdentity {
             tab_id: tab,
             generation,
         };
         self.host.register_terminal(registration)?;
-        let hooks = match self.register_activity(identity, &config) {
+        let hooks = match self.register_activity(identity, &config, guest) {
             Ok(hooks) => hooks,
             Err(error) => {
                 self.host.terminal_stopped(registration)?;

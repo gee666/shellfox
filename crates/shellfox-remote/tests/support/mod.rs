@@ -110,6 +110,7 @@ pub fn session_facts() -> SessionFacts {
                 generation: None,
                 terminal_kind: Some(wire::TerminalKind::Embedded),
                 exit_code: Some(None),
+                process_title: None,
             },
         )]
         .into(),

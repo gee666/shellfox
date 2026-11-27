@@ -10,61 +10,25 @@ fn directory_profile<'a>(
     cwd: &str,
     windows: bool,
 ) -> Option<&'a str> {
-    let ordinary = |profile: &&crate::settings::api::Profile| !profile.elevation;
-    let configured_profile = profiles
+    let candidates: Vec<_> = profiles
         .iter()
-        .filter(ordinary)
-        .find(|profile| profile.id == configured);
-    if !windows {
-        return configured_profile
-            .filter(|profile| profile.available)
-            .map(|profile| profile.id.as_str());
-    }
-    let guest = [r"\\wsl$\", r"\\wsl.localhost\"].iter().find_map(|prefix| {
-        cwd.get(..prefix.len())
-            .filter(|head| head.eq_ignore_ascii_case(prefix))
-            .map(|_| cwd[prefix.len()..].split('\\').next().unwrap_or_default())
-    });
-    if let Some(distro) = guest {
-        return profiles
-            .iter()
-            .find(|profile| {
-                profile.available
-                    && profile
-                        .id
-                        .strip_prefix("wsl:")
-                        .is_some_and(|name| name.eq_ignore_ascii_case(distro))
-            })
-            .map(|profile| profile.id.as_str());
-    }
-    if let Some(configured) =
-        configured_profile.filter(|profile| profile.id != "wsl" && !profile.id.starts_with("wsl:"))
-    {
-        return configured.available.then_some(configured.id.as_str());
-    }
-    ["pwsh", "windows-powershell"]
-        .into_iter()
-        .find_map(|id| {
-            profiles
-                .iter()
-                .find(|profile| profile.available && profile.id == id)
+        .map(|profile| shellfox_service::LaunchCandidate {
+            id: &profile.id,
+            available: profile.available,
+            elevated: profile.elevation,
         })
-        .or_else(|| {
-            profiles.iter().filter(ordinary).find(|profile| {
-                profile.available && profile.id != "wsl" && !profile.id.starts_with("wsl:")
-            })
-        })
-        .map(|profile| profile.id.as_str())
+        .collect();
+    shellfox_service::folder_profile(&candidates, configured, cwd, windows)
 }
 
 impl Root {
+    /// New sessions and tabs share every client's choice: a WSL folder opens in
+    /// its distro on Windows.
     pub(crate) fn profile_for_directory(&self, cwd: &str) -> Option<&str> {
-        directory_profile(
-            &self.workspace.profiles,
-            &self.default_profile(),
-            cwd,
-            cfg!(windows),
-        )
+        let saved = self.snapshot.as_ref().map_or("", |snapshot| {
+            snapshot.preferences.default_profile_id.as_str()
+        });
+        directory_profile(&self.workspace.profiles, saved, cwd, cfg!(windows))
     }
 
     pub(crate) fn submit_directory(
@@ -284,7 +248,11 @@ mod tests {
         );
         assert_eq!(
             directory_profile(&profiles, "missing", "/demo", false),
-            None
+            Some("pwsh")
+        );
+        assert_eq!(
+            directory_profile(&profiles, "pwsh", "//wsl.localhost/Debian/home", true),
+            Some("wsl:Debian")
         );
         profiles[0].available = false;
         assert_eq!(directory_profile(&profiles, "pwsh", r"C:\demo", true), None);

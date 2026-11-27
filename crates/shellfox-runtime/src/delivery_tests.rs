@@ -162,7 +162,7 @@ fn tiny_chunks_hit_pending_limit_and_replay_continues_in_order() {
 
 #[test]
 fn history_byte_and_chunk_bounds_require_ansi_recovery_not_a_tail() {
-    for (count, size, oldest) in [(257, CHUNK_BYTES, 2), (513, 1, 2)] {
+    for (count, size, oldest) in [(257, CHUNK_BYTES, 2), (REPLAY_CHUNKS + 1, 1, 2)] {
         let mut d = Delivery::new();
         d.claim(1, false).unwrap();
         for _ in 0..count {

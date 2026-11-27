@@ -1,5 +1,5 @@
 //! 0.9 `shellfox api` terminal methods, each from its own one-shot CLI process,
-//! against a real host: attachTerminal's snapshot shape, writes, resizes and
+//! against a real host: attachTerminal's replay shape, writes, resizes and
 //! control. Another local client stands in for the desktop view.
 #![cfg(any(windows, target_os = "macos", target_os = "linux"))]
 #[path = "../../test_dev_helper.rs"]
@@ -131,9 +131,10 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
         .await
         .context("The desktop lost control to a one-shot call.")?;
 
-    // Stale generations fail as in 0.9.
+    // A stale generation fails control calls as in 0.9; attach answers for the
+    // current generation instead (blocked here).
     let stale = json!({ "tabId": tab, "generation": "00000000-0000-4000-8000-000000000000" });
-    ensure!(error_code(&api(host, "attachTerminal", stale.clone())?) == "TARGET_LOST");
+    ensure!(ok(host, "attachTerminal", stale.clone())?["control"] == "blocked");
     ensure!(error_code(&api(host, "detachTerminal", stale)?) == "TARGET_LOST");
 
     // takeTerminalControl takes it explicitly; the desktop's lease ends.
@@ -151,19 +152,24 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
     );
     drop(desktop);
 
-    // A free terminal: attachTerminal returns the 0.9 snapshot.
+    // A free terminal: attachTerminal replays its output from the start, as in
+    // 0.9, with each chunk's output position.
     let owned = ok(host, "attachTerminal", identity.clone())?;
     let chunks = owned["chunks"].as_array().context("chunks")?;
+    let last = owned["lastSequence"].as_u64().context("lastSequence")?;
     ensure!(
         owned["control"] == "owned"
             && owned["controlEpoch"].as_u64().is_some_and(|e| e > 0)
             && owned["generation"] == generation
             && owned["sessionId"] == id.as_str()
-            && owned["snapshot"] == true
+            && owned.get("snapshot").is_none()
+            && owned["truncated"] == false
             && owned["state"] == "open"
             && owned["lifetime"] == "app-owned"
             && owned["firstSequence"] == 1
-            && owned["lastSequence"] == chunks.len()
+            && chunks
+                .last()
+                .is_some_and(|c| c["sequence"].as_u64() <= Some(last))
             && owned["exitCode"].is_null()
             && owned.get("settledAt").is_some()
             && owned["cols"] == 90

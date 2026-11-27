@@ -1,4 +1,3 @@
-use super::OwnedProcess;
 use shellfox_core::SettingsProcessRule;
 
 const NODE_VALUES: &[&str] = &[
@@ -251,18 +250,17 @@ fn script_slot<'a>(executable: &str, argv: &'a [String], windows: bool) -> Scrip
 }
 /// Counts identities, not matching rules. Diagnostic text never contains argv.
 pub(super) fn match_agent(
-    process: &OwnedProcess,
+    executable: &str,
+    process_name: Option<&str>,
+    argv: Option<&[String]>,
     rules: &[SettingsProcessRule],
     windows: bool,
 ) -> (bool, Option<&'static str>) {
-    let Some(executable) = &process.executable else {
-        return (false, None);
-    };
     let mut names = vec![basename(executable, windows)];
-    if let Some(name) = &process.process_name {
+    if let Some(name) = process_name {
         names.push(name);
     }
-    if let Some(first) = process.argv.as_ref().and_then(|argv| argv.first()) {
+    if let Some(first) = argv.and_then(|argv| argv.first()) {
         names.push(basename(first, windows));
     }
     let named = |rule: &SettingsProcessRule| {
@@ -294,7 +292,7 @@ pub(super) fn match_agent(
         if rule.script_path_suffixes.is_empty() {
             return (true, None);
         }
-        let Some(argv) = &process.argv else {
+        let Some(argv) = argv else {
             reason = Some("A relevant descendant command line is inaccessible.");
             continue;
         };

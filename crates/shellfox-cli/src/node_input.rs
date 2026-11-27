@@ -80,14 +80,23 @@ pub fn read_stdin(limit: usize) -> Result<String> {
 pub fn read_input(input: &str) -> Result<String> {
     use std::io::Read;
     const LIMIT: u64 = 1024 * 1024;
+    // Unreadable or non-UTF-8 input is a usage error, like invalid JSON.
+    let unreadable = |error: std::io::Error, source: &str| {
+        CliError::usage(match error.kind() {
+            std::io::ErrorKind::InvalidData => format!("{source} is not valid UTF-8."),
+            _ => format!("Could not read {source}."),
+        })
+    };
     let mut text = String::new();
     if input == "-" {
-        std::io::stdin().take(LIMIT + 1).read_to_string(&mut text)?;
+        std::io::stdin()
+            .take(LIMIT + 1)
+            .read_to_string(&mut text)
+            .map_err(|error| unreadable(error, "Stdin"))?;
     } else if let Some(file) = input.strip_prefix('@') {
         std::fs::File::open(file)
-            .with_context(|| format!("Could not read {file}"))?
-            .take(LIMIT + 1)
-            .read_to_string(&mut text)?;
+            .and_then(|opened| opened.take(LIMIT + 1).read_to_string(&mut text))
+            .map_err(|error| unreadable(error, file))?;
     } else {
         text = input.to_owned();
     }

@@ -55,6 +55,7 @@ pub(super) const GROUPS: &[Group] = &[
             ("terminals close <tab-id>", "Close an owned terminal"),
             ("terminals attach <tab-id>", "Attach an existing terminal; Ctrl+] detaches"),
             ("terminals write <tab-id> <text> | --stdin [--take]", "Write literal input once, without retries"),
+            ("terminals read <tab-id> [--after seq] [--generation id]", "Read output without taking control"),
         ],
         notes: &[
             "Alias: tm. There is no tab command.",
@@ -62,6 +63,10 @@ pub(super) const GROUPS: &[Group] = &[
             "Attach requires a TTY and rejects --json.",
             "Only one client views and controls a terminal. Ctrl+T takes it from another client.",
             "write refuses an occupied terminal unless --take explicitly switches control.",
+            "read never takes control. sequence, firstSequence and lastSequence are output positions;",
+            "pass --after lastSequence to get only newer output.",
+            "replayLost: the cursor or generation was lost; snapshotChunks hold the screen at",
+            "snapshotSequence (= lastSequence). Resume from there.",
             "Detaching never stops the shell or host.",
         ],
     },
@@ -168,7 +173,7 @@ pub(super) const GROUPS: &[Group] = &[
             "Headless: --check reports the latest matching stable release; update installs a verified version for future launches.",
             "Headless updates accept --json and never stop hosts or change PATH/service paths. Keep the original launcher and restart the host explicitly; stopping a host ends its running commands.",
             "Desktop: use the installed platform launcher or the in-app updater. CLI installers support Windows x64 Squirrel, Linux x64/ARM64 .deb and macOS x64/ARM64 .app. Portable Windows/Linux copies and source checkouts need manual updates.",
-            "Desktop update rejects --json; use api getUpdateStatus or api downloadUpdate for JSON automation. update is local-only; remote --host targets are rejected, not forwarded.",
+            "Desktop update rejects --json; run it without --json or use Update in the app. update is local-only; remote --host targets are rejected, not forwarded.",
         ],
     },
     Group {

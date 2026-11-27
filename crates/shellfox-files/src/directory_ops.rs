@@ -1,4 +1,4 @@
-use crate::{paths, ErrorCode, FileError, FileService, Location, Result};
+use crate::{directory_wsl::SharePath, paths, ErrorCode, FileError, FileService, Location, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
@@ -109,7 +109,14 @@ impl FileService {
         context: Option<&FileContext>,
     ) -> Result<DirectoryResolved> {
         self.require_path_resolution()?;
-        let location = self.prompt_location(&unquote(&input.path)?, context)?;
+        let value = unquote(&input.path)?;
+        if let Some(share) = SharePath::parse(&value) {
+            let share = share?;
+            // The walk reports a missing folder, or a file where a folder belongs.
+            share.open(self)?;
+            return Ok(DirectoryResolved { cwd: share.path });
+        }
+        let location = self.prompt_location(&value, context)?;
         self.validate_existing_directory_ancestor(&location)?;
         let (base, relative, absolute) = self.base(&location.path)?;
         paths::descend(base, &relative)?;
@@ -152,7 +159,14 @@ impl FileService {
         context: Option<&FileContext>,
     ) -> Result<DirectoryResolved> {
         self.require_path_resolution()?;
-        let location = self.prompt_location(&unquote(&input.path)?, context)?;
+        let value = unquote(&input.path)?;
+        if let Some(share) = SharePath::parse(&value) {
+            let share = share?;
+            share.create(self)?;
+            share.open(self)?;
+            return Ok(DirectoryResolved { cwd: share.path });
+        }
+        let location = self.prompt_location(&value, context)?;
         self.validate_existing_directory_ancestor(&location)?;
         self.create_directory(&location)?;
         self.resolve_directory(&location)
@@ -167,7 +181,7 @@ impl FileService {
     ) -> Result<DirectoryCompletions> {
         self.require_path_resolution()?;
         let value = unquote(&input.path)?;
-        if !value.is_empty() {
+        if !value.is_empty() && SharePath::parse(&value).is_none() {
             paths::validate(&value)?;
         }
         let split = value
@@ -192,9 +206,14 @@ impl FileService {
                 value[index..].to_owned(),
             )
         };
-        let location = self.prompt_location(&directory, context)?;
-        let (base, relative, _) = self.base(&location.path)?;
-        let directory = paths::descend(base, &relative)?;
+        let directory = match SharePath::parse(&directory) {
+            Some(share) => share?.open(self)?,
+            None => {
+                let location = self.prompt_location(&directory, context)?;
+                let (base, relative, _) = self.base(&location.path)?;
+                paths::descend(base, &relative)?
+            }
+        };
         let needle = if cfg!(windows) {
             fragment.to_lowercase()
         } else {

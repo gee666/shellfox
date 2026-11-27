@@ -55,6 +55,13 @@ impl Validate for AppError {
         ensure(!self.message.is_empty())
     }
 }
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+/// Lets a host operation fail with a wire code its client acts on.
+impl std::error::Error for AppError {}
 
 /// Uses boolean literals on the wire; malformed success/failure branches are rejected.
 #[derive(Clone, Debug, PartialEq)]

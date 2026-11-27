@@ -81,6 +81,24 @@ pub(crate) fn descend(mut dir: Dir, path: &Path) -> Result<Dir> {
     Ok(dir)
 }
 
+/// Recursive, idempotent directory creation without following any existing link.
+pub(crate) fn create_all(mut dir: Dir, path: &Path) -> Result<()> {
+    for component in path.components() {
+        let name = match component {
+            Component::Normal(name) => name,
+            Component::CurDir => continue,
+            _ => return Err(FileError::denied()),
+        };
+        match dir.create_dir(name) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        dir = descend(dir, Path::new(name))?;
+    }
+    Ok(())
+}
+
 pub(crate) fn absolute_parts(path: &Path) -> Result<(PathBuf, PathBuf)> {
     let text = path.to_str().ok_or_else(FileError::denied)?;
     validate(text)?;

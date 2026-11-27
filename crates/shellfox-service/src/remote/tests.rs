@@ -185,6 +185,7 @@ async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
                     generation: None,
                     terminal_kind: Some(wire::TerminalKind::Embedded),
                     exit_code: Some(None),
+                    process_title: None,
                 },
             )]
             .into(),
