@@ -14,7 +14,7 @@ mod requests;
 mod write;
 use requests::file_error;
 
-const SLOW_REQUEST: std::time::Duration = std::time::Duration::from_secs(5);
+const SLOW_REQUEST: std::time::Duration = std::time::Duration::from_secs(2);
 #[derive(Clone, Copy)]
 enum SaveState {
     Active,

@@ -255,6 +255,10 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       idle: () => node('Upload file', value => value?.enabled === true),
     });
     await go(path.join(peer.a, 'scope.txt'), peer.a);
+    // Every peer Files request so far, upload chunks and the lookups after the
+    // cancelled upload included, must answer within 2 s (the UI log names slower ones).
+    const slow = (await readFile(path.join(`${data}.logs`, 'ui.log'), 'utf8')).split('\n').filter(line => line.includes('Peer file request'));
+    assert.deepEqual(slow, [], 'Peer file requests answered slowly');
     await focusEditor('Draft on peer A\n');
     const draft = 'Unsaved P4 peer draft\n';
     key('a', 'c');
