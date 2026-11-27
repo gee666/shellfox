@@ -13,6 +13,9 @@ pub(crate) use cache::{WslCatalogCache, WslCatalogWorker};
 
 pub(crate) const WSL_PREFLIGHT_FAILED: &str = "Requires accessible Bash, env, Python3, /proc and working Linux pidfd signal support. Guest preflight failed; no shell may be launched.";
 
+/// Also the saved title of a new administrator tab, as in 0.9.
+pub(crate) const ADMINISTRATOR_LABEL: &str = "Administrator Windows PowerShell";
+
 pub(crate) fn administrator_profile(
     powershell: &TerminalProfile,
     backend: bool,
@@ -31,7 +34,7 @@ pub(crate) fn administrator_profile(
     };
     TerminalProfile {
         id: super::ADMIN_POWERSHELL_PROFILE.into(),
-        label: "Administrator Windows PowerShell".into(),
+        label: ADMINISTRATOR_LABEL.into(),
         environment: ProfileEnvironment::Local,
         executable: powershell.executable.clone(),
         args: vec!["-NoLogo".into()],

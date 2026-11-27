@@ -7,6 +7,8 @@ use crate::{
 };
 mod heading;
 mod row;
+#[cfg(test)]
+mod tests;
 use shellfox_protocol::{SessionDto, Status, TabId, TabLifecycle, TabStatus};
 use shellfox_service::activity::AgentState;
 
@@ -35,6 +37,16 @@ pub(super) fn has_error(session: &SessionDto) -> bool {
             .tabs
             .iter()
             .any(|tab| matches!(tab.status, TabStatus::Error))
+}
+
+fn sort_rows(rows: &mut [(&SessionDto, AgentState)]) {
+    rows.sort_by(|(a, a_dot), (b, b_dot)| {
+        shellfox_core::compare_session_order(&peer_order(a, *a_dot), &peer_order(b, *b_dot))
+    });
+}
+
+fn peer_order(s: &SessionDto, dot: AgentState) -> shellfox_core::SessionOrder<'_> {
+    crate::sidebar::session_order(s.pinned_at.is_some(), dot, &s.created_at, &s.title, s.id)
 }
 
 fn dot(session: &SessionDto, busy: impl Fn(TabId) -> bool) -> AgentState {
@@ -129,17 +141,7 @@ impl Root {
                     .collect()
             })
             .unwrap_or_default();
-        rows.sort_by(|(a, a_dot), (b, b_dot)| {
-            let a_pin = a.pinned_at.as_ref();
-            let b_pin = b.pinned_at.as_ref();
-            b_pin
-                .is_some()
-                .cmp(&a_pin.is_some())
-                .then_with(|| a_pin.cmp(&b_pin))
-                .then_with(|| crate::sidebar::rank(*a_dot).cmp(&crate::sidebar::rank(*b_dot)))
-                .then_with(|| a.created_at.cmp(&b.created_at))
-                .then_with(|| a.id.to_string().cmp(&b.id.to_string()))
-        });
+        sort_rows(&mut rows);
         rows
     }
 

@@ -173,15 +173,8 @@ fn persisted_marker_seeds_clock_before_another_operation_clears_it_after_reopen(
         .unwrap();
     drop(host);
     let host = Host::open(&scratch.0).unwrap();
-    host.add_tab(
-        session,
-        AddTab {
-            title: None,
-            cwd: None,
-            profile_id: ProfileId::default(),
-        },
-    )
-    .unwrap();
+    // Adding a tab keeps the marker (0.9); an explicit unsettle clears it.
+    host.set_session_settled(session, false).unwrap();
     let current = TerminalIdentity {
         generation: Generation::new(),
         ..identity

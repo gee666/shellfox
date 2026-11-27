@@ -4,8 +4,8 @@ use crate::{
     theme::Palette,
 };
 use gpui::{AnyElement, Context, FocusHandle, Window, div, prelude::*, px};
-use shellfox_core::{Session, SessionId, Snapshot};
-use shellfox_service::activity::AgentState;
+use shellfox_core::{Session, SessionId, SessionOrder, Snapshot, compare_session_order};
+use shellfox_service::activity::{AgentState, agent_state_rank};
 use std::collections::HashMap;
 
 mod width;
@@ -121,13 +121,20 @@ impl SidebarUi {
     }
 }
 
-pub(crate) fn rank(state: AgentState) -> u8 {
-    match state {
-        AgentState::Error => 0,
-        AgentState::Running => 1,
-        AgentState::Busy => 2,
-        AgentState::Shell => 3,
-        AgentState::Settled => 4,
+/// Local and peer rows share one order, ranked by the dot each row shows.
+pub(crate) fn session_order<'a>(
+    pinned: bool,
+    state: AgentState,
+    created_at: &'a str,
+    title: &'a str,
+    id: SessionId,
+) -> SessionOrder<'a> {
+    SessionOrder {
+        pinned,
+        rank: agent_state_rank(state),
+        created_at,
+        title,
+        id,
     }
 }
 
@@ -140,15 +147,13 @@ fn sort_sessions(
         .map(|session| (session, state(session)))
         .collect();
     rows.sort_by(|(a, a_state), (b, b_state)| {
-        b.pinned_at
-            .is_some()
-            .cmp(&a.pinned_at.is_some())
-            .then_with(|| a.pinned_at.cmp(&b.pinned_at))
-            .then_with(|| rank(*a_state).cmp(&rank(*b_state)))
-            .then_with(|| a.created_at.cmp(&b.created_at))
-            .then_with(|| a.id.cmp(&b.id))
+        compare_session_order(&local_order(a, *a_state), &local_order(b, *b_state))
     });
     rows
+}
+
+fn local_order(s: &Session, state: AgentState) -> SessionOrder<'_> {
+    session_order(s.pinned_at.is_some(), state, &s.created_at, &s.title, s.id)
 }
 
 impl Root {

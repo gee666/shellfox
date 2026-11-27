@@ -1,6 +1,5 @@
 use shellfox_core::Settings;
 use shellfox_service::activity::*;
-use std::cmp::Ordering;
 
 fn observation(agents: u32, health: Health) -> Observation {
     Observation {
@@ -116,31 +115,31 @@ fn aggregation_counts_closed_errors_but_not_closed_agents_and_settlement_overrid
 }
 
 #[test]
-fn sort_priorities_match_protocol_and_visible_dot_orders_including_pins() {
-    let mut idle = SessionSortKey {
-        pinned_at: None,
-        created_at: "1",
-        id: "a",
-        status: Status::Running,
-        agent_state: AgentState::Running,
-    };
-    let mut busy = SessionSortKey {
-        pinned_at: None,
-        created_at: "1",
-        id: "b",
-        status: Status::Running,
-        agent_state: AgentState::Busy,
-    };
-    assert_eq!(compare_visible_sessions(&idle, &busy), Ordering::Less);
-    busy.status = Status::Error;
-    busy.agent_state = AgentState::Error;
-    assert_eq!(compare_visible_sessions(&idle, &busy), Ordering::Greater);
-    assert_eq!(compare_sessions(&idle, &busy), Ordering::Less);
-    idle.pinned_at = Some("2");
-    busy.pinned_at = Some("1");
-    assert_eq!(compare_sessions(&idle, &busy), Ordering::Greater);
-    busy.pinned_at = None;
-    assert_eq!(compare_visible_sessions(&idle, &busy), Ordering::Less);
+fn sort_ranks_match_0_9_protocol_and_visible_dot_orders() {
+    let protocol: Vec<_> = [
+        Status::Running,
+        Status::Error,
+        Status::Waiting,
+        Status::Unknown,
+        Status::Settled,
+    ]
+    .map(status_rank)
+    .into();
+    assert_eq!(protocol, [0, 1, 2, 2, 3]);
+    let visible: Vec<_> = [
+        AgentState::Error,
+        AgentState::Running,
+        AgentState::Busy,
+        AgentState::Shell,
+        AgentState::Settled,
+    ]
+    .map(agent_state_rank)
+    .into();
+    assert_eq!(visible, [0, 1, 2, 3, 4]);
+    assert_eq!(
+        Status::from(shellfox_protocol::Status::Unknown),
+        Status::Unknown
+    );
 }
 
 #[test]

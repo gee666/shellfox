@@ -59,6 +59,16 @@ impl RemoteState {
         }
     }
 }
+/// The CLI lists sessions by reported status, like 0.9's sorted snapshot.
+fn order(session: &wire::SessionDto) -> shellfox_core::SessionOrder<'_> {
+    shellfox_core::SessionOrder {
+        pinned: session.pinned_at.is_some(),
+        rank: crate::activity::status_rank(session.status.into()),
+        created_at: &session.created_at,
+        title: &session.title,
+        id: session.id,
+    }
+}
 impl RemoteService<'_> {
     pub(super) fn statistics(
         &mut self,
@@ -109,6 +119,7 @@ impl RemoteService<'_> {
             }
             sessions.push(session);
         }
+        sessions.sort_by(|a, b| shellfox_core::compare_session_order(&order(a), &order(b)));
         if tabs.len() > 64 {
             return Err(capability_unavailable("complete statistics inventory exceeds the bounded response; no partial rows were returned"));
         }
@@ -130,5 +141,60 @@ impl RemoteService<'_> {
                             )
                     })
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(n: u32, status: &str, created_at: &str, pinned: bool) -> wire::SessionDto {
+        serde_json::from_value(serde_json::json!({
+            "id": format!("00000000-0000-4000-8000-{n:012}"),
+            "title": format!("Session {n}"),
+            "cwd": "/demo",
+            "adapterId": "embedded-pty",
+            "shellId": "pwsh",
+            "createdAt": created_at,
+            "updatedAt": created_at,
+            "settledAt": null,
+            "pinnedAt": pinned.then_some("2026-03-01T00:00:00.000Z"),
+            "status": status,
+            "activityStatus": "waiting",
+            "counts": { "running": 0, "waiting": 0, "unknown": 0, "error": 0, "closed": 0, "agents": 0 },
+            "tabs": [],
+            "canFocus": false,
+            "canAddTab": true,
+            "controlReason": null,
+            "error": null,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn listing_orders_pins_then_status_then_newest_then_name() {
+        let mut sessions = [
+            session(1, "waiting", "2026-01-01T00:00:00.000Z", false),
+            session(2, "unknown", "2026-01-02T00:00:00.000Z", false),
+            session(10, "waiting", "2026-01-02T00:00:00.000Z", false),
+            session(3, "settled", "2026-02-01T00:00:00.000Z", false),
+            session(4, "error", "2025-01-01T00:00:00.000Z", false),
+            session(5, "running", "2025-01-01T00:00:00.000Z", false),
+            session(6, "settled", "2025-01-01T00:00:00.000Z", true),
+        ];
+        sessions.sort_by(|a, b| shellfox_core::compare_session_order(&order(a), &order(b)));
+        let titles: Vec<_> = sessions.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            [
+                "Session 6",
+                "Session 5",
+                "Session 4",
+                "Session 2",
+                "Session 10",
+                "Session 1",
+                "Session 3"
+            ]
+        );
     }
 }

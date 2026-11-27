@@ -7,13 +7,13 @@ use shellfox_service::{
 };
 
 #[test]
-fn pin_age_then_visible_status_then_creation_time_orders_sessions() {
-    let sessions: Vec<_> = (0..7)
+fn pins_then_visible_status_then_newest_then_name_orders_sessions() {
+    let sessions: Vec<_> = (0..9)
         .map(|n| Session {
             id: SessionId::new(),
-            title: n.to_string(),
+            title: ["0", "1", "2", "3", "4", "5", "6", "Shell 10", "shell 2"][n].into(),
             cwd: "/demo".into(),
-            created_at: n.to_string(),
+            created_at: if n >= 7 { "0".into() } else { n.to_string() },
             updated_at: n.to_string(),
             settled_at: None,
             pinned_at: match n {
@@ -30,13 +30,15 @@ fn pin_age_then_visible_status_then_creation_time_orders_sessions() {
         "1" => AgentState::Settled,
         "2" => AgentState::Busy,
         "3" => AgentState::Running,
+        "6" => AgentState::Settled,
+        "Shell 10" | "shell 2" => AgentState::Shell,
         _ => AgentState::Error,
     });
     assert_eq!(
         rows.iter()
             .map(|(session, _)| session.title.as_str())
             .collect::<Vec<_>>(),
-        ["6", "5", "4", "3", "2", "0", "1"]
+        ["5", "6", "4", "3", "2", "0", "shell 2", "Shell 10", "1"]
     );
 }
 
@@ -46,7 +48,7 @@ fn idle_sorts_above_working_when_both_hosts_facts_contain_a_live_agent() {
         id: SessionId::new(),
         title: name.into(),
         cwd: "/demo".into(),
-        created_at: if name == "Working" { "1" } else { "2" }.into(),
+        created_at: if name == "Working" { "2" } else { "1" }.into(),
         updated_at: "3".into(),
         settled_at: None,
         pinned_at: None,

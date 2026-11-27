@@ -205,18 +205,7 @@ impl Data {
     }
     pub fn snapshot(&self) -> Snapshot {
         let mut sessions = self.sessions.clone();
-        sessions.sort_by(|a, b| {
-            b.pinned_at
-                .is_some()
-                .cmp(&a.pinned_at.is_some())
-                .then_with(|| match (&a.pinned_at, &b.pinned_at) {
-                    (Some(a), Some(b)) => a.cmp(b),
-                    _ => std::cmp::Ordering::Equal,
-                })
-                .then_with(|| a.settled_at.is_some().cmp(&b.settled_at.is_some()))
-                .then_with(|| a.created_at.cmp(&b.created_at))
-                .then_with(|| a.id.cmp(&b.id))
-        });
+        sessions.sort_by(|a, b| compare_session_order(&order(a), &order(b)));
         Snapshot {
             revision: self.state.revision,
             sessions,
@@ -249,6 +238,16 @@ impl Data {
             },
             None => Selection::default(),
         };
+    }
+}
+/// Metadata knows only settled or not; clients and the CLI rank by live status.
+fn order(session: &Session) -> SessionOrder<'_> {
+    SessionOrder {
+        pinned: session.pinned_at.is_some(),
+        rank: session.settled_at.is_some().into(),
+        created_at: &session.created_at,
+        title: &session.title,
+        id: session.id,
     }
 }
 pub(crate) fn not_found() -> Error {

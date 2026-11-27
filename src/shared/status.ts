@@ -25,12 +25,14 @@ export function countTabs(tabs: Pick<TabDto, 'lifecycle' | 'status' | 'agents'>[
 export const publicStatus = (activity: TabStatus, settledAt: string | null): Status => settledAt ? 'settled' : activity;
 // Empty sessions and ordinary shells share the same blue status and sort rank.
 const order: Record<Status, number> = { running: 0, error: 1, waiting: 2, unknown: 2, settled: 3 };
-type Sortable = Pick<SessionDto, 'status' | 'createdAt' | 'id'> & { pinnedAt?: string | null };
-/** Pin order first, then visible status and creation order. Terminal count never breaks ties. */
+type Sortable = Pick<SessionDto, 'status' | 'createdAt' | 'id' | 'title'> & { pinnedAt?: string | null };
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+/** Newest first, then name; id keeps equal names stable. */
+export function compareCreation(a: Omit<Sortable, 'status'>, b: Omit<Sortable, 'status'>): number {
+  return b.createdAt.localeCompare(a.createdAt) || collator.compare(a.title, b.title) || a.id.localeCompare(b.id);
+}
+/** Pinned first, then visible status, newest creation and name. Terminal count never breaks ties. */
 export function compareSessions(a: Sortable, b: Sortable): number {
-  const pinned = (a.pinnedAt ? 0 : 1) - (b.pinnedAt ? 0 : 1);
-  if (pinned) return pinned;
-  if (a.pinnedAt && b.pinnedAt && a.pinnedAt !== b.pinnedAt) return a.pinnedAt.localeCompare(b.pinnedAt);
-  return order[a.status] - order[b.status] || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+  return (a.pinnedAt ? 0 : 1) - (b.pinnedAt ? 0 : 1) || order[a.status] - order[b.status] || compareCreation(a, b);
 }
 export const sortSessions = (sessions: SessionDto[]): SessionDto[] => [...sessions].sort(compareSessions);

@@ -6,6 +6,25 @@ pub(crate) fn default_title(ordinal: u32) -> String {
 
 impl Host {
     pub fn add_tab(&self, id: SessionId, input: AddTab) -> Result<Snapshot> {
+        self.add_tab_titled(id, input, None)
+    }
+    /// Untitled tabs get `default_title` instead of "Shell N"; the process title
+    /// may still replace it. Administrator tabs use their profile label.
+    pub fn add_tab_with_default_title(
+        &self,
+        id: SessionId,
+        input: AddTab,
+        default_title: &str,
+    ) -> Result<Snapshot> {
+        validation::title(default_title)?;
+        self.add_tab_titled(id, input, Some(default_title.to_owned()))
+    }
+    fn add_tab_titled(
+        &self,
+        id: SessionId,
+        input: AddTab,
+        fallback: Option<String>,
+    ) -> Result<Snapshot> {
         if let Some(title) = &input.title {
             validation::title(title)?;
         }
@@ -19,7 +38,7 @@ impl Host {
             let ordinal = u32::try_from(session.tabs.len())
                 .map_err(|_| Error::new(ErrorCode::Validation, "Too many tabs."))?;
             let use_process_title = input.title.is_none();
-            let title = input.title.unwrap_or_else(|| {
+            let title = input.title.or(fallback).unwrap_or_else(|| {
                 let occupied: HashSet<_> =
                     session.tabs.iter().map(|tab| tab.title.as_str()).collect();
                 let mut number = u64::from(ordinal) + 1;
@@ -44,7 +63,6 @@ impl Host {
                 state: TabState::Pending,
             });
             session.updated_at = created_at;
-            session.settled_at = None;
             data.select(id, Some(tab_id));
             Ok(true)
         })

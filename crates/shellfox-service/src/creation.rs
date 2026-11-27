@@ -102,7 +102,11 @@ impl Service {
                 // Only this fresh local action may request UAC. Neither saved
                 // metadata, default settings nor a subsequent attach can do so.
                 shellfox_terminal::elevated::InteractiveHelper::bundled()?;
-                let snapshot = self.host.add_tab(session_id, input)?;
+                let snapshot = self.host.add_tab_with_default_title(
+                    session_id,
+                    input,
+                    crate::windows_profiles::ADMINISTRATOR_LABEL,
+                )?;
                 let tab = snapshot
                     .selection
                     .tab_id

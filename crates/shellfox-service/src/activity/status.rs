@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -187,41 +186,35 @@ pub fn session_facts(tabs: &[TabFacts], settled: bool, error: bool) -> SessionFa
     }
 }
 
-pub struct SessionSortKey<'a> {
-    pub pinned_at: Option<&'a str>,
-    pub created_at: &'a str,
-    pub id: &'a str,
-    pub status: Status,
-    pub agent_state: AgentState,
+impl From<shellfox_protocol::Status> for Status {
+    fn from(value: shellfox_protocol::Status) -> Self {
+        use shellfox_protocol::Status as Wire;
+        match value {
+            Wire::Waiting => Self::Waiting,
+            Wire::Error => Self::Error,
+            Wire::Running => Self::Running,
+            Wire::Unknown => Self::Unknown,
+            Wire::Settled => Self::Settled,
+        }
+    }
 }
-fn compare(a: &SessionSortKey<'_>, b: &SessionSortKey<'_>, rank_a: u8, rank_b: u8) -> Ordering {
-    b.pinned_at
-        .is_some()
-        .cmp(&a.pinned_at.is_some())
-        .then_with(|| match (a.pinned_at, b.pinned_at) {
-            (Some(a), Some(b)) => a.cmp(b),
-            _ => Ordering::Equal,
-        })
-        .then(rank_a.cmp(&rank_b))
-        .then(a.created_at.cmp(b.created_at))
-        .then(a.id.cmp(b.id))
-}
-pub fn compare_sessions(a: &SessionSortKey<'_>, b: &SessionSortKey<'_>) -> Ordering {
-    let rank = |status| match status {
+/// Sort rank of a reported status (0.9 `compareSessions`). Empty sessions and
+/// ordinary shells share the blue rank.
+pub fn status_rank(status: Status) -> u8 {
+    match status {
         Status::Running => 0,
         Status::Error => 1,
         Status::Waiting | Status::Unknown => 2,
         Status::Settled => 3,
-    };
-    compare(a, b, rank(a.status), rank(b.status))
+    }
 }
-pub fn compare_visible_sessions(a: &SessionSortKey<'_>, b: &SessionSortKey<'_>) -> Ordering {
-    let rank = |state| match state {
+/// Sort rank of the visible dot (0.9 `sortVisibleSessions`).
+pub fn agent_state_rank(state: AgentState) -> u8 {
+    match state {
         AgentState::Error => 0,
         AgentState::Running => 1,
         AgentState::Busy => 2,
         AgentState::Shell => 3,
         AgentState::Settled => 4,
-    };
-    compare(a, b, rank(a.agent_state), rank(b.agent_state))
+    }
 }
