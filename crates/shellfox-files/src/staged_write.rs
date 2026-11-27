@@ -51,7 +51,7 @@ pub(crate) fn validate(input: &BeginWrite, max: u64) -> Result<()> {
 }
 pub(crate) fn absent(target: &Target) -> Result<()> {
     match target.parent.symlink_metadata(&target.name) {
-        Ok(_) => Err(FileError::conflict()),
+        Ok(_) => Err(FileError::exists()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }

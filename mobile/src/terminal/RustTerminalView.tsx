@@ -25,7 +25,7 @@ import {retirementNotice} from './keyboard-retirement';
 import { appliesWantedKeyboard, closesForIme, keyBarState, keyboardTap, specialTap, surfaceFocused, wantsKeyboardAfterTap } from './key-bar-state';
 
 export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, fontSize,
-  modifierReleaseDelayMs = 1000, connectionEpoch, takeoverIntent, onTakeoverIntentConsumed,
+  connectionEpoch, takeoverIntent, onTakeoverIntentConsumed,
   onError, onState, onFileOpen, showKeyboardDiagnostics = false,
 }: Omit<TerminalViewProps, 'api'> & { driver: NativeViewDriver; showKeyboardDiagnostics?: boolean }) {
   const { colors, palette } = useTheme();
@@ -68,7 +68,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
     return () => clearTimeout(timer);
   }, [reopenWanted]);
   useEffect(() => { setReopenWanted(false); reopened.current = false; }, [driver, tabId, readOnly, connectionEpoch]);
-  const { modifiers, current: modifiersRef, toggle, activity, reset } = useStickyModifiers(modifierReleaseDelayMs, () => undefined);
+  const { modifiers, current: modifiersRef, toggle, activity, reset } = useStickyModifiers(() => undefined);
   const report = useCallback((cause: unknown) => callbacks.current.onError?.(
     cause instanceof Error ? cause : new Error('Native terminal failed.')), []);
   const attachment = useTerminalAttachment({

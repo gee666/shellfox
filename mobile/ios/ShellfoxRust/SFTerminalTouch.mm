@@ -15,6 +15,16 @@ static UIViewController *Presenter(UIView *view) {
   while ((next = next.nextResponder)) if ([next isKindOfClass:UIViewController.class]) return (UIViewController *)next;
   return nil;
 }
+// React Native keeps tracking touches under native recognizers. Toggling its
+// surface handler cancels the JS touch, as Android's notifyNativeGestureStarted
+// does, so a terminal scroll or selection cannot also fire a screen swipe.
+static void CancelReactTouches(UIView *view) {
+  Class handler = NSClassFromString(@"RCTSurfaceTouchHandler");
+  if (!handler) return;
+  for (UIView *next = view.superview; next; next = next.superview)
+    for (UIGestureRecognizer *gesture in next.gestureRecognizers)
+      if ([gesture isKindOfClass:handler] && gesture.enabled) { gesture.enabled = NO; gesture.enabled = YES; }
+}
 static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
   if (!view->_frame) return CGPointZero;
   CGSize cell = view->_painter.cellSize;
@@ -32,6 +42,14 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
   scroll.allowedScrollTypesMask = UIScrollTypeMaskAll;
   [scroll requireGestureRecognizerToFail:select];
   [self addGestureRecognizer:scroll];
+}
+// Mostly horizontal motion is left to the app's Files swipe, matching Android.
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
+  if (gesture.view == self && !self.selecting && [gesture isKindOfClass:UIPanGestureRecognizer.class]) {
+    CGPoint moved = [(UIPanGestureRecognizer *)gesture translationInView:self];
+    if (fabs(moved.y) <= fabs(moved.x)) return NO;
+  }
+  return [super gestureRecognizerShouldBegin:gesture];
 }
 - (void)tap:(UITapGestureRecognizer *)gesture {
   CGPoint point = [gesture locationInView:self];
@@ -62,6 +80,7 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
   }];
 }
 - (void)pan:(UIPanGestureRecognizer *)gesture {
+  if (gesture.state == UIGestureRecognizerStateBegan) CancelReactTouches(self);
   if (self.selecting) {
     CGPoint point = [gesture locationInView:self];
     if (gesture.state == UIGestureRecognizerStateBegan) _selectionStart = point;
@@ -129,6 +148,7 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
 - (void)selectGesture:(UILongPressGestureRecognizer *)gesture {
   CGPoint point = [gesture locationInView:self];
   if (gesture.state == UIGestureRecognizerStateBegan) {
+    CancelReactTouches(self);
     _selectionStart = point; [self selectAt:point to:point kind:2];
   } else if (gesture.state == UIGestureRecognizerStateChanged) {
     [self selectAt:_selectionStart to:point kind:1];

@@ -175,6 +175,37 @@ fn utf8_codepoints_cross_chunk_boundaries_and_large_editor_saves_work() {
 }
 
 #[test]
+fn new_empty_text_file_is_created_without_chunks_and_never_overwrites() {
+    let f = Fixture::new();
+    let cap = capability(&f);
+    let actor = actor();
+    let mut registry = ready(TransferLimits::default());
+    let mut input = create("new.cfg", 0);
+    input.content = TransferContent::Text;
+    let started = registry
+        .begin_write(&actor, cap.clone(), &input, &allow)
+        .unwrap();
+    let saved = registry
+        .finish_write(
+            &actor,
+            &TransferIdentity {
+                transfer_id: started.transfer_id,
+            },
+            &allow,
+        )
+        .unwrap();
+    assert_eq!(saved.size, 0);
+    assert_eq!(f.read("new.cfg"), b"");
+    f.write("new.cfg", "kept");
+    let error = registry
+        .begin_write(&actor, cap, &input, &allow)
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::FileConflict);
+    assert_eq!(error.message, "A file already exists at this destination.");
+    assert_eq!(f.read("new.cfg"), b"kept");
+}
+
+#[test]
 fn bad_offsets_incomplete_or_non_utf8_writes_leave_no_destination_or_stage() {
     let f = Fixture::new();
     let cap = capability(&f);

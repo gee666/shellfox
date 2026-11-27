@@ -17,6 +17,7 @@ import { isConnectionFailure } from './connection-status';
 import { RemoteClientError } from './client/protocol';
 import { FolderButton } from './FileTransferBar';
 import type { FileOpenRequest } from './file-browser-types';
+import { SwipeView } from './SwipeView';
 
 export interface SessionControlIntent { id: string; connectionId: string | null }
 interface FocusIntent extends SessionControlIntent { tabId?: string; generation?: TabDto['generation'] }
@@ -38,7 +39,7 @@ export function SessionScreen({
   model: ShellfoxModel;
   back: () => void;
   prompt: (value: PromptConfig) => void;
-  openFiles: (request: { sessionId: string; tabId?: string; openRequest?: FileOpenRequest }) => void;
+  openFiles: (request: { sessionId: string; tabId?: string; openRequest?: FileOpenRequest }, resume?: boolean) => void;
 }) {
   const { colors, styles } = useUi();
   const metadataCurrent = machine.snapshotConnectionId === machine.state.connectionId;
@@ -181,6 +182,8 @@ export function SessionScreen({
       });
     });
   return (
+    <SwipeView onRight={session && metadataCurrent && machine.state.status === 'connected'
+      ? () => openFiles({ sessionId, tabId: active?.id }, true) : undefined}>
     <View style={styles.page}>
       {menu && <ActionMenu menu={menu} close={() => setMenu(null)} />}
       <View style={styles.header}>
@@ -282,7 +285,6 @@ export function SessionScreen({
                 && focusIntent.generation === active.generation ? focusIntent.id : undefined}
               onTakeoverIntentConsumed={consumeIntent}
               fontSize={model.preferences.fontSize}
-              modifierReleaseDelayMs={model.preferences.modifierReleaseDelayMs}
               connectionEpoch={machine.state.connectionId ?? ''}
               onError={onTerminalError}
               onState={onTerminalState}
@@ -297,5 +299,6 @@ export function SessionScreen({
         </>
       )}
     </View>
+    </SwipeView>
   );
 }

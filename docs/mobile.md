@@ -8,6 +8,16 @@ The terminal row has separate system-keyboard and special-key icons. They toggle
 
 Both clients show live directory matches. Desktop arrows choose a candidate, the first Enter accepts it, and the next submits the chosen directory. Tab completion remains available. A sole exact match is hidden; ambiguous siblings stay visible. Mobile suggestions select the path without creating a session.
 
+## Files navigation
+
+The folder button on the sessions list opens the host's home folder. In a terminal session, it opens that terminal's current working directory. Each folder-button tap starts a fresh browser, with a discard prompt if the previous browser has unsaved edits.
+
+Swipe right in a terminal to open Files, or swipe right on a host header or session row in the sessions list. Swipe left in Files to return to the terminal or sessions list. Swiping restores the last browser for that host and terminal, including its folder, directory scroll position, open file and source draft. It does not walk up the folder tree. Back and file Close still navigate or close the browser normally. More also offers Hide files. During image editing, use that action rather than swiping so crop drags remain available. The native terminal scrolls only on mostly vertical motion and leaves horizontal swipes to Files; a terminal scroll, long press or selection drag never opens Files.
+
+More > New file creates an empty text file with any extension in the open folder and opens it for editing. An existing file is never overwritten. A terminal link that can't be opened shows the error with the full path that was searched and a copy button.
+
+Sticky terminal modifiers release 430 ms after the last input. The delay is fixed and is not shown in Settings.
+
 ## Terminal attachments
 
 Tap **Attach** beside the terminal keyboard controls. Android opens the system document picker, including its Images providers. iOS offers Files and Photos. Pick one file or image up to 64 MiB. The app reads it in bounded native chunks and uploads it over the existing approved Tailscale connection. It does not request whole-storage access.

@@ -3,8 +3,10 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import type { FileLocation } from '../../src/shared/file-contracts';
 import type { BrowserFile, FileApi } from './file-browser-types';
 
-export function useFilePathCopy({ api, context, file, target, operation, mounted, report }: {
+export function useFilePathCopy({ api, context, file, target, resolved, operation, mounted, report }: {
   api: FileApi; context: Omit<FileLocation, 'path'>; file: BrowserFile | null; target: string | null;
+  /** Already-resolved path, e.g. the location a failed open searched. */
+  resolved: string | null;
   operation: MutableRefObject<number>; mounted: MutableRefObject<boolean>; report: (message: string) => void;
 }) {
   const [copying, setCopying] = useState(false);
@@ -19,7 +21,7 @@ export function useFilePathCopy({ api, context, file, target, operation, mounted
     const version = operation.current;
     setCopying(true); setCopied(false);
     try {
-      let canonical = file?.path;
+      let canonical = file?.path ?? resolved ?? undefined;
       if (!canonical && api.beginRead && api.cancelTransfer) {
         const result = await api.beginRead({ ...context, path: target });
         if (!result.ok) throw new Error(result.error.message);

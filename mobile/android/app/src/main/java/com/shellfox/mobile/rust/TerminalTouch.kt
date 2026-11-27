@@ -11,6 +11,7 @@ import android.view.GestureDetector
 import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
+import com.facebook.react.uimanager.events.NativeGestureUtil
 import java.util.Locale
 
 internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : GestureDetector.SimpleOnGestureListener() {
@@ -20,6 +21,7 @@ internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : Gestu
   private var accumulatedScroll = 0f
   private var selecting = false
   private var clicked = false
+  private var nativeGesture = false
   fun setSelecting(value: Boolean) {
     selecting = value
     if (!value) { finish(); view.select(0, Pair(0, 0)) }
@@ -29,10 +31,12 @@ internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : Gestu
 
   fun handle(event: MotionEvent): Boolean {
     clicked = false
+    if (event.action == MotionEvent.ACTION_DOWN) nativeGesture = false
     detector.onTouchEvent(event)
     if (selecting && event.action == MotionEvent.ACTION_DOWN) {
       anchor = view.point(event.x, event.y)
       view.parent?.requestDisallowInterceptTouchEvent(true)
+      claimGesture(event)
       view.select(1, requireNotNull(anchor))
     }
     if (anchor != null && event.action == MotionEvent.ACTION_MOVE) {
@@ -42,8 +46,16 @@ internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : Gestu
       accumulatedScroll = 0f
       if (anchor != null && event.action == MotionEvent.ACTION_UP) view.selectionChanged()
       if (selecting) { anchor = null; view.parent?.requestDisallowInterceptTouchEvent(false) }
+      if (nativeGesture) { nativeGesture = false; NativeGestureUtil.notifyNativeGestureEnded(view, event) }
     }
     return clicked
+  }
+  // Scrolling and selection cancel the JS touch, so a screen swipe cannot also fire.
+  // Horizontal motion is never claimed and stays with the app's swipe navigation.
+  private fun claimGesture(event: MotionEvent) {
+    if (nativeGesture) return
+    nativeGesture = true
+    NativeGestureUtil.notifyNativeGestureStarted(view, event)
   }
   override fun onDown(event: MotionEvent): Boolean = true
   override fun onSingleTapUp(event: MotionEvent): Boolean {
@@ -58,18 +70,20 @@ internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : Gestu
   override fun onScroll(first: MotionEvent?, current: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
     if (anchor != null) return true
     val start = first ?: current
-    if (kotlin.math.abs(current.y - start.y) <= kotlin.math.abs(current.x - start.x)) return false
+    if (!isVerticalScroll(current.x - start.x, current.y - start.y)) return false
     accumulatedScroll += distanceY / view.cellHeight
     val rows = accumulatedScroll.toInt()
     if (rows != 0) {
       accumulatedScroll -= rows
       view.scroll(rows, start.x, start.y)
       view.parent?.requestDisallowInterceptTouchEvent(true)
+      claimGesture(current)
     }
     return true
   }
   override fun onLongPress(event: MotionEvent) {
     finish()
+    claimGesture(event)
     val point = view.point(event.x, event.y)
     anchor = point
     view.select(2, point)
@@ -126,6 +140,8 @@ internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : Gestu
 
   companion object {
     private const val OPEN_LINK = 4
+    /** The terminal scrolls only on mostly vertical motion; the same rule is used on iOS. */
+    fun isVerticalScroll(dx: Float, dy: Float) = kotlin.math.abs(dy) > kotlin.math.abs(dx)
     fun safeLink(value: String): Uri? {
       if (value.length > 8192 || value.any { it.isISOControl() }) return null
       val uri = value.toUri()

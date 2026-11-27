@@ -33,10 +33,14 @@ vi.mock('./ui', () => ({ useUi: () => ({ colors: {}, styles: {} }), Button: () =
 vi.mock('./updates/useUpdates', () => ({ useUpdates: () => ({}) }));
 vi.mock('./Prompt', () => ({ Prompt: () => null }));
 vi.mock('./SettingsScreen', () => ({ SettingsScreen: () => <div>Settings screen</div> }));
-vi.mock('./FilesScreen', () => ({ FilesScreen: ({ sessionId, tabId, onClose }: Parameters<typeof FilesScreen>[0]) =>
-  <div data-testid="files" data-session={sessionId} data-tab={tabId}><button onClick={onClose}>Close Files</button></div> }));
-vi.mock('./SessionsScreen', () => ({ SessionsScreen: ({ open, openFiles }: { open: (value: OpenSession) => void; openFiles: (peerId: string) => void }) => <>
+vi.mock('./FilesScreen', () => ({ FilesScreen: ({ sessionId, tabId, onClose, onHide, visible }: Parameters<typeof FilesScreen>[0]) => {
+  const [path, setPath] = React.useState('initial');
+  return <div data-testid="files" data-session={sessionId} data-tab={tabId} data-visible={visible} data-path={path}>
+    <button onClick={onHide}>Close Files</button><button onClick={onClose}>Dispose Files</button><button onClick={() => setPath('nested')}>Navigate files</button></div>;
+} }));
+vi.mock('./SessionsScreen', () => ({ SessionsScreen: ({ open, openFiles }: { open: (value: OpenSession) => void; openFiles: (peerId: string, resume?: boolean) => void }) => <>
   <button onClick={() => openFiles('host')}>Host files</button>
+  <button onClick={() => openFiles('host', true)}>Swipe host</button>
   <button onClick={() => open({ peerId: 'host', sessionId: 'session', takeControl: true })}>Tap session</button>
   <button onClick={() => open({ peerId: 'host', sessionId: 'session' })}>Restore selection</button>
 </> }));
@@ -47,6 +51,7 @@ vi.mock('./SessionScreen', () => ({ SessionScreen: ({ controlIntent, onControlIn
     <div data-testid="session" data-intent={captured?.id} data-connection={captured?.connectionId} />
     <button onClick={back}>Back</button>
     <button onClick={() => openFiles({ sessionId: 'session', tabId: 'tab' })}>Session files</button>
+    <button onClick={() => openFiles({ sessionId: 'session', tabId: 'tab' }, true)}>Swipe terminal</button>
   </>;
 } }));
 function model(connectionId = 'original', hasSession = false) {
@@ -57,6 +62,25 @@ function model(connectionId = 'original', hasSession = false) {
 }
 beforeEach(() => { vi.clearAllMocks(); mocks.nextIntent = 0; mocks.tabs.clear(); mocks.useModel.mockReturnValue(model()); });
 afterEach(cleanup);
+it.each(['host', 'terminal'])('resumes the %s browser after hiding, while the folder button starts fresh', origin => {
+  mocks.useModel.mockReturnValue(model('original', true)); render(<App />);
+  if (origin === 'terminal') fireEvent.click(screen.getByText('Tap session'));
+  const swipe = origin === 'host' ? 'Swipe host' : 'Swipe terminal';
+  const button = origin === 'host' ? 'Host files' : 'Session files';
+  fireEvent.click(screen.getByText(swipe)); fireEvent.click(screen.getByText('Navigate files'));
+  const browser = screen.getByTestId('files');
+  fireEvent.click(screen.getByText('Close Files')); expect(browser.getAttribute('data-visible')).toBe('false');
+  fireEvent.click(screen.getByText(swipe)); expect(screen.getByTestId('files')).toBe(browser);
+  expect(browser.getAttribute('data-visible')).toBe('true'); expect(browser.getAttribute('data-path')).toBe('nested');
+  fireEvent.click(screen.getByText('Close Files')); fireEvent.click(screen.getByText(button));
+  expect(screen.getByTestId('files')).not.toBe(browser); expect(screen.getByTestId('files').getAttribute('data-path')).toBe('initial');
+});
+it('disposes root Back/Close instead of reusing cancelled loading work', () => {
+  render(<App />); fireEvent.click(screen.getByText('Swipe host'));
+  fireEvent.click(screen.getByText('Navigate files')); fireEvent.click(screen.getByText('Dispose Files'));
+  expect(screen.queryByTestId('files')).toBeNull(); fireEvent.click(screen.getByText('Swipe host'));
+  expect(screen.getByTestId('files').getAttribute('data-path')).toBe('initial');
+});
 it('opens host Files without any session', () => {
   render(<App />); fireEvent.click(screen.getByText('Host files'));
   expect(screen.getByTestId('files').getAttribute('data-session')).toBeNull();

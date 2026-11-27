@@ -34,6 +34,8 @@ vi.mock('./ui', () => ({
   Note: ({ children }: NativeProps) => <span>{children}</span>,
 }));
 vi.mock('./terminal/TerminalView', () => ({ TerminalView: (props: TerminalProps) => { terminalProps = props; return <div data-testid="terminal" data-tab={props.tabId} data-readonly={props.readOnly} />; } }));
+vi.mock('./SwipeView', () => ({ SwipeView: ({ children, onRight }: { children: ReactNode; onRight?: () => void }) =>
+  <div>{onRight && <button onClick={onRight}>Swipe right</button>}{children}</div> }));
 vi.mock('./ActionMenu', () => ({ ActionMenu: ({ menu, close }: { menu: MenuConfig; close: () => void }) => (
   <div role="dialog">{menu.actions.map(action => <button key={action.title} onClick={() => { close(); action.action(); }}>{action.title}</button>)}</div>
 ) }));
@@ -78,6 +80,14 @@ describe('compact terminal chrome', () => {
     expect(f.openFiles).toHaveBeenCalledExactlyOnceWith({ sessionId: f.item.id, tabId: f.item.tabs[0].id });
     expect(screen.getByTestId('terminal')).toBeInTheDocument();
     expect(terminalProps?.takeoverIntent).toBeUndefined();
+  });
+  it('resumes Files for the active tab on a right swipe, only while connected', async () => {
+    const f = setup();
+    await press('Swipe right');
+    expect(f.openFiles).toHaveBeenCalledExactlyOnceWith({ sessionId: f.item.id, tabId: f.item.tabs[0].id }, true);
+    expect(screen.getByTestId('terminal')).toBeInTheDocument();
+    f.update({ state: { ...f.machine.state, status: 'disconnected' } });
+    expect(screen.queryByRole('button', { name: 'Swipe right' })).toBeNull();
   });
   it('opens terminal file targets in the full-screen Files view', () => {
     const f = setup();

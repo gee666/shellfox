@@ -71,7 +71,7 @@ async function setup(readOnly = false, native = new TestNative(), ready = true) 
   if (!driver) throw new Error('Native driver is missing.');
   const onError = vi.fn();
   const rendered = render(<RustTerminalView driver={driver}
-    tabId={ids.tab} fontSize={14} connectionEpoch="epoch1" modifierReleaseDelayMs={500} readOnly={readOnly} onError={onError} showKeyboardDiagnostics />);
+    tabId={ids.tab} fontSize={14} connectionEpoch="epoch1" readOnly={readOnly} onError={onError} showKeyboardDiagnostics />);
   await tick();
   if (ready) fireEvent.click(screen.getByRole('button', { name: 'Native state ready' }));
   return { ...rendered, client, native, onError };
@@ -97,7 +97,9 @@ describe('native terminal in the existing mobile controls', () => {
       ['press', 'release'].map(action => ['100', { type: 'key', event: { ...escape, action } }]));
     expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-modifiers', '2');
     fireEvent.click(screen.getByRole('button', { name: 'Native input' }));
-    await tick(500);
+    await tick(429);
+    expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-modifiers', '2');
+    await tick(1);
     expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-modifiers', '0');
   });
 

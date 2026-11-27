@@ -166,4 +166,9 @@ class TerminalInputTest {
     for (link in listOf("javascript:alert(1)", "file:///tmp/data", "intent://a", "https://user:secret@example.invalid", "https://a\n.invalid"))
       assertNull(TerminalTouch.safeLink(link))
   }
+  @Test fun horizontalSwipesAreLeftForFilesNavigation() {
+    assertTrue(TerminalTouch.isVerticalScroll(4f, -30f))
+    for ((dx, dy) in listOf(80f to 10f, -80f to 10f, 20f to 20f, 0f to 0f))
+      assertFalse(TerminalTouch.isVerticalScroll(dx, dy))
+  }
 }

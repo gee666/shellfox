@@ -38,6 +38,13 @@ impl FileError {
             "File changed on disk. Reload before saving.",
         )
     }
+    /// A create-mode write never replaces an existing entry.
+    pub(crate) fn exists() -> Self {
+        Self::new(
+            ErrorCode::FileConflict,
+            "A file already exists at this destination.",
+        )
+    }
 }
 
 impl From<io::Error> for FileError {
