@@ -54,6 +54,8 @@ export async function stageResources({ directory, work, kind, nugetSnapshot = nu
   const notices = path.join(directory, 'notices', 'ghostty-vt');
   cpSync(path.join(root, 'crates/ghostty-vt-sys/build-support/notices'), notices, { recursive: true });
   if (process.platform === 'win32') {
+    mkdirSync(path.join(directory, 'notices', 'conpty'), { recursive: true });
+    copyFileSync(path.join(root, 'vendor/conpty/LICENSE'), path.join(directory, 'notices', 'conpty', 'LICENSE'));
     buildEnv.SHELLFOX_WSL_FILES_BINARY = buildWslFilesWorker(work);
     const wslNotices = path.join(directory, 'notices', 'wsl-files');
     mkdirSync(wslNotices, { recursive: true });

@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { auditDependencies } from './rust-package-audit.mjs';
 import { stageResources, writeLaunchers } from './rust-package-resources.mjs';
-import { assertHeadlessFiles, executableName, fileHash, filesUnder, nativeTarget, readJson, root, run, scratchRoot, selectedBinaries, sha256 } from './rust-package-common.mjs';
+import { assertHeadlessFiles, executableName, fileHash, filesUnder, nativeTarget, readJson, root, run, scratchRoot, selectedBinaries, sha256, conptyFiles } from './rust-package-common.mjs';
 import { smokePackage } from './rust-package-smoke.mjs';
 import { auditSecurity } from './rust-package-security.mjs';
 
@@ -88,6 +88,10 @@ export async function packageRust(kind) {
     if (process.platform === 'win32') {
       copyFileSync(path.join(profileDirectory, 'ghostty-vt.dll'), path.join(directory, 'bin', 'ghostty-vt.dll'));
       resources.push({ name: 'ghostty-vt', path: 'bin/ghostty-vt.dll', use: 'loader-adjacent runtime dependency' });
+      for (const name of conptyFiles) {
+        copyFileSync(path.join(profileDirectory, name), path.join(directory, 'bin', name));
+        resources.push({ name: 'conpty', path: `bin/${name}`, use: 'Microsoft ConPTY, loaded beside shellfox-cli' });
+      }
     }
     writeLaunchers(directory, kind);
     copyFileSync(path.join(root, 'LICENSE'), path.join(directory, 'LICENSE'));

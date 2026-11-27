@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url';
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
 export const scratchRoot = path.join(root, 'tmp');
+// Microsoft's ConPTY, which crates/shellfox-terminal/build.rs stages beside the
+// build outputs. Shells run in shellfox-cli, which loads it from its own directory.
+// Never put OpenConsole.exe (GUI subsystem) in the Squirrel root: Squirrel would
+// install an execution stub for it.
+export const conptyFiles = Object.freeze(['conpty.dll', 'OpenConsole.exe']);
 export const targets = Object.freeze({
   'win32-x64': 'x86_64-pc-windows-msvc',
   'win32-arm64': 'aarch64-pc-windows-msvc',

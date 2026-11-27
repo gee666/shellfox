@@ -91,7 +91,8 @@ try {
       assert.equal(Number(releases[2]), statSync(path.join(directory, full)).size);
       const entries = run(tar, ['-tf', path.join(directory, full)]).split(/\r?\n/);
       // Squirrel adds the stable root launcher that shortcuts target only for GUI-subsystem exes.
-      for (const entry of ['Shellfox.exe', 'Shellfox_ExecutionStub.exe', 'bin/shellfox-cli.exe', 'ghostty-vt.dll', 'resources/THIRD-PARTY-NOTICES.txt']) {
+      for (const entry of ['Shellfox.exe', 'Shellfox_ExecutionStub.exe', 'bin/shellfox-cli.exe', 'ghostty-vt.dll',
+        'bin/conpty.dll', 'bin/OpenConsole.exe', 'resources/THIRD-PARTY-NOTICES.txt']) {
         assert.ok(entries.includes(`lib/net45/${entry}`), `Squirrel package is missing ${entry}`);
       }
       // Electron 0.9.15 updates only a Squirrel package with this ID and a SquirrelAware Shellfox.exe.

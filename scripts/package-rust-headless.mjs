@@ -15,7 +15,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, re
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { fileHash, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
+import { fileHash, readJson, root, run, scratchRoot, conptyFiles } from './rust-package-common.mjs';
 import { packageNotices } from './package-rust-notices.mjs';
 
 const platform = process.platform, arch = process.arch, win = platform === 'win32';
@@ -109,7 +109,7 @@ export function packageHeadless({ profile, stage, artifacts, version, target, si
       chmodSync(path.join(directory, 'bin', exe(name)), 0o755);
       sign?.(path.join(directory, 'bin', exe(name)));
     }
-    if (win) copyFileSync(path.join(profile, 'ghostty-vt.dll'), path.join(directory, 'bin/ghostty-vt.dll'));
+    if (win) for (const name of ['ghostty-vt.dll', ...conptyFiles]) copyFileSync(path.join(profile, name), path.join(directory, 'bin', name));
     const resources = path.join(directory, 'resources');
     cpSync(path.join(stage, 'resources/tailscale'), path.join(resources, 'tailscale'), { recursive: true });
     if (platform === 'darwin') cpSync(path.join(stage, 'resources/terminal-native'), path.join(resources, 'terminal-native'), { recursive: true });

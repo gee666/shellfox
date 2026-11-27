@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { fileHash, nativeTarget, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
+import { fileHash, nativeTarget, readJson, root, run, scratchRoot, conptyFiles } from './rust-package-common.mjs';
 import { stageResources } from './rust-package-resources.mjs';
 import { acquireNugetSnapshot } from './rust-package-resource-inventory.mjs';
 import { packageNotices } from './package-rust-notices.mjs';
@@ -226,6 +226,7 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
     packageHeadless({ profile, stage, artifacts, version: pkg.version, target, sign: signDarwin });
     if (win) {
       for (const dir of [app, path.join(app, 'bin')]) copy(path.join(profile, 'ghostty-vt.dll'), path.join(dir, 'ghostty-vt.dll'));
+      for (const name of conptyFiles) copy(path.join(profile, name), path.join(app, 'bin', name));
       await windows(app, artifacts, testId);
     } else if (mac) await macos(app, artifacts, signDarwin);
     else linux(work, app, artifacts);

@@ -28,6 +28,7 @@ export function packageNotices(resources, target, packages = ['shellfox-desktop'
   for (const file of [
     'tailscale/THIRD-PARTY-NOTICES.txt', 'tailscale/TAILSCALE-LICENSE',
     ...filesUnder(path.join(resources, ghostty)).map(name => `${ghostty}/${name}`),
+    'notices/conpty/LICENSE',
     `${windows}/THIRD-PARTY-NOTICES.TXT`, `${windows}/LICENSE.TXT`,
   ]) {
     const full = path.join(resources, file);
