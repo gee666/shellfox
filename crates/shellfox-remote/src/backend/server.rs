@@ -21,7 +21,11 @@ impl Backend {
         let task = tokio::spawn(async move {
             let permits = Arc::new(Semaphore::new(64));
             let mut tasks = tokio::task::JoinSet::new();
+            // At most one sweep runs, beside the accept loop: a slow owner must
+            // not hold up new connections. Dropping the set aborts it.
+            let mut sweeping = tokio::task::JoinSet::new();
             let mut sweep = tokio::time::interval(Duration::from_secs(10));
+            sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 if lost.is_cancelled() {
                     break;
@@ -51,10 +55,12 @@ impl Backend {
                             let _ = tokio::time::timeout(Duration::from_secs(30), operation).await;
                         });
                     }
-                    _ = sweep.tick() => {
-                        tokio::select! { _ = lost.cancelled() => break, _ = self.sweep() => {} }
+                    _ = sweep.tick(), if sweeping.is_empty() => {
+                        let backend = self.clone();
+                        sweeping.spawn(async move { backend.sweep().await });
                     }
                     Some(_) = tasks.join_next(), if !tasks.is_empty() => {}
+                    Some(_) = sweeping.join_next(), if !sweeping.is_empty() => {}
                 }
             }
         });

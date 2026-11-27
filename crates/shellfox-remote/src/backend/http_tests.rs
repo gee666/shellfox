@@ -159,3 +159,51 @@ async fn native_ownership_loss_closes_listener_and_pending_unsigned_socket() {
         .unwrap();
     assert!(bytes.is_empty());
 }
+/// Answers everything except Disconnect, which never returns.
+struct StuckDisconnectOwner;
+impl RemoteHost for StuckDisconnectOwner {
+    fn request(&self, command: OwnerCommand) -> crate::channel::OwnerFuture<'_> {
+        Box::pin(async move {
+            if matches!(command, OwnerCommand::Disconnect { .. }) {
+                std::future::pending::<()>().await;
+            }
+            Ok(json!({}))
+        })
+    }
+}
+#[tokio::test]
+async fn a_stuck_sweep_does_not_block_new_connections() {
+    let approvals = ApprovalControl::default();
+    approvals
+        .install(Approval {
+            peer_id: "n-peer".into(),
+            hostname: "my laptop".into(),
+            approved_at_millis: 1700000000123,
+            permission: ViewPermission::Write,
+            file_roots: vec![],
+        })
+        .unwrap();
+    let mut backend = Backend::new(
+        Arc::new(StuckDisconnectOwner),
+        approvals,
+        Secret::new("b".repeat(32)).unwrap(),
+    );
+    backend.clock = || 1700000000123;
+    for name in ["discover", "pair"] {
+        backend
+            .handle_at(super::tests::request(name), 1700000000123)
+            .await
+            .unwrap();
+    }
+    // The paired view is idle by now, so the first sweep disconnects it and hangs.
+    backend.clock = || 1700000000123 + 120_000;
+    let (_, handle) = Arc::new(backend).bind().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let reply = tokio::time::timeout(
+        Duration::from_secs(2),
+        send(handle.address(), "discover", ""),
+    )
+    .await
+    .expect("the accept loop waited for the sweep");
+    assert!(reply.get("ok").is_some());
+}
