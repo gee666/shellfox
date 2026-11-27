@@ -1,4 +1,5 @@
-//! Filters for `session list|stats|processes`, and the terminals and path grammar.
+//! Filters for `session list|stats|processes`, the terminals and path grammar,
+//! and the `remote api request` check.
 use super::*;
 
 pub(super) fn filters(listing: Listing, rest: &[&str]) -> Result<Filters> {
@@ -208,4 +209,19 @@ pub(super) fn path(operation: &str, rest: &[&str]) -> Result<PathOp> {
         "complete" => PathOp::Complete(value),
         _ => PathOp::Create(value),
     })
+}
+
+/// `remote api request` forwards one v1 manager method; check it before pairing.
+pub(super) fn remote_request(payload: &Value) -> Result<()> {
+    let Some(method) = payload.get("method").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let inner = payload
+        .get("payload")
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Default::default()));
+    match crate::manager::parse(method, inner)? {
+        crate::manager::Call::Remote(_) => Ok(()),
+        _ => Err(CliError::usage("Invalid remote input.")),
+    }
 }

@@ -233,18 +233,11 @@ async fn query(
         }
         Action::Machines => {
             let state = client.remote_control(RemoteRequest::State).await?;
-            let hosts: Vec<_> = state
-                .peers
-                .iter()
-                .filter(|peer| peer.host_confirmed)
-                .collect();
-            print_value(&hosts)
+            print_value(&crate::network_view::machines(&state)?)
         }
         Action::Approvals => {
             let state = client.remote_control(RemoteRequest::State).await?;
-            print_value(
-                &serde_json::json!({ "approvals": state.approvals, "pending": state.pending }),
-            )
+            print_value(&crate::network_view::approvals(&state)?)
         }
         _ => unreachable!("handled before connecting"),
     }

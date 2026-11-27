@@ -183,3 +183,39 @@ fn api_path_and_profiles() {
     assert!(parse(&["path", "home", "extra"]).is_err());
     assert!(parse(&["profiles", "show"]).is_err());
 }
+
+#[test]
+fn api_methods_and_payloads_are_checked_before_connecting() {
+    let code = |words: &[&str]| {
+        let error = parse(words).unwrap_err();
+        error.downcast_ref::<CliError>().unwrap().code.to_string()
+    };
+    assert_eq!(code(&["api", "nope"]), "VALIDATION");
+    assert_eq!(
+        code(&["api", "focusSession", "--input", "{}"]),
+        "VALIDATION"
+    );
+    assert_eq!(code(&["api", "installUpdate"]), "UNSUPPORTED");
+    let read = format!(r#"{{"tabId":"{T}"}}"#);
+    assert!(parse(&["api", "readTerminal", "--input", &read]).is_ok());
+    let request = |method: &str| {
+        format!(r#"{{"peerId":"p","method":"{method}","payload":{{"sessionId":"{S}"}}}}"#)
+    };
+    assert!(parse(&[
+        "remote",
+        "api",
+        "request",
+        "--input",
+        &request("focusSession")
+    ])
+    .is_err());
+    assert!(parse(&["remote", "api", "request", "--input", &request("nope")]).is_err());
+    assert!(parse(&[
+        "remote",
+        "api",
+        "request",
+        "--input",
+        &request("deleteSession")
+    ])
+    .is_ok());
+}

@@ -92,5 +92,5 @@ pub(super) async fn remote_api(
     request
         .validate()
         .map_err(|_| CliError::usage("Invalid remote input."))?;
-    Ok(serde_json::to_value(client.remote_control(request).await?)?)
+    crate::network_view::state(&client.remote_control(request).await?)
 }

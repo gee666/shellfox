@@ -94,12 +94,17 @@ struct Failure<'a> {
     retryable: bool,
 }
 
+/// One `--json` record, terminal-safe and line-safe like 0.9's `encode`.
+fn json_line(record: &impl Serialize) -> serde_json::Result<String> {
+    serde_json::to_string(record).map(|line| crate::terminal_text::escape_json_display(&line))
+}
+
 pub fn print_value(value: &impl Serialize) -> anyhow::Result<()> {
     let stdout = io::stdout();
     let mut output = stdout.lock();
     match mode() {
         Mode::Json => {
-            let line = serde_json::to_string(&Record::Ok { ok: true, value })?;
+            let line = json_line(&Record::Ok { ok: true, value })?;
             writeln!(output, "{line}")?;
         }
         Mode::Human => {
@@ -147,7 +152,7 @@ pub fn print_error(error: &anyhow::Error) -> i32 {
                 retryable: known.is_some_and(|e| e.retryable),
             };
             let record = Record::<()>::Error { ok: false, error };
-            println!("{}", serde_json::to_string(&record).unwrap_or_default());
+            println!("{}", json_line(&record).unwrap_or_default());
         }
         Mode::Human => eprintln!(
             "{}{}",
@@ -160,5 +165,30 @@ pub fn print_error(error: &anyhow::Error) -> i32 {
         2
     } else {
         1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn json_records_escape_terminal_controls() {
+        let value = "a\u{9b}\u{2028}\u{202e}\u{2069}\u{7f}";
+        let line = json_line(&Record::Ok {
+            ok: true,
+            value: &value,
+        })
+        .unwrap();
+        assert_eq!(
+            line,
+            r#"{"ok":true,"value":"a\u009b\u2028\u202e\u2069\u007f"}"#
+        );
+        let error = Failure {
+            code: "VALIDATION",
+            message: "\u{2066}x",
+            retryable: false,
+        };
+        let line = json_line(&Record::<()>::Error { ok: false, error }).unwrap();
+        assert!(line.contains(r"\u2066x") && !line.contains('\u{2066}'));
     }
 }

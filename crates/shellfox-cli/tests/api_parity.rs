@@ -24,6 +24,44 @@ fn one_shot_api_calls_keep_0_9_behaviour() -> Result<()> {
     stopped
 }
 
+/// 0.9 validated `api` calls before connecting, so a typo fails the same with no host.
+#[test]
+fn api_calls_are_validated_without_a_host() -> Result<()> {
+    let tmp = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+    std::fs::create_dir_all(&tmp)?;
+    let scratch = tempfile::Builder::new()
+        .prefix("cli-api-validation-")
+        .tempdir_in(&tmp)?;
+    let run = |words: &[&str]| -> Result<(Option<i32>, Value)> {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_shellfox-cli"))
+            .arg("--data-dir")
+            .arg(scratch.path())
+            .args(words)
+            .env_remove("SHELLFOX_TERMINAL_MARKER")
+            .stdin(std::process::Stdio::null())
+            .output()?;
+        Ok((
+            output.status.code(),
+            serde_json::from_slice(&output.stdout)?,
+        ))
+    };
+    let (code, reply) = run(&["api", "nope", "--json"])?;
+    ensure!(
+        code == Some(2) && reply["error"]["code"] == "VALIDATION",
+        "{code:?} {reply}"
+    );
+    let request = json!({ "peerId": "p", "method": "nope" }).to_string();
+    let (code, reply) = run(&["remote", "api", "request", "--input", &request, "--json"])?;
+    ensure!(
+        code == Some(2) && reply["error"]["code"] == "VALIDATION",
+        "{code:?} {reply}"
+    );
+    // A valid call still needs the host.
+    let (code, reply) = run(&["api", "getSnapshot", "--json"])?;
+    ensure!(code == Some(1) && reply["ok"] == false, "{code:?} {reply}");
+    Ok(())
+}
+
 fn api(host: &Fixture, method: &str, input: Value) -> Result<(i32, Value)> {
     host.reply(&["api", method, "--input", &input.to_string(), "--json"])
 }

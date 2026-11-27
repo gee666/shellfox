@@ -27,6 +27,7 @@ mod manager_local_files;
 mod manager_local_terminal;
 mod manager_peer;
 mod manager_run;
+mod network_view;
 mod node_args;
 mod node_run;
 mod output;

@@ -264,18 +264,25 @@ pub fn parse(words: &[&str]) -> Result<Option<ManagerCommand>> {
             if operation.is_empty() {
                 return Err(CliError::usage("Unknown ManagerMethod."));
             }
+            // Validate before connecting, as 0.9 did: `api nope` fails with no host.
+            let payload = api_input(rest)?;
+            crate::manager::parse(operation, payload.clone())?;
             ManagerCommand::Api {
                 method: operation.to_owned(),
-                payload: api_input(rest)?,
+                payload,
             }
         }
         "remote" if operation == "api" => {
             let (method, rest) = rest
                 .split_first()
                 .ok_or_else(|| CliError::usage("Unknown remote method."))?;
+            let payload = api_input(rest)?;
+            if *method == "request" {
+                remote_request(&payload)?;
+            }
             ManagerCommand::RemoteApi {
                 method: (*method).to_owned(),
-                payload: api_input(rest)?,
+                payload,
             }
         }
         _ => return Ok(None),
@@ -345,7 +352,7 @@ fn session(operation: &str, rest: &[&str]) -> Result<ManagerCommand> {
 
 #[path = "manager_args_more.rs"]
 mod more;
-use more::{filters, path, terminals};
+use more::{filters, path, remote_request, terminals};
 
 #[cfg(test)]
 #[path = "manager_args_tests.rs"]

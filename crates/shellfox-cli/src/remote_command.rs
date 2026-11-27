@@ -48,7 +48,12 @@ pub async fn run(client: &LocalClient, command: NetworkCommand) -> Result<()> {
         }
         state => state?,
     };
-    crate::commands::print_json(&state)?;
+    // Raw mode is the `host network` operator; the 0.9 aliases get 0.9 records.
+    if crate::output::mode() == crate::output::Mode::Raw {
+        crate::commands::print_json(&state)?;
+    } else {
+        crate::output::print_value(&crate::network_view::state(&state)?)?;
+    }
     if changing && (state.error.is_some() || state.cleanup_retained) {
         bail!("Local network operator is not confirmed; inspect the returned state.");
     }
