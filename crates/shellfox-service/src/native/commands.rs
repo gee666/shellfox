@@ -21,6 +21,16 @@ impl crate::Service {
                 event,
                 geometry,
             },
+            NativeCommand::Wheel {
+                event,
+                geometry,
+                steps,
+            } => Command::Wheel {
+                lease,
+                event,
+                geometry,
+                steps,
+            },
             NativeCommand::Resize { cols, rows } => Command::Resize { lease, cols, rows },
             NativeCommand::Colors(colors) => Command::Colors { lease, colors },
             NativeCommand::Scroll(delta) => {

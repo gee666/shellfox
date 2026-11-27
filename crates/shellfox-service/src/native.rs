@@ -153,6 +153,12 @@ pub enum NativeCommand {
         event: MouseEvent,
         geometry: MouseGeometry,
     },
+    /// Wheel steps in a row, sent in one request.
+    Wheel {
+        event: MouseEvent,
+        geometry: MouseGeometry,
+        steps: u16,
+    },
     Resize {
         cols: u16,
         rows: u16,

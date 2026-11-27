@@ -32,6 +32,7 @@ impl Service {
                 | Command::Keys { .. }
                 | Command::Paste { .. }
                 | Command::Mouse { .. }
+                | Command::Wheel { .. }
                 | Command::InteractiveBytes { .. }
                 | Command::MouseStamped { .. }
         ) {

@@ -14,6 +14,8 @@ pub const MAX_ENCODED_INPUT_BYTES: usize = 64 * 1024;
 pub const MAX_INPUT_BYTES: usize = MAX_INPUT_PAYLOAD_BYTES;
 /// Most key events in one `Command::Keys`.
 pub const MAX_KEY_BATCH: usize = 256;
+/// Most wheel steps in one `Command::Wheel`.
+pub const MAX_WHEEL_BATCH: u16 = 256;
 pub const MAX_SCREEN_CELLS: usize = 1024 * 1024;
 pub const DEFAULT_SCREEN_CELLS: usize = 256 * 1024;
 pub const MAX_SCREEN_TEXT_BYTES: usize = 16 * 1024 * 1024;
@@ -152,6 +154,13 @@ pub enum Command {
         event: MouseEvent,
         geometry: MouseGeometry,
     },
+    /// `steps` identical wheel presses, each encoded like `Mouse`, in one PTY write.
+    Wheel {
+        lease: Lease,
+        event: MouseEvent,
+        geometry: MouseGeometry,
+        steps: u16,
+    },
     Resize {
         lease: Lease,
         cols: u16,
@@ -249,6 +258,12 @@ impl Command {
                 events.iter().map(|event| event.text.len()).sum()
             }
             Self::Resize { cols, rows, .. } => return limits.validate_size(*cols, *rows),
+            Self::Wheel { event, steps, .. } => {
+                if !wheel_press(event) || !(1..=MAX_WHEEL_BATCH).contains(steps) {
+                    return Err(RuntimeError::validation("invalid wheel batch"));
+                }
+                0
+            }
             _ => 0,
         };
         if bytes > MAX_INPUT_PAYLOAD_BYTES {
@@ -256,6 +271,20 @@ impl Command {
         }
         Ok(())
     }
+}
+/// One wheel step: a press of a wheel button.
+pub fn wheel_press(event: &MouseEvent) -> bool {
+    use shellfox_ghostty_vt::{MouseAction, MouseButton};
+    event.action == MouseAction::Press
+        && matches!(
+            event.button,
+            Some(
+                MouseButton::WheelUp
+                    | MouseButton::WheelDown
+                    | MouseButton::WheelLeft
+                    | MouseButton::WheelRight
+            )
+        )
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -68,6 +68,7 @@ impl Owner {
             | Command::Paste { lease, .. }
             | Command::RawInput { lease, .. }
             | Command::Mouse { lease, .. }
+            | Command::Wheel { lease, .. }
             | Command::Resize { lease, .. }
             | Command::Colors { lease, .. }
             | Command::Scroll { lease, .. }
@@ -95,6 +96,7 @@ impl Owner {
             | Command::Paste { .. }
             | Command::RawInput { .. }
             | Command::Mouse { .. }
+            | Command::Wheel { .. }
             | Command::Resize { .. }
             | Command::Colors { .. } => self.controller_side_effects(lease, false)?,
             _ => {}
@@ -167,6 +169,29 @@ impl Owner {
                     .terminal
                     .encode_mouse(&event, geometry)
                     .map_err(engine)?;
+                return self.accept_input(
+                    request_id,
+                    &bytes,
+                    InputKind::Mouse {
+                        action: event.action,
+                        button: event.button,
+                        any_button_pressed: event.any_button_pressed,
+                    },
+                );
+            }
+            Command::Wheel {
+                event,
+                geometry,
+                steps,
+                ..
+            } => {
+                self.active()?;
+                // A wheel press leaves no encoder state, so every step encodes the same.
+                let bytes = self
+                    .terminal
+                    .encode_mouse(&event, geometry)
+                    .map_err(engine)?
+                    .repeat(usize::from(steps));
                 return self.accept_input(
                     request_id,
                     &bytes,

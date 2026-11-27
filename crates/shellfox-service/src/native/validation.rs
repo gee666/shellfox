@@ -98,6 +98,7 @@ impl NativeAction {
                         | NativeCommand::Keys(_)
                         | NativeCommand::Paste(_)
                         | NativeCommand::Mouse { .. }
+                        | NativeCommand::Wheel { .. }
                 );
                 ensure!(
                     is_input == input.is_some(),
@@ -225,6 +226,22 @@ impl NativeCommand {
                 text.len() <= shellfox_runtime::MAX_INPUT_BYTES,
                 "Native paste exceeds 64 KiB."
             ),
+            Self::Wheel {
+                event,
+                geometry,
+                steps,
+            } => {
+                ensure!(
+                    shellfox_runtime::wheel_press(event)
+                        && (1..=shellfox_runtime::MAX_WHEEL_BATCH).contains(steps),
+                    "Invalid native wheel batch."
+                );
+                Self::Mouse {
+                    event: *event,
+                    geometry: *geometry,
+                }
+                .validate()?;
+            }
             Self::Mouse { event, geometry } => {
                 ensure!(
                     event.x.is_finite()

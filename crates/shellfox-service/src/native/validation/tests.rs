@@ -1,5 +1,5 @@
 use super::*;
-use shellfox_ghostty_vt::{key::KeyEvent, Modifiers, MouseAction};
+use shellfox_ghostty_vt::{key::KeyEvent, Modifiers, MouseAction, MouseButton};
 
 fn action(command: NativeCommand) -> NativeAction {
     let input = matches!(
@@ -8,6 +8,7 @@ fn action(command: NativeCommand) -> NativeAction {
             | NativeCommand::Keys(_)
             | NativeCommand::Paste(_)
             | NativeCommand::Mouse { .. }
+            | NativeCommand::Wheel { .. }
     )
     .then_some(NativeInputContext {
         captured_settlement: shellfox_host::CapturedSettlement::Captured(None),
@@ -51,6 +52,25 @@ fn admission_rejects_large_or_invalid_input_before_queueing() {
     })
     .validate()
     .is_ok());
+    let wheel = |button, steps| NativeCommand::Wheel {
+        event: MouseEvent {
+            action: MouseAction::Press,
+            button: Some(button),
+            modifiers: Modifiers::default(),
+            x: 4.,
+            y: 4.,
+            any_button_pressed: false,
+        },
+        geometry: MouseGeometry {
+            cell_width: 8,
+            cell_height: 16,
+        },
+        steps,
+    };
+    assert!(action(wheel(MouseButton::WheelUp, 256)).validate().is_ok());
+    assert!(action(wheel(MouseButton::WheelUp, 0)).validate().is_err());
+    assert!(action(wheel(MouseButton::WheelUp, 257)).validate().is_err());
+    assert!(action(wheel(MouseButton::Left, 2)).validate().is_err());
     assert!(action(NativeCommand::Mouse {
         event: MouseEvent {
             action: MouseAction::Motion,
