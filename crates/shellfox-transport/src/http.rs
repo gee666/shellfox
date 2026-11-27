@@ -34,6 +34,10 @@ fn legacy_response(response: HttpResponse) -> Result<Vec<u8>, TransportError> {
 
 // One fresh connection, one POST. There is no retry path, redirect handler,
 // environment proxy, cookies, DNS lookup or externally supplied header/URL.
+// No `Connection: close`: the helper keeps the socket open after its framed
+// response and this side closes first. A helper-side close would leave its
+// listener port in TIME_WAIT, and a later connect that reuses the same client
+// port hangs in SYN retries for 3 to 21 s.
 pub(super) async fn post_with_status(
     address: std::net::SocketAddr,
     secret: &str,
@@ -44,7 +48,7 @@ pub(super) async fn post_with_status(
     let mut stream = TcpStream::connect(address)
         .await
         .map_err(|_| TransportError::Unavailable)?;
-    let header = format!("POST /proxy HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {secret}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+    let header = format!("POST /proxy HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {secret}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n", body.len());
     stream
         .write_all(header.as_bytes())
         .await

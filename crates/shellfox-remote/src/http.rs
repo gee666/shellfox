@@ -128,5 +128,14 @@ pub(crate) async fn reply_with_status(
     let header = format!("HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n", body.len());
     stream.write_all(header.as_bytes()).await.map_err(|_| ())?;
     stream.write_all(body).await.map_err(|_| ())?;
-    stream.shutdown().await.map_err(|_| ())
+    stream.flush().await.map_err(|_| ())?;
+    // Let the helper close first. Closing here would leave TIME_WAIT on this
+    // listener's port, and a later helper connection that reuses the same
+    // client port stalls in SYN retries for seconds.
+    let mut rest = [0_u8; 512];
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while stream.read(&mut rest).await.is_ok_and(|n| n > 0) {}
+    })
+    .await;
+    Ok(())
 }

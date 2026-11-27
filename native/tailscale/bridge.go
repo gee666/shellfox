@@ -117,12 +117,12 @@ func (b *bridge) outgoing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A dedicated transport cannot reuse a connection after peer ownership changes.
-	transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, target string) (net.Conn, error) {
+	transport := oneRequestTransport(func(ctx context.Context, network, target string) (net.Conn, error) {
 		if network != "tcp" || target != address {
 			return nil, errors.New("invalid tailnet target")
 		}
 		return b.dial(ctx, "tcp", address)
-	}, DisableKeepAlives: true, ResponseHeaderTimeout: requestTimeout, MaxResponseHeaderBytes: 16 * 1024}
+	})
 	defer transport.CloseIdleConnections()
 	forward(w, ctx, transport, "http://"+address+p.Path, p.Body, nil)
 }
@@ -153,10 +153,19 @@ func (b *bridge) incoming(w http.ResponseWriter, r *http.Request) {
 	// Start with empty headers. No caller-supplied identity, authorization,
 	// forwarding, cookies or connection headers can reach the Node service.
 	headers := signedHeaders(b.backendSecret, identity, r.Method, r.URL.Path, body, time.Now())
-	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
-		DisableKeepAlives: true, ResponseHeaderTimeout: requestTimeout, MaxResponseHeaderBytes: 16 * 1024}
+	transport := oneRequestTransport((&net.Dialer{Timeout: 5 * time.Second}).DialContext)
 	defer transport.CloseIdleConnections()
 	forward(w, ctx, transport, b.backend.Scheme+"://"+b.backend.Host+r.URL.Path, body, headers)
+}
+
+// oneRequestTransport carries one request. Keep-alive stays on so that this
+// side closes the connection (CloseIdleConnections after the reply) and holds
+// the TIME_WAIT. When the server closes first, TIME_WAIT lands on its listening
+// port, and a later connection that reuses the same client port hangs in SYN
+// retries for seconds: netstack on the tailnet, the OS on loopback.
+func oneRequestTransport(dial func(context.Context, string, string) (net.Conn, error)) *http.Transport {
+	return &http.Transport{Proxy: nil, DialContext: dial, MaxIdleConnsPerHost: 1,
+		ResponseHeaderTimeout: requestTimeout, MaxResponseHeaderBytes: 16 * 1024}
 }
 
 func (b *bridge) incomingIdentity(ctx context.Context, remote string) (peer, error) {
@@ -229,6 +238,8 @@ func forward(w http.ResponseWriter, ctx context.Context, transport *http.Transpo
 	// Never relay Location, Set-Cookie or upstream identity headers.
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	// A framed reply lets the keep-alive caller close first.
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(response.StatusCode)
 	_, _ = w.Write(data)
 }

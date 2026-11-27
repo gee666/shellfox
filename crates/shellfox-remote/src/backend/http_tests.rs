@@ -16,6 +16,13 @@ impl RemoteHost for OfflineOwner {
     }
 }
 async fn send(address: std::net::SocketAddr, name: &str, extra_headers: &str) -> Value {
+    framed(&mut open(address, name, extra_headers).await).await
+}
+async fn open(
+    address: std::net::SocketAddr,
+    name: &str,
+    extra_headers: &str,
+) -> tokio::net::TcpStream {
     let request = super::tests::request(name);
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
     let headers = format!("POST {} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\nx-shellfox-peer: {}\r\nx-shellfox-timestamp: {}\r\nx-shellfox-signature: {}\r\n{}\r\n",request.path,request.body.len(),request.peer,request.timestamp,request.signature,extra_headers);
@@ -25,14 +32,26 @@ async fn send(address: std::net::SocketAddr, name: &str, extra_headers: &str) ->
     }
     // The malformed-header cases are rejected before the body. Sending one
     // anyway lets Darwin reset the socket when the server closes unread data.
-    let mut bytes = vec![];
-    stream.read_to_end(&mut bytes).await.unwrap();
-    let body = bytes
-        .windows(4)
-        .position(|bytes| bytes == b"\r\n\r\n")
+    stream
+}
+/// Reads one Content-Length response, as the Go helper does, without waiting for EOF.
+async fn framed(stream: &mut tokio::net::TcpStream) -> Value {
+    let mut head = vec![];
+    let mut byte = [0];
+    while !head.ends_with(b"\r\n\r\n") {
+        stream.read_exact(&mut byte).await.unwrap();
+        head.push(byte[0]);
+    }
+    let length: usize = String::from_utf8(head)
         .unwrap()
-        + 4;
-    serde_json::from_slice(&bytes[body..]).unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("Content-Length: "))
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut body = vec![0; length];
+    stream.read_exact(&mut body).await.unwrap();
+    serde_json::from_slice(&body).unwrap()
 }
 #[tokio::test]
 async fn isolated_loopback_signed_proxy_contract_all_five_routes_and_strict_framing() {
@@ -84,6 +103,34 @@ async fn isolated_loopback_signed_proxy_contract_all_five_routes_and_strict_fram
     drop(handle);
     tokio::task::yield_now().await;
     assert!(tokio::net::TcpStream::connect(address).await.is_err());
+}
+#[tokio::test]
+async fn the_helper_closes_first_so_the_backend_port_keeps_no_time_wait() {
+    let mut backend = Backend::new(
+        Arc::new(OfflineOwner),
+        ApprovalControl::default(),
+        Secret::new("b".repeat(32)).unwrap(),
+    );
+    backend.clock = || 1700000000123;
+    let (_, handle) = Arc::new(backend).bind().await.unwrap();
+    let mut stream = open(handle.address(), "discover", "").await;
+    assert_eq!(framed(&mut stream).await["value"]["protocolVersion"], 1);
+    let mut rest = [0];
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), stream.read(&mut rest))
+            .await
+            .is_err(),
+        "the backend closed before the helper"
+    );
+    // The backend notices the helper's close and ends the connection itself.
+    stream.shutdown().await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), stream.read(&mut rest))
+            .await
+            .unwrap()
+            .unwrap(),
+        0
+    );
 }
 #[tokio::test]
 async fn native_ownership_loss_closes_listener_and_pending_unsigned_socket() {

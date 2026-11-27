@@ -11,7 +11,9 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -231,4 +233,56 @@ func TestForwardDoesNotFollowRedirectOrAcceptOversizedResponse(t *testing.T) {
 			t.Errorf("code = %d want %d", w.Code, want)
 		}
 	}
+}
+
+func TestOneRequestConnectionsAreClosedByTheCaller(t *testing.T) {
+	secret := strings.Repeat("b", 32)
+	var mu sync.Mutex
+	states := map[net.Conn][]http.ConnState{}
+	closed := make(chan []http.ConnState, 4)
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	upstream.Config.ConnState = func(c net.Conn, state http.ConnState) {
+		mu.Lock()
+		defer mu.Unlock()
+		states[c] = append(states[c], state)
+		if state == http.StateClosed {
+			closed <- states[c]
+		}
+	}
+	upstream.Start()
+	defer upstream.Close()
+	u, _ := url.Parse(upstream.URL)
+	b := &bridge{network: testNetwork(), proxySecret: strings.Repeat("p", 32), backend: u, backendSecret: secret,
+		dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", u.Host)
+		}}
+	// A connection the server closed itself (Connection: close) never goes idle.
+	callerClosed := func(path string) {
+		t.Helper()
+		select {
+		case seen := <-closed:
+			if len(seen) < 2 || seen[len(seen)-2] != http.StateIdle {
+				t.Errorf("%s: the server closed the connection first: %v", path, seen)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: the caller kept the connection open", path)
+		}
+	}
+	if w := proxyCall(t, b, `{"peerId":"n-peer","path":"/v1/request","body":{}}`, "Bearer "+b.proxySecret); w.Code != 200 ||
+		w.Header().Get("Content-Length") != strconv.Itoa(len(`{"ok":true}`)) {
+		t.Fatalf("outgoing = %d %v", w.Code, w.Header())
+	}
+	callerClosed("outgoing")
+	r := httptest.NewRequest("POST", "/v1/request", strings.NewReader(`{}`))
+	r.RemoteAddr = "100.100.1.2:12345"
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	b.incoming(w, r)
+	if w.Code != 200 {
+		t.Fatalf("incoming = %d", w.Code)
+	}
+	callerClosed("incoming")
 }
