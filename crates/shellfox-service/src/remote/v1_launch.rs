@@ -216,12 +216,29 @@ impl RemoteService<'_> {
             .find(|s| s.id == input.session_id)
             .ok_or_else(missing)?;
         let private = self.private_tabs(&snapshot);
-        if let Some(tab) = session.tabs.iter().find(|t| {
+        let first = session.tabs.iter().find(|t| {
             t.state != TabState::Archived
                 && !private.contains(&t.id)
                 && !crate::automation::replay::is_automation_tab(t)
-        }) {
-            self.start_remote_tab(tab)?;
+        });
+        let automation = session
+            .tabs
+            .iter()
+            .any(crate::automation::replay::is_automation_tab);
+        match first {
+            Some(tab) => self.start_remote_tab(tab)?,
+            None if automation => {}
+            // 0.9 reopened a session left without tabs with a fresh shell, as
+            // the local route does.
+            None => {
+                self.service.touch_session(session.id);
+                return self.add_tab(wire::AddTab {
+                    session_id: session.id,
+                    title: None,
+                    cwd: None,
+                    profile_id: None,
+                });
+            }
         }
         self.service.touch_session(session.id);
         self.launched_session(session.id)

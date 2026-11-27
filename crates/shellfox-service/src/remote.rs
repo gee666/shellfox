@@ -10,6 +10,8 @@ mod tests;
 #[cfg(test)]
 mod title_tests;
 #[cfg(test)]
+mod v1_launch_tests;
+#[cfg(test)]
 mod v1_loopback_tests;
 #[cfg(test)]
 mod wake_tests;
