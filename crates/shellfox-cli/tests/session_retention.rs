@@ -138,8 +138,10 @@ fn the_host_settles_and_deletes_idle_sessions() -> Result<()> {
 }
 
 /// Sessions last active long ago, with one-hour settings: idle, already
-/// settled, pinned, and one the test activates.
+/// settled, pinned, and one the test activates. Activation starts a shell, so
+/// they use a shell this platform can run.
 fn seed(data: &Path) -> Result<[SessionId; 4]> {
+    let profile = ProfileId::new(shellfox_terminal::default_shell_profile()?.id().as_str())?;
     let host = Host::open(data)?;
     host.save_global_settings(SettingsPatch {
         session_settle_hours: Some(1.0),
@@ -152,7 +154,7 @@ fn seed(data: &Path) -> Result<[SessionId; 4]> {
             request_id: SessionId::new(),
             title: Some(format!("Retention {index}")),
             cwd: data.to_string_lossy().into_owned(),
-            profile_id: ProfileId::default(),
+            profile_id: profile.clone(),
         })?;
         *id = snapshot
             .sessions
