@@ -265,8 +265,8 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
         "{ahead}"
     );
 
-    // After the shell exits: writes to its generation are TARGET_LOST, and the
-    // saved tab still closes, as in 0.9.
+    // A shell that exits takes its tab with it, as in 0.9: writes to its
+    // generation are TARGET_LOST and the tab is gone.
     host.json(&["terminals", "write", tab, "exit\r", "--json"])?;
     let deadline = Instant::now() + Duration::from_secs(30);
     while host
@@ -274,7 +274,7 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
         .as_array()
         .into_iter()
         .flatten()
-        .any(|t| t["id"] == tab && t["lifecycle"] == "open")
+        .any(|t| t["id"] == tab)
     {
         ensure!(Instant::now() < deadline, "The shell never exited.");
         std::thread::sleep(Duration::from_millis(200));
@@ -291,16 +291,7 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
         code == 1 && lost["error"]["code"] == "TARGET_LOST",
         "{lost}"
     );
-    let exited = host.json(&["terminals", "read", tab, "--json"])?;
-    ensure!(exited["state"] == "closed", "{}", exited["state"]);
-    let closed = host.json(&["terminals", "close", tab, "--yes", "--json"])?;
-    ensure!(
-        !closed["tabs"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|t| t["id"] == tab),
-        "{closed}"
-    );
+    let (code, gone) = host.reply(&["terminals", "read", tab, "--json"])?;
+    ensure!(code == 1 && gone["error"]["code"] == "NOT_FOUND", "{gone}");
     Ok(())
 }

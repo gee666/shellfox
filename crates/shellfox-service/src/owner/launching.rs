@@ -86,7 +86,8 @@ impl Service {
         }
     }
     /// 0.9's activateSession: selects the session and, when none of its shells
-    /// runs, opens its first tab that a plain start may launch. Automation and
+    /// runs, opens its first tab that a plain start may launch, or a new tab
+    /// when it has none, as after its last shell exited. Automation and
     /// Administrator tabs are never started this way.
     pub(crate) fn activate_session(&mut self, id: SessionId) -> Result<Snapshot> {
         let snapshot =
@@ -104,9 +105,29 @@ impl Service {
                 && !crate::automation::replay::is_automation_tab(t)
                 && t.profile_id.as_str() != crate::ADMIN_POWERSHELL_PROFILE
         });
+        let automation = session
+            .tabs
+            .iter()
+            .any(crate::automation::replay::is_automation_tab);
         match first {
-            Some(tab) if !running => self.start_replying(tab.id),
-            _ => Ok(snapshot),
+            _ if running => Ok(snapshot),
+            Some(tab) => self.start_replying(tab.id),
+            None if automation => Ok(snapshot),
+            None => {
+                let profile_id = self
+                    .folder_launch_profile(&snapshot.preferences.default_profile_id, &session.cwd)
+                    .map_err(|e| failure(&e))?;
+                let input = shellfox_core::AddTab {
+                    title: None,
+                    cwd: None,
+                    profile_id,
+                };
+                let after = self.application_metadata(HostRequest::AddTab {
+                    session_id: id,
+                    input,
+                })?;
+                self.start_new_tab(&snapshot, after)
+            }
         }
     }
     /// Starts `tab` without blocking the owner: the owner holds this reply

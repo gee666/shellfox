@@ -10,6 +10,8 @@ use shellfox_core::{CleanupToken, SessionId, Snapshot, TabId, TerminalIdentity};
 use shellfox_runtime::{Phase, SourceKind};
 use std::time::{Duration, Instant};
 
+mod exited;
+
 /// How long owned runtimes get to confirm their stop.
 const STOP_DEADLINE: Duration = Duration::from_secs(12);
 

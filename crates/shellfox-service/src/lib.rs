@@ -137,6 +137,8 @@ pub struct Service {
     /// The start a create or addTab began; its reply waits in launch_replies.
     launch_begun: Option<TabId>,
     launch_replies: Vec<(TabId, owner::launching::LaunchReply)>,
+    /// Exited tabs whose removal failed and was reported; it is retried.
+    exit_failures: std::collections::HashSet<TabId>,
     // Last: Host/SQLite and every deferred resource owner drop before this guard.
     // Original directory lifetime only, not path/VFS confinement.
     _root_lifetime: Option<shellfox_transport::RootLifetimeGuard>,

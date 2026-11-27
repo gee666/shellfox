@@ -12,6 +12,7 @@ impl Service {
         }
         step(self, Step::Closing);
         self.pump_closing();
+        self.remove_exited_tabs();
         step(self, Step::Grants);
         let _ = self.pump_grant_retirements();
         step(self, Step::Catalog);

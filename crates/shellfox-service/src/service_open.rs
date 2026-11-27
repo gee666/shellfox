@@ -43,6 +43,7 @@ impl Service {
             durability: crate::owner::Durability::new(),
             launch_begun: None,
             launch_replies: Vec::new(),
+            exit_failures: Default::default(),
             _root_lifetime: None,
             started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         })

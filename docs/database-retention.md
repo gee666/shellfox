@@ -14,11 +14,11 @@ The database has no commands, terminal output, scrollback or screen contents. Th
 
 ## What gets removed
 
-Closing a tab removes its row once the host has confirmed that the tab's processes are gone. Deleting a session needs confirmation (`--yes` in the CLI). The host closes its terminals and removes the session and its tabs only after every close is confirmed. If a close fails, the session stays, and terminals that haven't closed keep running.
+Closing a tab removes its row once the host has confirmed that the tab's processes are gone. A tab whose shell exits on its own is removed the same way. A tab whose shell failed to start keeps its error, and an automation tab keeps its result. A session whose last tab is removed stays. Deleting a session needs confirmation (`--yes` in the CLI). The host closes its terminals and removes the session and its tabs only after every close is confirmed. If a close fails, the session stays, and terminals that haven't closed keep running.
 
 Settling only records a time, and unsettling clears it. Neither stops terminals or removes anything.
 
-A restart doesn't restore shells. Saved sessions come back, and selecting one opens a fresh shell.
+A restart doesn't restore shells. Saved sessions come back with the tabs that were still open, and selecting one opens a fresh shell in its first tab, or in a new tab if it has none. A crash or a stop isn't a shell exit, so it removes no tabs.
 
 Deleting removes database rows. It isn't secure erasure. SQLite free pages, the WAL file and backups can still hold old bytes.
 

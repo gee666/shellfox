@@ -117,6 +117,37 @@ fn shutdown_fails_a_close_in_flight_and_keeps_its_metadata() {
     assert_eq!(service.host().snapshot().unwrap().sessions[0].tabs.len(), 1);
 }
 
+#[test]
+fn a_failed_start_keeps_its_tab_and_activating_an_empty_session_adds_one() {
+    let data = scratch();
+    let mut service = Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
+    let created = service
+        .host()
+        .create_session(CreateSession {
+            request_id: SessionId::new(),
+            title: None,
+            cwd: data.path().to_string_lossy().into_owned(),
+            profile_id: default_catalog_profile(),
+        })
+        .unwrap();
+    let (session, tab) = (created.sessions[0].id, created.sessions[0].tabs[0].id);
+    let tabs = |service: &Service| service.host().snapshot().unwrap().sessions[0].tabs.len();
+    // The test binary is no PTY supervisor: the start fails and the tab
+    // keeps its error, as in 0.9. Only a shell that ran and exited leaves.
+    assert!(service.attach(tab, 1, false).is_err());
+    for _ in 0..20 {
+        service.pump();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(tabs(&service), 1);
+    service.close_now(CloseTarget::Tab(tab)).unwrap();
+    assert_eq!(tabs(&service), 0, "the session stays without tabs");
+    // 0.9 opened a fresh shell; here its start fails, but the tab is made.
+    let _ = service.activate_session(session);
+    assert_eq!(tabs(&service), 1);
+    service.shutdown().unwrap();
+}
+
 /// Tabs whose close panics in `start_close`, for the owner's panic test.
 static PANIC_ON_CLOSE: std::sync::Mutex<Vec<TabId>> = std::sync::Mutex::new(Vec::new());
 pub(super) fn panic_if_marked(target: CloseTarget) {
