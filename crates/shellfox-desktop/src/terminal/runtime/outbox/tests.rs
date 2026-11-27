@@ -1,5 +1,6 @@
 mod limits;
 mod typing;
+mod wheel;
 use super::*;
 use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
 use shellfox_ghostty_vt::{Modifiers, MouseButton, MouseEvent, MouseGeometry, Terminal};
@@ -231,18 +232,24 @@ fn wheel_burst_and_motion_are_coalesced_without_crossing_release_or_keys() {
         .enqueue(key(KeyAction::Release), Pending::Applied)
         .unwrap();
     let requests = Transport::new().finish(&mut queue);
-    assert_eq!(requests.len(), 133);
+    assert_eq!(requests.len(), 7);
     assert!(
         matches!(&requests[1].command, Command::Mouse {event, ..} if event.x == 9999. && event.action == MouseAction::Motion)
     );
     assert!(
-        matches!(&requests[130].command, Command::Key {event, ..} if event.action == KeyAction::Press)
+        matches!(&requests[2].command, Command::Wheel {event, steps: 64, ..} if event.button == Some(MouseButton::WheelUp))
     );
     assert!(
-        matches!(&requests[131].command, Command::Mouse {event, ..} if event.action == MouseAction::Release)
+        matches!(&requests[3].command, Command::Wheel {event, steps: 64, ..} if event.button == Some(MouseButton::WheelRight))
     );
     assert!(
-        matches!(&requests[132].command, Command::Key {event, ..} if event.action == KeyAction::Release)
+        matches!(&requests[4].command, Command::Key {event, ..} if event.action == KeyAction::Press)
+    );
+    assert!(
+        matches!(&requests[5].command, Command::Mouse {event, ..} if event.action == MouseAction::Release)
+    );
+    assert!(
+        matches!(&requests[6].command, Command::Key {event, ..} if event.action == KeyAction::Release)
     );
 }
 
@@ -315,22 +322,17 @@ fn key_release_reservation_and_maximum_wheel_backlog_are_bounded() {
         })
         .collect();
     assert_eq!(keys, [KeyAction::Press, KeyAction::Release]);
-    for _ in 0..MAX_WHEEL_STEPS {
+    // Each step at a new position needs its own entry; past the bound they drop.
+    for x in 0..MAX_WHEEL_ENTRIES + 10 {
         queue
             .enqueue(
-                mouse(MouseAction::Press, MouseButton::WheelUp, 10.),
+                mouse(MouseAction::Press, MouseButton::WheelUp, x as f32),
                 Pending::Applied,
             )
             .unwrap();
     }
-    assert!(
-        queue
-            .enqueue(
-                mouse(MouseAction::Press, MouseButton::WheelUp, 10.),
-                Pending::Applied
-            )
-            .is_err()
-    );
-    assert_eq!(queue.queue.len(), 1);
-    assert_eq!(queue.wheel_steps, MAX_WHEEL_STEPS);
+    assert_eq!(queue.queue.len(), MAX_WHEEL_ENTRIES);
+    assert_eq!(queue.wheel_entries, MAX_WHEEL_ENTRIES);
+    Transport::new().finish(&mut queue);
+    assert_eq!(queue.wheel_entries, 0);
 }

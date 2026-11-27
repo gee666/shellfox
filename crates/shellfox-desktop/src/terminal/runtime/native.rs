@@ -139,6 +139,19 @@ impl Access {
                 event,
                 geometry,
             } => (lease, NativeCommand::Mouse { event, geometry }),
+            Command::Wheel {
+                lease,
+                event,
+                geometry,
+                steps,
+            } => (
+                lease,
+                NativeCommand::Wheel {
+                    event,
+                    geometry,
+                    steps,
+                },
+            ),
             Command::Resize { lease, cols, rows } => (lease, NativeCommand::Resize { cols, rows }),
             Command::Colors { lease, colors } => (lease, NativeCommand::Colors(colors)),
             Command::Scroll { lease, delta } => (lease, NativeCommand::Scroll(delta)),

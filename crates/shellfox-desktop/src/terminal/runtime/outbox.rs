@@ -3,7 +3,7 @@ use super::{
     physical::{MAX_HELD, Physical},
 };
 use shellfox_ghostty_vt::{MouseAction, key::KeyEvent};
-use shellfox_runtime::{Command, Request, RequestId, SubmitError};
+use shellfox_runtime::{Command, MAX_WHEEL_BATCH, Request, RequestId, SubmitError};
 use shellfox_service::native::NativeInputContext;
 use std::collections::{HashMap, VecDeque};
 
@@ -11,7 +11,8 @@ mod batch;
 pub(crate) use batch::PAUSED;
 use batch::{MAX_PENDING_BYTES, cost};
 
-const MAX_WHEEL_STEPS: usize = 256;
+/// Queued wheel entries. Each carries up to u16::MAX coalesced steps.
+const MAX_WHEEL_ENTRIES: usize = 256;
 const MAX_IN_FLIGHT: usize = 64;
 const CONTROL_CAPACITY: usize = 16;
 
@@ -26,7 +27,7 @@ struct Queued {
 pub(crate) struct Outbox {
     queue: VecDeque<Queued>,
     physical: Physical,
-    wheel_steps: usize,
+    wheel_entries: usize,
     controls: usize,
     /// Approximate memory held by queued commands; see batch::cost.
     bytes: usize,
@@ -99,7 +100,7 @@ impl Outbox {
                     | Command::RawInput { .. }
             )
         });
-        self.wheel_steps = 0;
+        self.wheel_entries = 0;
         self.bytes = self.queue.iter().map(|work| work.cost).sum();
         self.paused = false;
         if cleanup_confirmed {
@@ -131,18 +132,14 @@ impl Outbox {
             return Ok(());
         }
         let is_wheel = wheel(&command);
-        if is_wheel && self.wheel_steps >= MAX_WHEEL_STEPS {
-            return Err("Terminal wheel backlog is full");
-        }
         if matches!(pending, Pending::Applied)
             && let Some(tail) = self.queue.back_mut()
             && matches!(tail.pending, Pending::Applied)
             && same_mouse(&tail.command, &command)
             && tail.input == input
         {
-            if is_wheel {
+            if is_wheel && tail.repeats < u16::MAX {
                 tail.repeats += 1;
-                self.wheel_steps += 1;
                 return Ok(());
             }
             if matches!(command, Command::Mouse { event, .. } if event.action == MouseAction::Motion)
@@ -151,6 +148,11 @@ impl Outbox {
                 tail.command = command;
                 return Ok(());
             }
+        }
+        // Only a spin that keeps changing position or modifiers gets here. A
+        // dropped wheel step loses a little scrolling; an error toast is worse.
+        if is_wheel && self.wheel_entries >= MAX_WHEEL_ENTRIES {
+            return Ok(());
         }
         let change = self.physical.change(&command);
         let held = self
@@ -186,7 +188,7 @@ impl Outbox {
             input,
             cost,
         });
-        self.wheel_steps += usize::from(is_wheel);
+        self.wheel_entries += usize::from(is_wheel);
         self.controls += usize::from(is_control);
         Ok(())
     }
@@ -212,24 +214,34 @@ impl Outbox {
                 self.queue.push_front(work);
                 return None;
             };
-            let repeated = match &work.command {
+            let is_wheel = wheel(&work.command);
+            let is_control = control(&work.command);
+            // Coalesced wheel steps go out as one Wheel request per batch.
+            let steps = work.repeats.min(MAX_WHEEL_BATCH);
+            let (command, rest) = match work.command {
                 Command::Mouse {
                     lease,
                     event,
                     geometry,
-                } if work.repeats > 1 => Some(Command::Mouse {
-                    lease: *lease,
-                    event: *event,
-                    geometry: *geometry,
-                }),
-                _ => None,
+                } if steps > 1 => (
+                    Command::Wheel {
+                        lease,
+                        event,
+                        geometry,
+                        steps,
+                    },
+                    (work.repeats > steps).then_some(Command::Mouse {
+                        lease,
+                        event,
+                        geometry,
+                    }),
+                ),
+                command => (command, None),
             };
-            let is_wheel = wheel(&work.command);
-            let is_control = control(&work.command);
             match send(
                 Request {
                     id: RequestId(id),
-                    command: work.command,
+                    command,
                 },
                 work.input.as_ref(),
             ) {
@@ -237,21 +249,35 @@ impl Outbox {
                     *next = id;
                     pending.insert(id, work.pending);
                     self.bytes -= work.cost;
-                    self.wheel_steps -= usize::from(is_wheel);
                     self.controls -= usize::from(is_control);
-                    if let Some(command) = repeated {
+                    if let Some(command) = rest {
                         self.queue.push_front(Queued {
                             command,
                             pending: Pending::Applied,
-                            repeats: work.repeats - 1,
+                            repeats: work.repeats - steps,
                             input: work.input,
                             cost: 0,
                         });
+                    } else {
+                        self.wheel_entries -= usize::from(is_wheel);
                     }
                 }
                 Err(SubmitError::Full(request)) => {
+                    let command = match request.command {
+                        Command::Wheel {
+                            lease,
+                            event,
+                            geometry,
+                            ..
+                        } => Command::Mouse {
+                            lease,
+                            event,
+                            geometry,
+                        },
+                        command => command,
+                    };
                     self.queue.push_front(Queued {
-                        command: request.command,
+                        command,
                         pending: work.pending,
                         repeats: work.repeats,
                         input: work.input,
@@ -262,11 +288,7 @@ impl Outbox {
                 Err(error) => {
                     self.bytes -= work.cost;
                     self.controls -= usize::from(is_control);
-                    self.wheel_steps -= if is_wheel {
-                        usize::from(work.repeats)
-                    } else {
-                        0
-                    };
+                    self.wheel_entries -= usize::from(is_wheel);
                     return Some(error);
                 }
             }

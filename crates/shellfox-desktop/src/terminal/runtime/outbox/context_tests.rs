@@ -73,11 +73,15 @@ fn wheel_coalescing_never_crosses_a_captured_marker_or_hint() {
             .unwrap();
     }
     let mut contexts = Vec::new();
-    queue.flush_with_input(&mut 0, &mut HashMap::new(), |_, input| {
-        contexts.push(input.cloned().unwrap());
+    queue.flush_with_input(&mut 0, &mut HashMap::new(), |request, input| {
+        let steps = match request.command {
+            Command::Wheel { steps, .. } => steps,
+            _ => 1,
+        };
+        contexts.push((steps, input.cloned().unwrap()));
         Ok(())
     });
-    assert_eq!(contexts, [first.clone(), first, second]);
+    assert_eq!(contexts, [(2, first), (1, second)]);
 }
 #[test]
 fn cancellation_releases_have_explicit_non_user_context_and_non_input_has_none() {
