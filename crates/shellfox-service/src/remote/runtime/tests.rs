@@ -1,5 +1,6 @@
 mod pairing;
 mod retained;
+mod outgoing;
 mod saved;
 use super::*;
 use shellfox_transport::{LoopbackOrigin, Secret, VerifiedHelper};
@@ -66,6 +67,9 @@ struct FakeNetwork {
     peer_outage: AtomicBool,
     pairs: AtomicUsize,
     disconnects: AtomicUsize,
+    /// Peer requests wait here for a permit, or for their cancel.
+    outgoing_gate: tokio::sync::Semaphore,
+    outgoing_calls: AtomicUsize,
 }
 struct Factory(Arc<FakeNetwork>);
 impl RemoteNetworkFactory for Factory {
@@ -76,6 +80,24 @@ impl RemoteNetworkFactory for Factory {
     }
 }
 impl RemoteNetwork for FakeNetwork {
+    fn peer_request_with_status<'a>(
+        &'a self,
+        _: &'a wire::AuthenticatedPeerId,
+        _: wire::Endpoint,
+        _: Vec<u8>,
+        limits: wire::RequestLimits,
+    ) -> crate::remote::PeerFuture<'a> {
+        Box::pin(async move {
+            self.outgoing_calls.fetch_add(1, Ordering::SeqCst);
+            tokio::select! {
+                _ = limits.cancel.cancelled() => Err(wire::TransportError::Cancelled),
+                permit = self.outgoing_gate.acquire() => {
+                    permit.unwrap().forget();
+                    Ok(crate::remote::PeerResponse { status: 200, body: b"{}".to_vec() })
+                }
+            }
+        })
+    }
     fn status(&self) -> NetworkFuture<'_, NetworkStatus> {
         Box::pin(async {
             Ok(NetworkStatus {
@@ -199,6 +221,8 @@ fn fixture() -> (
         peer_outage: AtomicBool::new(false),
         pairs: AtomicUsize::new(0),
         disconnects: AtomicUsize::new(0),
+        outgoing_gate: tokio::sync::Semaphore::new(0),
+        outgoing_calls: AtomicUsize::new(0),
     });
     let directory =
         IsolatedStateDirectory::create_new(scratch.path().join("isolated-state")).unwrap();

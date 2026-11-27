@@ -268,10 +268,13 @@ impl Manager {
         }
         loop {
             while self.jobs.try_join_next().is_some() {}
+            self.prune_outgoing();
             tokio::select! {
                 _=stop.cancelled()=>break,
                 _=lost.cancelled()=>break,
-                Some(envelope)=outgoing.recv()=>self.outgoing_request(envelope),
+                // A full outgoing slot leaves later requests queued in the bounded
+                // channel, and their senders wait, instead of failing them.
+                Some(envelope)=outgoing.recv(),if self.outgoing_fences.len() < outgoing::MAX_OUTGOING=>self.outgoing_request(envelope),
                 Some(envelope)=requests.recv()=>{
                     // Enqueue accepted mutations into this owner, not its reply
                     // receiver. Response loss cannot discard an accepted action.

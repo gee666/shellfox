@@ -1,6 +1,8 @@
 use super::*;
 use crate::remote::outgoing::{OutgoingEnvelope, OutgoingFence};
 use wire::TransportError;
+/// Peer requests in flight at once, across all peers.
+pub(super) const MAX_OUTGOING: usize = 16;
 impl Manager {
     pub(super) fn cancel_outgoing_peer(&mut self, peer: &str) {
         for fence in self
@@ -32,7 +34,6 @@ impl Manager {
         });
     }
     pub(super) fn outgoing_request(&mut self, envelope: OutgoingEnvelope) {
-        self.prune_outgoing();
         if envelope.reply.is_closed() {
             return;
         }
@@ -41,7 +42,6 @@ impl Manager {
                 crate::remote::outgoing::validate(&envelope.body, envelope.limits.clone())?;
             if !self.state.enabled
                 || self.state.cleanup_retained
-                || self.outgoing_fences.len() >= 16
                 || !self
                     .state
                     .peers

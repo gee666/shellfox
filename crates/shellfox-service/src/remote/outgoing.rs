@@ -63,20 +63,26 @@ impl super::native::RemoteControl {
         let cancel = limits.cancel.clone();
         let deadline = limits.deadline;
         let (reply, receive) = oneshot::channel();
-        self.outgoing
-            .try_send(OutgoingEnvelope {
-                peer: peer.clone(),
-                endpoint,
-                body,
-                limits,
-                reply,
-            })
-            .map_err(|_| TransportError::Unavailable)?;
+        let envelope = OutgoingEnvelope {
+            peer: peer.clone(),
+            endpoint,
+            body,
+            limits,
+            reply,
+        };
+        // Waiting for queue space is backpressure, bounded by the caller's deadline.
+        let exchange = async {
+            self.outgoing
+                .send(envelope)
+                .await
+                .map_err(|_| TransportError::Unavailable)?;
+            receive.await.unwrap_or(Err(TransportError::Unavailable))
+        };
         tokio::select! {
             biased;
             _=cancel.cancelled()=>Err(TransportError::Cancelled),
             _=self.outgoing_deadline(deadline)=>Err(TransportError::Deadline),
-            result=receive=>result.unwrap_or(Err(TransportError::Unavailable)),
+            result=exchange=>result,
         }
     }
 }
