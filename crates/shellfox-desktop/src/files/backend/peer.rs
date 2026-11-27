@@ -13,6 +13,8 @@ mod read;
 mod requests;
 mod write;
 use requests::file_error;
+
+const SLOW_REQUEST: std::time::Duration = std::time::Duration::from_secs(5);
 #[derive(Clone, Copy)]
 enum SaveState {
     Active,
@@ -57,11 +59,23 @@ impl PeerDocumentBackend {
         self.binding.with_connection(self.connection_id, operation)
     }
     async fn execute<R: wire::Request>(&self, request: &R) -> Result<R::Response> {
-        match self
+        let started = std::time::Instant::now();
+        let reply = self
             .binding
             .v1_reply_with_connection(self.connection_id, request)
-            .await?
-        {
+            .await;
+        // Files waits on every reply with its controls disabled, so a slow
+        // peer is worth a line in the UI log.
+        let elapsed = started.elapsed();
+        if elapsed >= SLOW_REQUEST {
+            eprintln!(
+                "Peer file request {} took {:.1} s ({})",
+                R::METHOD,
+                elapsed.as_secs_f64(),
+                if reply.is_ok() { "answered" } else { "failed" }
+            );
+        }
+        match reply? {
             wire::Reply::Success(value) => Ok(value),
             wire::Reply::Failure(error) => Err(file_error(error.code, error.message)),
         }

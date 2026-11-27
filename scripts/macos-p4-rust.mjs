@@ -68,7 +68,12 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   const go = async (value, folder) => {
     await focusPath(value);
     await press('Open path');
-    if (folder) await node('Folder path', field => field?.value === folder);
+    if (!folder) return;
+    await node('Folder path', field => field?.value === folder).catch(error => {
+      // Go stays disabled while Files waits for the lookup; the UI log names slow peer requests.
+      const pending = named(tree(), 'Open path')?.enabled === false;
+      throw new Error(`${error.message}${pending ? '; Go is still disabled: the path lookup has not answered' : ''}`, { cause: error });
+    });
   };
   const browse = async () => {
     await press('Browse folders');
