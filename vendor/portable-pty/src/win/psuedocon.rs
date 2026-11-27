@@ -4,7 +4,7 @@ use crate::win::procthreadattr::ProcThreadAttributeList;
 use anyhow::{bail, ensure, Error};
 use filedescriptor::{FileDescriptor, OwnedHandle};
 use lazy_static::lazy_static;
-use shared_library::shared_library;
+use shared_library::dynamic_library::DynamicLibrary;
 use std::ffi::OsString;
 use std::io::Error as IoError;
 use std::os::windows::ffi::OsStringExt;
@@ -24,39 +24,64 @@ use winapi::um::winnt::HANDLE;
 
 pub type HPCON = HANDLE;
 
-pub const PSUEDOCONSOLE_INHERIT_CURSOR: DWORD = 0x1;
-pub const PSEUDOCONSOLE_RESIZE_QUIRK: DWORD = 0x2;
-pub const PSEUDOCONSOLE_WIN32_INPUT_MODE: DWORD = 0x4;
-#[allow(dead_code)]
-pub const PSEUDOCONSOLE_PASSTHROUGH_MODE: DWORD = 0x8;
+const PSEUDOCONSOLE_RESIZE_QUIRK: DWORD = 0x2;
+const PSEUDOCONSOLE_WIN32_INPUT_MODE: DWORD = 0x4;
 
-shared_library!(ConPtyFuncs,
-    pub fn CreatePseudoConsole(
-        size: COORD,
-        hInput: HANDLE,
-        hOutput: HANDLE,
-        flags: DWORD,
-        hpc: *mut HPCON
-    ) -> HRESULT,
-    pub fn ResizePseudoConsole(hpc: HPCON, size: COORD) -> HRESULT,
-    pub fn ClosePseudoConsole(hpc: HPCON),
-);
+type CreateFn = unsafe extern "system" fn(COORD, HANDLE, HANDLE, DWORD, *mut HPCON) -> HRESULT;
+type ResizeFn = unsafe extern "system" fn(HPCON, COORD) -> HRESULT;
+type CloseFn = unsafe extern "system" fn(HPCON);
 
-fn load_conpty() -> ConPtyFuncs {
-    // If the kernel doesn't export these functions then their system is
-    // too old and we cannot run.
-    let kernel = ConPtyFuncs::open(Path::new("kernel32.dll")).expect(
-        "this system does not support conpty.  Windows 10 October 2018 or newer is required",
-    );
+struct ConPtyFuncs {
+    create: CreateFn,
+    resize: ResizeFn,
+    close: CloseFn,
+    flags: DWORD,
+}
 
-    // We prefer to use a sideloaded conpty.dll and openconsole.exe host deployed
-    // alongside the application.  We check for this after checking for kernel
-    // support so that we don't try to proceed and do something crazy.
-    if let Ok(sideloaded) = ConPtyFuncs::open(Path::new("conpty.dll")) {
-        sideloaded
-    } else {
-        kernel
+impl ConPtyFuncs {
+    /// Resolves `<prefix>CreatePseudoConsole` and friends. The library stays loaded.
+    fn open(path: &Path, prefix: &str, flags: DWORD) -> Result<Self, String> {
+        let lib = DynamicLibrary::open(Some(path))?;
+        let symbol = |name: &str| unsafe { lib.symbol::<u8>(&format!("{prefix}{name}")) };
+        let (create, resize, close) = (
+            symbol("CreatePseudoConsole")?,
+            symbol("ResizePseudoConsole")?,
+            symbol("ClosePseudoConsole")?,
+        );
+        mem::forget(lib);
+        Ok(unsafe {
+            Self {
+                create: mem::transmute::<*mut u8, CreateFn>(create),
+                resize: mem::transmute::<*mut u8, ResizeFn>(resize),
+                close: mem::transmute::<*mut u8, CloseFn>(close),
+                flags,
+            }
+        })
     }
+}
+
+/// Prefers Microsoft's conpty.dll beside the executable, which starts the
+/// OpenConsole.exe next to it. Unlike the inbox kernel32 ConPTY it passes
+/// mouse modes and most VT output through, so full-screen TUIs get wheel
+/// events. The inbox ConPTY is the fallback when the files are missing.
+fn load_conpty() -> ConPtyFuncs {
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.join("conpty.dll")))
+        .filter(|dll| dll.is_file());
+    if let Some(dll) = bundled {
+        // The bundled ConPTY always negotiates win32-input-mode; it reads no other flags.
+        match ConPtyFuncs::open(&dll, "Conpty", 0) {
+            Ok(funcs) => return funcs,
+            Err(err) => log::warn!("{} is unusable, using the inbox ConPTY: {}", dll.display(), err),
+        }
+    }
+    ConPtyFuncs::open(
+        Path::new("kernel32.dll"),
+        "",
+        PSEUDOCONSOLE_RESIZE_QUIRK | PSEUDOCONSOLE_WIN32_INPUT_MODE,
+    )
+    .expect("this system does not support conpty.  Windows 10 October 2018 or newer is required")
 }
 
 lazy_static! {
@@ -72,7 +97,7 @@ unsafe impl Sync for PsuedoCon {}
 
 impl Drop for PsuedoCon {
     fn drop(&mut self) {
-        unsafe { (CONPTY.ClosePseudoConsole)(self.con) };
+        unsafe { (CONPTY.close)(self.con) };
     }
 }
 
@@ -80,11 +105,11 @@ impl PsuedoCon {
     pub fn new(size: COORD, input: FileDescriptor, output: FileDescriptor) -> Result<Self, Error> {
         let mut con: HPCON = INVALID_HANDLE_VALUE;
         let result = unsafe {
-            (CONPTY.CreatePseudoConsole)(
+            (CONPTY.create)(
                 size,
                 input.as_raw_handle() as _,
                 output.as_raw_handle() as _,
-                PSEUDOCONSOLE_RESIZE_QUIRK | PSEUDOCONSOLE_WIN32_INPUT_MODE,
+                CONPTY.flags,
                 &mut con,
             )
         };
@@ -97,7 +122,7 @@ impl PsuedoCon {
     }
 
     pub fn resize(&self, size: COORD) -> Result<(), Error> {
-        let result = unsafe { (CONPTY.ResizePseudoConsole)(self.con, size) };
+        let result = unsafe { (CONPTY.resize)(self.con, size) };
         ensure!(
             result == S_OK,
             "failed to resize console to {}x{}: HRESULT: {}",

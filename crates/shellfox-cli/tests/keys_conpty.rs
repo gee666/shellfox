@@ -87,6 +87,9 @@ async fn shells(client: &LocalClient, cwd: &Path) -> Result<()> {
             .await
             .with_context(|| format!("open {profile}"))?;
         psreadline(&mut shell).await.context(profile)?;
+        if profile == "windows-powershell" {
+            tui(&mut shell).await.context("pi-style TUI")?;
+        }
         eprintln!("{profile} passed");
     }
     // WSL runs the user's own login files (which may prompt for sudo), so it
@@ -192,6 +195,36 @@ async fn psreadline(s: &mut Shell<'_>) -> Result<()> {
     s.paste("Write-Host SFP1\r\nWrite-Host SFP2\r\n").await?;
     s.wait_row("SFP2").await?;
     ensure!(s.has_row("SFP1")?, "first pasted line did not run");
+    Ok(())
+}
+
+/// pi-tui's two renderers under ConPTY. Main screen: rewritten bottom lines
+/// that scroll into history. Full screen: the alternate screen with mouse
+/// reporting, so the wheel reaches the app. The inbox ConPTY dropped the
+/// mouse modes, and the wheel became Up/Down, recalling pi's prompt history.
+async fn tui(s: &mut Shell<'_>) -> Result<()> {
+    let frames = concat!(
+        "$e=[char]27; 1..200 | % { [Console]::Write(\"${e}[?2026h`r${e}[2Kmessage $_",
+        "`r`n${e}[2Ksecond line`r`n${e}[2Kinput>${e}[?2026l\") }; Write-Host ''; Write-Host SFTUI\r\n"
+    );
+    s.paste(frames).await?;
+    s.wait_row("SFTUI").await?;
+    let history = s.screen.recovery_info()?.scrollback_rows;
+    ensure!(history >= 350, "only {history} rows reached scrollback");
+    let full = concat!(
+        "$e=[char]27; [Console]::Write(\"${e}[?1049h${e}[?1000h${e}[?1006h\"); Start-Sleep 3; ",
+        "[Console]::Write(\"${e}[?1006l${e}[?1000l${e}[?1049l\"); Write-Host SFALT\r\n"
+    );
+    s.paste(full).await?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !(s.screen.recovery_info()?.alternate && s.screen.mouse_tracking()?) {
+        ensure!(Instant::now() < deadline, "the alternate screen never got mouse reporting");
+        s.pump().await?;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    ensure!(!s.screen.alternate_scroll()?, "the wheel would send cursor keys");
+    s.wait_row("SFALT").await?;
+    ensure!(!s.screen.mouse_tracking()?, "mouse reporting outlived the app");
     Ok(())
 }
 
