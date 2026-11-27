@@ -218,13 +218,22 @@ async fn tui(s: &mut Shell<'_>) -> Result<()> {
     s.paste(full).await?;
     let deadline = Instant::now() + Duration::from_secs(30);
     while !(s.screen.recovery_info()?.alternate && s.screen.mouse_tracking()?) {
-        ensure!(Instant::now() < deadline, "the alternate screen never got mouse reporting");
+        ensure!(
+            Instant::now() < deadline,
+            "the alternate screen never got mouse reporting"
+        );
         s.pump().await?;
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    ensure!(!s.screen.alternate_scroll()?, "the wheel would send cursor keys");
+    ensure!(
+        !s.screen.alternate_scroll()?,
+        "the wheel would send cursor keys"
+    );
     s.wait_row("SFALT").await?;
-    ensure!(!s.screen.mouse_tracking()?, "mouse reporting outlived the app");
+    ensure!(
+        !s.screen.mouse_tracking()?,
+        "mouse reporting outlived the app"
+    );
     Ok(())
 }
 

@@ -73,7 +73,11 @@ fn load_conpty() -> ConPtyFuncs {
         // The bundled ConPTY always negotiates win32-input-mode; it reads no other flags.
         match ConPtyFuncs::open(&dll, "Conpty", 0) {
             Ok(funcs) => return funcs,
-            Err(err) => log::warn!("{} is unusable, using the inbox ConPTY: {}", dll.display(), err),
+            Err(err) => log::warn!(
+                "{} is unusable, using the inbox ConPTY: {}",
+                dll.display(),
+                err
+            ),
         }
     }
     ConPtyFuncs::open(

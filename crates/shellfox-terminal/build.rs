@@ -62,7 +62,10 @@ fn main() -> Result<()> {
     for destination in [profile.to_path_buf(), profile.join("deps")] {
         fs::create_dir_all(&destination)?;
         stage(&extraction.join(&dll), &destination.join("conpty.dll"))?;
-        stage(&extraction.join(&host), &destination.join("OpenConsole.exe"))?;
+        stage(
+            &extraction.join(&host),
+            &destination.join("OpenConsole.exe"),
+        )?;
     }
     Ok(())
 }
