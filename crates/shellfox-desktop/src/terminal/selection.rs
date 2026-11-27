@@ -1,6 +1,6 @@
-use super::{Backend, TerminalView, runtime::Pending};
+use super::{Backend, TerminalView, clipboard::CopyTarget, runtime::Pending};
 use crate::input::{self, ClipboardAction, mac_select_all, page_scroll};
-use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, Window};
+use gpui::{Context, KeyDownEvent, KeyUpEvent, Window};
 use shellfox_ghostty_vt::key::KeyAction;
 use shellfox_ghostty_vt::{Selection, ViewportPoint};
 use shellfox_runtime::Command;
@@ -9,14 +9,15 @@ const PASTE_CHUNK: usize = shellfox_runtime::MAX_INPUT_PAYLOAD_BYTES - 1024;
 
 impl TerminalView {
     fn paste(&mut self, cx: &mut Context<Self>) {
+        self.paste_text(cx.read_from_clipboard().and_then(|item| item.text()));
+    }
+
+    /// Sends text through the normal paste path, which brackets it when the app asks.
+    pub(super) fn paste_text(&mut self, text: Option<String>) {
         if self.failed || self.closing {
             return;
         }
-        if let Some(text) = cx
-            .read_from_clipboard()
-            .and_then(|item| item.text())
-            .filter(|text| !text.is_empty())
-        {
+        if let Some(text) = text.filter(|text| !text.is_empty()) {
             // Each piece fits one input write; the host takes them in order.
             for text in shellfox_ghostty_vt::paste_chunks(&text, PASTE_CHUNK) {
                 if let Some(lease) = self.lease {
@@ -121,6 +122,10 @@ impl TerminalView {
     }
 
     pub(super) fn copy_selection(&mut self, cx: &mut Context<Self>) -> bool {
+        self.copy_selection_to(CopyTarget::Clipboard, cx)
+    }
+
+    pub(super) fn copy_selection_to(&mut self, target: CopyTarget, cx: &mut Context<Self>) -> bool {
         if self.failed {
             return false;
         }
@@ -133,7 +138,7 @@ impl TerminalView {
         if let Some(text) = text {
             match text {
                 Ok(Some(text)) => {
-                    cx.write_to_clipboard(ClipboardItem::new_string(text));
+                    target.write(text, cx);
                     return true;
                 }
                 Ok(None) => return false,
@@ -150,7 +155,7 @@ impl TerminalView {
                     view,
                     action: shellfox_runtime::PresentationAction::Copy,
                 },
-                Pending::Copy,
+                Pending::Copy(target),
             );
         }
         selected
@@ -190,8 +195,15 @@ impl TerminalView {
             return;
         }
         match clicks {
-            2 => self.select(Some(Selection::Word(point)), cx),
-            3 => self.select(Some(Selection::Line(point)), cx),
+            2 | 3 => {
+                let selection = if clicks == 2 {
+                    Selection::Word(point)
+                } else {
+                    Selection::Line(point)
+                };
+                self.select(Some(selection), cx);
+                self.publish_primary(cx);
+            }
             1 => {
                 self.select(None, cx);
                 self.selection_drag

@@ -138,6 +138,7 @@ impl Root {
         files.pending_file_action = None;
         files.document_path = Some(path.clone());
         files.document_error = None;
+        files.link_error = None;
         files.editor = None;
         files.preview = None;
         files.image_editor = None;

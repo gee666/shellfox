@@ -10,6 +10,7 @@ mod editor_ops;
 mod editor_state;
 pub(crate) use editor_state::FileOperation;
 pub(crate) mod list;
+mod new_file;
 pub(crate) mod pending;
 mod preview;
 pub(crate) mod resizer;
@@ -83,6 +84,8 @@ pub struct Files {
     pub listing: Option<FileList>,
     pub(crate) tree: tree::Tree,
     pub(crate) listing_error: Option<list::ListingError>,
+    pub(crate) link_error: Option<list::LinkError>,
+    pub(crate) new_file: Option<new_file::NewFile>,
     pub missing_folder: Option<String>,
     pub(crate) missing_focus: [gpui::FocusHandle; 2],
     pub editor: Option<Editor>,
@@ -306,6 +309,8 @@ impl Root {
             listing: None,
             tree: tree::Tree::new(),
             listing_error: None,
+            link_error: None,
+            new_file: None,
             missing_folder: None,
             missing_focus: std::array::from_fn(|_| cx.focus_handle()),
             editor: None,

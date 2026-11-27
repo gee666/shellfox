@@ -226,7 +226,9 @@ impl DocumentBackend {
                     .downcast_ref::<shellfox_files::FileError>()
                     .is_some_and(|e| e.code == ErrorCode::NotFound)
                 {
-                    Ok(Target::Missing(path.into()))
+                    // Name the folder that was searched, as a copyable absolute path.
+                    let searched = peer.host_path(path).await;
+                    Ok(Target::Missing(searched.unwrap_or_else(|_| path.into())))
                 } else {
                     Err(error)
                 }
@@ -331,4 +333,5 @@ fn split_peer_path(path: &str) -> (&str, &str) {
 #[cfg(test)]
 mod tests;
 
+mod create;
 mod local;

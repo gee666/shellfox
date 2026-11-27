@@ -35,7 +35,6 @@ impl LocalDocumentBackend {
             }
             Err(error) => return Err(error.into()),
         };
-        let requested = path;
         let path = std::path::Path::new(&location.path);
         let (Some(parent), Some(name)) = (
             path.parent().and_then(std::path::Path::to_str),
@@ -68,7 +67,7 @@ impl LocalDocumentBackend {
             Err(error) => return Err(error.into()),
         }
         if initial_error.code == ErrorCode::NotFound {
-            Ok(Target::Missing(requested.into()))
+            Ok(Target::Missing(location.path))
         } else {
             Err(initial_error.into())
         }

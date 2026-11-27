@@ -14,6 +14,8 @@ pub(super) enum Control {
     Close,
     Maximize,
     CopyPath,
+    CopySearchedPath,
+    NewFile,
     Save,
     Source,
     Preview,
@@ -23,13 +25,15 @@ pub(super) enum Control {
 }
 
 impl Control {
-    const ALL: [Self; 12] = [
+    const ALL: [Self; 14] = [
         Self::Browse,
         Self::SubmitPath,
         Self::Browser,
         Self::Close,
         Self::Maximize,
         Self::CopyPath,
+        Self::CopySearchedPath,
+        Self::NewFile,
         Self::Save,
         Self::Source,
         Self::Preview,
@@ -46,6 +50,8 @@ impl Control {
             Self::Close => "files/close",
             Self::Maximize => "files/maximize",
             Self::CopyPath => "files/copy-path",
+            Self::CopySearchedPath => "files/copy-searched-path",
+            Self::NewFile => "files/new-file",
             Self::Save => "files/save",
             Self::Source => "files/text-source",
             Self::Preview => "files/text-preview",
@@ -151,6 +157,16 @@ impl Root {
                 self.toggle_file_maximized(window, cx)
             }
             Control::CopyPath if files.opened_path().is_some() => self.copy_open_file_path(cx),
+            Control::CopySearchedPath if files.link_error.is_some() => {
+                self.copy_link_error_path(cx)
+            }
+            Control::NewFile
+                if files.browser
+                    && !files.busy()
+                    && (files.new_file.is_some() || files.listing.is_some()) =>
+            {
+                self.toggle_new_file(window, cx)
+            }
             Control::Save
                 if !files.busy()
                     && files

@@ -10,6 +10,7 @@ use crate::{
     theme::Palette,
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
+mod new_file;
 mod rows;
 use rows::{Rows, message, retry_message};
 
@@ -141,6 +142,7 @@ impl Root {
                         }))
                     }),
             )
+            .child(new_file::button(self, files, palette, cx))
             .when(
                 !files.backend.is_local() && files.document_path.is_none(),
                 |line| line.child(super::transfer_view::inline(self, files, true, palette, cx)),
@@ -206,6 +208,7 @@ impl Root {
                             .border_color(palette.border)
                             .child(line),
                     )
+                    .children(new_file::form(files, palette, cx))
                     .when(files.missing_folder.is_some(), |browser| {
                         browser.child(missing_folder(files, palette, window, cx))
                     })

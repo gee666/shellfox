@@ -110,23 +110,7 @@ impl PeerDocumentBackend {
     }
     pub async fn list(&self, path: &str) -> Result<FileList> {
         let (session_id, tab_id) = self.ids();
-        let host_home;
-        let path = if self.scope.is_none() && (path == "~" || path.starts_with("~/")) {
-            let home = self.home().await?;
-            host_home = if let Some(tail) = path.strip_prefix("~/") {
-                let sep = if home.contains('\\') { '\\' } else { '/' };
-                format!(
-                    "{}{sep}{}",
-                    home.trim_end_matches(['/', '\\']),
-                    tail.replace('/', &sep.to_string())
-                )
-            } else {
-                home
-            };
-            &host_home
-        } else {
-            path
-        };
+        let path = &self.host_path(path).await?;
         wire::files::path(path).map_err(|_| anyhow!("Invalid peer folder path."))?;
         let list = self
             .execute(&wire::ListFiles {
@@ -155,6 +139,23 @@ impl PeerDocumentBackend {
             parent_path: list.parent_path,
             entries,
             truncated: list.truncated,
+        })
+    }
+    /// Expands `~` and `~/…` to the host home for an unscoped peer; other paths pass through.
+    pub(super) async fn host_path(&self, path: &str) -> Result<String> {
+        if self.scope.is_some() || !(path == "~" || path.starts_with("~/")) {
+            return Ok(path.into());
+        }
+        let home = self.home().await?;
+        Ok(if let Some(tail) = path.strip_prefix("~/") {
+            let sep = if home.contains('\\') { '\\' } else { '/' };
+            format!(
+                "{}{sep}{}",
+                home.trim_end_matches(['/', '\\']),
+                tail.replace('/', &sep.to_string())
+            )
+        } else {
+            home
         })
     }
     pub async fn create_directory(&self, path: &str) -> Result<FileList> {

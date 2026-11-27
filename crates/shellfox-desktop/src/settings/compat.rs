@@ -70,6 +70,7 @@ impl Root {
         }
         if let Some(files) = &self.files.panel {
             fields.push(files.location.clone());
+            fields.extend(files.new_file.as_ref().map(|form| form.name.clone()));
             if let Some(editor) = &files.editor {
                 fields.push(editor.text.clone());
             }

@@ -1,3 +1,4 @@
+mod clipboard;
 mod link_gesture;
 mod link_menu;
 mod links;

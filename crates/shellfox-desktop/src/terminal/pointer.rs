@@ -150,6 +150,8 @@ impl TerminalView {
                 event.position,
                 event.modifiers,
             );
+        } else if cfg!(target_os = "linux") && event.button == gpui::MouseButton::Middle {
+            self.paste_primary(cx);
         } else if cfg!(target_os = "macos") && context_click {
             let index = usize::from(point.y) * usize::from(self.screen.cols) + usize::from(point.x);
             if !self
@@ -275,6 +277,9 @@ impl TerminalView {
                 self.select(Some(selection), cx);
             }
             self.selection_drag.finish();
+            if self.selection_drag.moved {
+                self.publish_primary(cx);
+            }
             if !self.selection_drag.moved
                 && let Some(point) = self.link_press.take()
                 && self.cell_at(event.position, false) == Some(point)

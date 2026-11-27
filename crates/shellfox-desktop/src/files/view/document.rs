@@ -10,6 +10,7 @@ use crate::{
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 mod image_view;
+mod link_error;
 mod number;
 use number::grouped_size;
 
@@ -60,6 +61,11 @@ impl Root {
                         )
                     }),
             );
+        }
+        let open =
+            files.editor.is_some() || files.image_editor.is_some() || files.preview.is_some();
+        if open {
+            document = document.children(link_error::render(self, files, false, palette, cx));
         }
         let preview = files
             .editor
@@ -161,8 +167,12 @@ impl Root {
                 } => render_image(image.clone()),
                 Preview::Image { image: None, .. } => image_error(),
             });
-        } else if !loading && files.document_error.is_none() {
-            document = document.child(feedback("Select a file.", palette));
+        } else if !loading {
+            if let Some(link) = link_error::render(self, files, true, palette, cx) {
+                document = document.child(link);
+            } else if files.document_error.is_none() {
+                document = document.child(feedback("Select a file.", palette));
+            }
         }
         document.into_any_element()
     }

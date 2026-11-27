@@ -124,6 +124,7 @@ impl Root {
                         files.image_editor = None;
                         files.document_path = None;
                         files.document_error = None;
+                        files.link_error = None;
                     }
                 }
                 cx.notify();

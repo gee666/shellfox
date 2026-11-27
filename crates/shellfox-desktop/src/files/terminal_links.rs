@@ -52,6 +52,51 @@ impl Root {
         }
     }
 
+    /// Looks up an unopenable link again, as if it were clicked in the current view.
+    pub(crate) fn retry_file_link(&mut self, cx: &mut Context<Self>) {
+        let Some(link) = self
+            .files
+            .panel
+            .as_ref()
+            .and_then(|f| f.link_error.as_ref())
+        else {
+            return;
+        };
+        let (path, position) = (link.path.clone(), link.position);
+        let origin = match link.origin {
+            LinkOrigin::Local(_) => self
+                .is_local_source()
+                .then(|| LinkOrigin::Local(self.workspace.navigation.epoch())),
+            LinkOrigin::Peer { tab, .. } => self.peers.selected_peer().and_then(|(peer, state)| {
+                (state.selected_tab == Some(tab)).then_some(())?;
+                Some(LinkOrigin::Peer {
+                    tab,
+                    navigation: *self.peer_ui.navigation.get(peer)?,
+                    source: self.source_selection_epoch(),
+                })
+            }),
+        };
+        if let Some(origin) = origin {
+            self.navigate_files(
+                path,
+                super::list::Navigation::TerminalLink(origin, position),
+                cx,
+            );
+        }
+    }
+
+    pub(crate) fn copy_link_error_path(&mut self, cx: &mut Context<Self>) {
+        if let Some(link) = self
+            .files
+            .panel
+            .as_ref()
+            .and_then(|f| f.link_error.as_ref())
+        {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(link.path.clone()));
+            self.notify_info(cx, "Path copied");
+        }
+    }
+
     pub(crate) fn open_terminal_file_link(
         &mut self,
         id: TabId,

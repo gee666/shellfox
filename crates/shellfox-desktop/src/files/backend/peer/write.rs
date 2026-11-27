@@ -49,6 +49,24 @@ impl PeerDocumentBackend {
         .await
     }
 
+    pub async fn create_file(&self, path: &str) -> Result<String> {
+        let request = wire::BeginFileWrite {
+            session_id: None,
+            tab_id: None,
+            path: path.into(),
+            size: 0,
+            mode: wire::FileWriteMode::Create,
+            revision: None,
+            content: wire::FileContent::Text,
+            mime_type: None,
+        };
+        let cancel = EditorCancellation::default();
+        let created = self
+            .send_chunks(request, std::io::empty(), &cancel, |_| Ok(()))
+            .await?;
+        Ok(created.path)
+    }
+
     async fn replace(
         &self,
         path: &str,

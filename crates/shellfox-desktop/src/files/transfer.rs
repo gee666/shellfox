@@ -4,7 +4,7 @@ use anyhow::{Context as _, Result};
 use gpui::{Context, PathPromptOptions, Window};
 use shellfox_files::{EditorCancellation, EditorSession};
 use std::sync::{Arc, Mutex};
-mod io;
+pub(super) mod io;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TransferDirection {

@@ -12,6 +12,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+mod create;
+
 pub(crate) struct WslBackend {
     pub(super) scope: WslBrowserScope,
     pub(super) tab: TabId,

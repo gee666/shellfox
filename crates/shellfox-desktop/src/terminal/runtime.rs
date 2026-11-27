@@ -7,7 +7,7 @@ mod outbox;
 pub(in crate::terminal) mod physical;
 mod retire;
 use super::{Backend, TerminalView, links};
-use gpui::{ClipboardItem, Context};
+use gpui::Context;
 pub(super) use outbox::{Outbox, PAUSED};
 use shellfox_runtime::{Command, ErrorCode, Response, SubmitError};
 
@@ -26,7 +26,7 @@ fn stale_presentation(error: &anyhow::Error) -> bool {
 pub(super) enum Pending {
     Applied,
     SemanticSelection,
-    Copy,
+    Copy(super::clipboard::CopyTarget),
     Recovery,
     Close,
     Link { modifiers: gpui::Modifiers },
@@ -157,9 +157,7 @@ impl TerminalView {
                 self.outbox.stop_input(true);
                 self.status = "Detached terminal view".into();
             }
-            (Some(Pending::Copy), Ok(Response::Text(Some(text)))) => {
-                cx.write_to_clipboard(ClipboardItem::new_string(text))
-            }
+            (Some(Pending::Copy(target)), Ok(Response::Text(Some(text)))) => target.write(text, cx),
             (Some(Pending::Link { modifiers }), Ok(Response::Text(text))) => {
                 self.open_link(text, modifiers, cx);
             }

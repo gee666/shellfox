@@ -29,6 +29,14 @@ impl ListingError {
     }
 }
 
+/// A terminal link that named no file or folder, shown in the document area.
+pub(crate) struct LinkError {
+    /// The absolute location that was searched, for the copy button.
+    pub path: String,
+    pub origin: LinkOrigin,
+    pub position: Option<SourcePosition>,
+}
+
 pub(crate) enum ListingView<'a> {
     Loading,
     Retry {
@@ -113,6 +121,9 @@ impl Root {
         let task_backend = backend.clone();
         files.listing_error = None;
         files.missing_folder = None;
+        if matches!(navigation, Navigation::TerminalLink(..)) {
+            files.link_error = None;
+        }
         files.completion.state.dismiss();
         if matches!(navigation, Navigation::List | Navigation::Terminal(_)) {
             files.tree.begin_reload();
@@ -186,8 +197,12 @@ impl Root {
                         publish_listing(files, parent, &backend, cx).then_some(path)
                     }
                     Ok(Target::Missing(path)) => {
-                        if matches!(navigation, Navigation::TerminalLink(..)) {
-                            files.listing_error = Some(ListingError::message("File not found."));
+                        if let Navigation::TerminalLink(origin, position) = navigation {
+                            files.link_error = Some(LinkError {
+                                path,
+                                origin,
+                                position,
+                            });
                         } else {
                             files.missing_folder = Some(path);
                         }

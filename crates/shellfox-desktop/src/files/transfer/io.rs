@@ -90,7 +90,8 @@ pub(super) async fn download(
     result
 }
 
-fn destination(folder: &str, name: &str) -> Result<String> {
+/// Joins a single file name to a host folder in the folder's own separator style.
+pub(in crate::files) fn destination(folder: &str, name: &str) -> Result<String> {
     ensure!(
         !name.is_empty() && !name.contains(['/', '\\', ':']) && !matches!(name, "." | ".."),
         "The selected filename contains unsupported characters."
