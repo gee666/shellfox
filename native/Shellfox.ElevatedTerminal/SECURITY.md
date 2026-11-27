@@ -68,16 +68,45 @@ every old Windows x64/Arm64 machine. Arm64 publishing here is cross-compilation.
 
 ## Application DLL loading
 
-All 39 application P/Invokes have a per-method
+All 41 application P/Invokes have a per-method
 `DefaultDllImportSearchPaths(DllImportSearchPath.System32)` attribute. Their
 library names are fixed literals: kernel32.dll and advapi32.dll. This covers
-ConPty, LocalPipe and PipeRun. No assembly-wide attribute changes unrelated code.
-A compiled reflection test checks every import and its search policy.
+ConPty, PseudoConsoles, LocalPipe and PipeRun. No assembly-wide attribute changes
+unrelated code. A compiled reflection test checks every import and its search policy.
 
 The helper source has no Assembly.Load/LoadFrom/LoadFile, AssemblyLoadContext,
-NativeLibrary, Reflection.Emit, LoadLibrary/GetProcAddress, DLL search-path
-mutation, plugin resolver, or payload-selected managed/native library name.
-The source regression check covers all active C# files. JSON fields carry data;
+NativeLibrary, Reflection.Emit, DLL search-path mutation, plugin resolver, or
+payload-selected managed/native library name. The source regression check covers
+all active C# files.
+
+The one native library load outside System32 is Microsoft's conpty.dll, in
+PseudoConsoles. The inbox kernel32 ConPTY drops mouse-mode changes, so full-screen
+TUIs lose the wheel in admin tabs. The rule:
+
+- The only LoadLibraryExW/GetProcAddress imports and calls are in PseudoConsoles.
+  LoadLibraryExW gets one absolute path, with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+  LOAD_LIBRARY_SEARCH_SYSTEM32, and GetProcAddress three fixed Conpty* exports.
+- The path is `%ProgramFiles%\Shellfox\ConPTY-<version>-<arch>\conpty.dll`.
+  Both directories are created with a protected DACL for SYSTEM, Administrators
+  and TrustedInstaller. Before every load, each directory and file must be owned
+  by one of them, grant no write, delete, permission or ownership right to anyone
+  else, and not be a reparse point.
+- conpty.dll and the OpenConsole.exe it starts from its own directory must match
+  SHA-256 pins compiled into the helper for vendor/conpty's 1.25.261109001 files.
+  The helper copies them from the install's bin/ only after hashing the bytes it
+  read. It never loads or runs the bin/ files.
+- Anything else (no pin for the architecture, a mismatch, a weak ACL, an I/O
+  error, a missing export, a failed create) means kernel32's ConPTY.
+
+There's no runtime Authenticode check: the pins already fix the exact bytes, and
+all four pinned files carry a valid Microsoft Corporation signature. Changing
+the ConPTY version means new pins, reviewed against the signed package.
+
+This keeps conpty.dll from being a weaker path than the helper itself. It doesn't
+change the existing trust in the install directory, from which UAC starts the
+helper and its runtime.
+
+JSON fields carry data;
 PipeRun's explicit child executable and the fixed System32 PowerShell are
 separate process launches, not library loads in the helper. These checks cover
 the current source; they don't replace reading new C# code for loader changes.

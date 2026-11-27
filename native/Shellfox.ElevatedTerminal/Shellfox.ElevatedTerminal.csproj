@@ -5,6 +5,7 @@
     <RuntimeFrameworkVersion>10.0.15</RuntimeFrameworkVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>Shellfox.ElevatedTerminal</AssemblyName>
     <SelfContained>true</SelfContained>
     <NuGetAudit>true</NuGetAudit>

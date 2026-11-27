@@ -66,7 +66,7 @@ internal static class SelfTest
             try { using var collision = LocalPipe.Create(name); throw new Exception("Allowed pipe name collision."); }
             catch (System.ComponentModel.Win32Exception) { }
         }
-        using var terminal = new ConPty(launch);
+        using var terminal = new ConPty(launch, PseudoConsoles.Inbox);
         var output = new StringBuilder();
         var pump = Task.Run(async () =>
         {

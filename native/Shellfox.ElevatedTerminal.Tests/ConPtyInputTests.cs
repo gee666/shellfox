@@ -49,7 +49,7 @@ public sealed class ConPtyInputTests
         };
         var launch = Wire.Parse(JsonSerializer.SerializeToUtf8Bytes(new { type = "launch", cwd = root, env, cols = 80, rows = 24 }));
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-        using var terminal = new ConPty(launch, " -NoProfile -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-PSReadLineOption -HistorySaveStyle SaveNothing -ErrorAction SilentlyContinue\"");
+        using var terminal = new ConPty(launch, PseudoConsoles.Inbox, " -NoProfile -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-PSReadLineOption -HistorySaveStyle SaveNothing -ErrorAction SilentlyContinue\"");
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var output = new StringBuilder();
         var pump = Task.Run(async () =>

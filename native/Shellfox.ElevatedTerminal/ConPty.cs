@@ -10,6 +10,8 @@ namespace Shellfox.ElevatedTerminal;
 internal sealed class ConPty : IDisposable
 {
     private IntPtr console;
+    private readonly PseudoConsoles consoles;
+    internal bool Bundled => consoles.Bundled;
     private readonly SafeFileHandle job;
     private readonly SafeFileHandle process;
     private readonly FileStream input;
@@ -58,16 +60,23 @@ internal sealed class ConPty : IDisposable
         return new Coord { X = (short)cols, Y = (short)rows };
     }
     // The shell loads the account's profile. Only tests pass arguments, to stay hermetic.
-    internal ConPty(JsonElement launch, string testArguments = "")
+    internal ConPty(JsonElement launch, PseudoConsoles consoles, string testArguments = "")
     {
         ValidateLaunch(launch);
+        this.consoles = consoles;
         SafeFileHandle? inRead = null, outWrite = null, inWrite = null, outRead = null, thread = null, createdProcess = null, createdJob = null;
         IntPtr attributes = IntPtr.Zero, environment = IntPtr.Zero;
         try
         {
             Check(CreatePipe(out inRead, out inWrite, IntPtr.Zero, 0));
             Check(CreatePipe(out outRead, out outWrite, IntPtr.Zero, 0));
-            Marshal.ThrowExceptionForHR(CreatePseudoConsole(Dimensions(launch), inRead, outWrite, 0, out console));
+            var created = consoles.Create(Dimensions(launch), inRead, outWrite, out console);
+            if (created < 0 && consoles.Bundled)
+            {
+                this.consoles = PseudoConsoles.Inbox;
+                created = PseudoConsoles.Inbox.Create(Dimensions(launch), inRead, outWrite, out console);
+            }
+            Marshal.ThrowExceptionForHR(created);
             // Handles are non-inheritable. The child must join this job BEFORE
             // its first instruction. No breakaway permission is set on the job.
             createdJob = CreateJobObject(IntPtr.Zero, null);
@@ -126,7 +135,7 @@ internal sealed class ConPty : IDisposable
             if (console != IntPtr.Zero)
             {
                 var failedConsole = console; console = IntPtr.Zero;
-                if (!Task.Run(() => ClosePseudoConsole(failedConsole)).Wait(TimeSpan.FromSeconds(5))) Environment.Exit(1);
+                if (!Task.Run(() => this.consoles.Close(failedConsole)).Wait(TimeSpan.FromSeconds(5))) Environment.Exit(1);
             }
             throw;
         }
@@ -154,7 +163,7 @@ internal sealed class ConPty : IDisposable
         lock (closeLock)
         {
             if (closing != null) return;
-            Marshal.ThrowExceptionForHR(ResizePseudoConsole(console, Dimensions(value)));
+            Marshal.ThrowExceptionForHR(consoles.Resize(console, Dimensions(value)));
         }
     }
     internal Task WaitForExit(CancellationToken cancel) => Task.Run(async () =>
@@ -178,7 +187,7 @@ internal sealed class ConPty : IDisposable
             }
             // Kernel job termination is now confirmed for all members. Keep output
             // draining while ClosePseudoConsole flushes; never kill by PID.
-            if (console != IntPtr.Zero) { ClosePseudoConsole(console); console = IntPtr.Zero; }
+            if (console != IntPtr.Zero) { consoles.Close(console); console = IntPtr.Zero; }
         });
     }
     public void Dispose()
@@ -188,7 +197,6 @@ internal sealed class ConPty : IDisposable
         job.Dispose(); process.Dispose(); input.Dispose(); Output.Dispose();
     }
     private static void Check(bool value) { if (!value) throw new Win32Exception(Marshal.GetLastWin32Error()); }
-    [StructLayout(LayoutKind.Sequential)] private struct Coord { public short X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct StartupInfo { public int Size; public IntPtr Reserved, Desktop, Title; public uint X, Y, XSize, YSize, XChars, YChars, Fill, Flags; public short Show, ReservedSize; public IntPtr Reserved2, In, Out, Error; }
     [StructLayout(LayoutKind.Sequential)] private struct StartupInfoEx { public StartupInfo Info; public IntPtr Attributes; }
     [StructLayout(LayoutKind.Sequential)] private struct ProcessInfo { public IntPtr Process, Thread; public uint Pid, Tid; }
@@ -198,12 +206,6 @@ internal sealed class ConPty : IDisposable
     [StructLayout(LayoutKind.Sequential)] private struct JobLimits { public BasicLimits Basic; public IoCounters Io; public nuint ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory; }
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool CreatePipe(out SafeFileHandle read, out SafeFileHandle write, IntPtr attributes, uint size);
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("kernel32.dll")] private static extern int CreatePseudoConsole(Coord size, SafeFileHandle input, SafeFileHandle output, uint flags, out IntPtr console);
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("kernel32.dll")] private static extern int ResizePseudoConsole(IntPtr console, Coord size);
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [DllImport("kernel32.dll")] private static extern void ClosePseudoConsole(IntPtr console);
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool CreateProcess(string application, StringBuilder command, IntPtr processAttributes, IntPtr threadAttributes, bool inherit, uint flags, IntPtr environment, string directory, ref StartupInfoEx startup, out ProcessInfo info);
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

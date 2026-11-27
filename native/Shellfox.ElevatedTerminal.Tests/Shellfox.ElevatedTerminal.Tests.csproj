@@ -3,6 +3,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
@@ -11,6 +12,7 @@
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1"><PrivateAssets>all</PrivateAssets></PackageReference>
     <Compile Include="../Shellfox.ElevatedTerminal/ConPty.cs" Link="ConPty.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/PseudoConsoles.cs" Link="PseudoConsoles.cs" />
     <Compile Include="../Shellfox.ElevatedTerminal/Wire.cs" Link="Wire.cs" />
     <Compile Include="../Shellfox.ElevatedTerminal/Watchdog.cs" Link="Watchdog.cs" />
     <Compile Include="../Shellfox.ElevatedTerminal/LocalPipe.cs" Link="LocalPipe.cs" />

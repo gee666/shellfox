@@ -48,7 +48,7 @@ internal static class Helper
             await Task.Delay(15000);
             if (Volatile.Read(ref initialized) == 0) Environment.Exit((int)StartupStage.CreatePowerShell);
         });
-        using var terminal = new ConPty(launch);
+        using var terminal = new ConPty(launch, PseudoConsoles.ForElevatedHelper());
         Volatile.Write(ref initialized, 1);
         cancel.CancelAfter(Timeout.InfiniteTimeSpan);
         var gate = new SemaphoreSlim(1);
