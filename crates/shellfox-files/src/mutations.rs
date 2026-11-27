@@ -6,10 +6,7 @@ use crate::{
     *,
 };
 use cap_std::fs::File;
-use std::{
-    io::Write,
-    path::{Component, PathBuf},
-};
+use std::{io::Write, path::PathBuf};
 use uuid::Uuid;
 
 struct Stage<'a> {

@@ -37,6 +37,40 @@ fn unquote(value: &str) -> Result<String> {
         Ok(value.to_owned())
     }
 }
+/// The lexically first matching directory names, without holding a whole huge directory.
+pub(crate) struct Candidates {
+    needle: String,
+    names: Vec<String>,
+}
+impl Candidates {
+    fn new(fragment: &str) -> Self {
+        Self {
+            needle: comparable(fragment),
+            names: Vec::new(),
+        }
+    }
+    /// Checked before the entry's metadata is read.
+    pub(crate) fn wants(&self, name: &str) -> bool {
+        comparable(name).starts_with(&self.needle) && paths::validate(name).is_ok()
+    }
+    pub(crate) fn keep(&mut self, name: String) {
+        let position = self
+            .names
+            .binary_search_by(|other| other.encode_utf16().cmp(name.encode_utf16()))
+            .unwrap_or_else(|position| position);
+        if position < DIRECTORY_COMPLETION_LIMIT {
+            self.names.insert(position, name);
+            self.names.truncate(DIRECTORY_COMPLETION_LIMIT);
+        }
+    }
+}
+fn comparable(name: &str) -> String {
+    if cfg!(windows) {
+        name.to_lowercase()
+    } else {
+        name.to_owned()
+    }
+}
 fn normalized(path: &Path) -> PathBuf {
     path.components()
         .filter(|component| *component != Component::CurDir)
@@ -112,8 +146,7 @@ impl FileService {
         let value = unquote(&input.path)?;
         if let Some(share) = SharePath::parse(&value) {
             let share = share?;
-            // The walk reports a missing folder, or a file where a folder belongs.
-            share.open(self)?;
+            share.check(self)?;
             return Ok(DirectoryResolved { cwd: share.path });
         }
         let location = self.prompt_location(&value, context)?;
@@ -163,7 +196,6 @@ impl FileService {
         if let Some(share) = SharePath::parse(&value) {
             let share = share?;
             share.create(self)?;
-            share.open(self)?;
             return Ok(DirectoryResolved { cwd: share.path });
         }
         let location = self.prompt_location(&value, context)?;
@@ -206,51 +238,29 @@ impl FileService {
                 value[index..].to_owned(),
             )
         };
-        let directory = match SharePath::parse(&directory) {
-            Some(share) => share?.open(self)?,
-            None => {
-                let location = self.prompt_location(&directory, context)?;
-                let (base, relative, _) = self.base(&location.path)?;
-                paths::descend(base, &relative)?
-            }
-        };
-        let needle = if cfg!(windows) {
-            fragment.to_lowercase()
+        let mut candidates = Candidates::new(&fragment);
+        if let Some(share) = SharePath::parse(&directory) {
+            share?.complete(self, &mut candidates)?;
         } else {
-            fragment
-        };
-        // Keep only the lexically first 100 candidates; do not allocate a whole huge directory.
-        let mut names: Vec<String> = Vec::new();
-        for entry in directory.entries()? {
-            let entry = entry?;
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-                continue;
-            };
-            let comparable = if cfg!(windows) {
-                name.to_lowercase()
-            } else {
-                name.clone()
-            };
-            if !comparable.starts_with(&needle) || paths::validate(&name).is_err() {
-                continue;
-            }
-            let metadata = entry.metadata()?;
-            if !metadata.is_dir() || paths::reject_link(&metadata).is_err() {
-                continue;
-            }
-            let position = names
-                .binary_search_by(|other| other.encode_utf16().cmp(name.encode_utf16()))
-                .unwrap_or_else(|position| position);
-            if position < DIRECTORY_COMPLETION_LIMIT {
-                names.insert(position, name);
-                if names.len() > DIRECTORY_COMPLETION_LIMIT {
-                    names.pop();
+            let location = self.prompt_location(&directory, context)?;
+            let (base, relative, _) = self.base(&location.path)?;
+            for entry in paths::descend(base, &relative)?.entries()? {
+                let entry = entry?;
+                let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                    continue;
+                };
+                if !candidates.wants(&name) {
+                    continue;
+                }
+                let metadata = entry.metadata()?;
+                if metadata.is_dir() && paths::reject_link(&metadata).is_ok() {
+                    candidates.keep(name);
                 }
             }
         }
         let mut matches = Vec::new();
         let mut bytes = 0;
-        for name in names {
+        for name in candidates.names {
             let completion = format!("{prefix}{name}{separator}");
             if completion.len() > 32767 {
                 continue;

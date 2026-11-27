@@ -84,14 +84,15 @@ pub fn create(
     let (capability, context) = selection(actor, &input.path, home)?;
     // Resolve host context once, then mutate only that capability. Never probe
     // another root or retry a publication through an alternate path.
-    let raw = unquote(&input.path);
-    let location = capability
-        .resolve_location(&files::Location { path: raw.into() }, &context)
+    let result = capability
+        .create_directory_with_context(
+            &files::Location {
+                path: input.path.clone(),
+            },
+            Some(&context),
+        )
         .map_err(file_ops::file_error)?;
-    capability
-        .create_directory(&location)
-        .map_err(file_ops::file_error)?;
-    file_ops::checked(wire::Directory { cwd: location.path })
+    file_ops::checked(wire::Directory { cwd: result.cwd })
 }
 use wire::Validate;
 fn validate<T: Validate>(input: &T) -> Result<(), AppError> {

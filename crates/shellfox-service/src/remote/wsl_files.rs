@@ -95,7 +95,7 @@ impl RemoteService<'_> {
             _ => return Ok(None),
         };
         let Some(scope) = Scope::resolve(self.service, session, tab)? else {
-            if requires_wsl_scope(path) {
+            if requires_wsl_scope(path) && !host_share_prompt(command, path) {
                 return Err(failure(
                     ErrorCode::AccessDenied,
                     "Choose the WSL tab before opening its guest files.",
@@ -128,6 +128,18 @@ fn authorize(actor: &Actor, path: &str, write: bool) -> Result<(), AppError> {
         ));
     }
     Ok(())
+}
+
+/// A directory prompt outside any tab may name a WSL share, as in 0.9: the host
+/// resolves, completes or creates it as a Windows path (see shellfox-files).
+fn host_share_prompt(command: &RemoteCommand, path: &str) -> bool {
+    use RemoteCommand::*;
+    let prompt = match command {
+        ResolveDirectory(_) | CompleteDirectory(_) => true,
+        CreateDirectory(v) => v.session_id.is_none() && v.tab_id.is_none(),
+        _ => false,
+    };
+    prompt && shellfox_core::wsl_share(path.trim().trim_matches(['"', '\''])).is_some()
 }
 
 fn requires_wsl_scope(path: &str) -> bool {
@@ -264,6 +276,31 @@ mod tests {
         }
         for path in [r"C:\tmp", "C:/tmp", "~", ".", r"\\server\share"] {
             assert!(!requires_wsl_scope(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn tabless_directory_prompts_may_name_a_wsl_share() {
+        let complete = |path: &str| {
+            RemoteCommand::CompleteDirectory(wire::CompleteDirectory { path: path.into() })
+        };
+        let list = |path: &str| {
+            RemoteCommand::ListFiles(wire::ListFiles {
+                session_id: None,
+                tab_id: None,
+                path: path.into(),
+            })
+        };
+        for path in [
+            r"\\wsl.localhost\Debian\ho",
+            "//wsl.localhost/Debian/",
+            r#""\\wsl$\Debian""#,
+        ] {
+            assert!(host_share_prompt(&complete(path), path), "{path}");
+            assert!(!host_share_prompt(&list(path), path), "{path}");
+        }
+        for path in ["/home", r"\\?\UNC\wsl$\Debian"] {
+            assert!(!host_share_prompt(&complete(path), path), "{path}");
         }
     }
 }

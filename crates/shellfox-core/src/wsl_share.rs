@@ -65,7 +65,12 @@ mod tests {
                 "/home/u/proj",
                 r"\\wsl.localhost\Debian\home\u\proj",
             ),
-            (r"\\WSL$\Ubuntu-24.04", "Ubuntu-24.04", "/", r"\\WSL$\Ubuntu-24.04"),
+            (
+                r"\\WSL$\Ubuntu-24.04",
+                "Ubuntu-24.04",
+                "/",
+                r"\\WSL$\Ubuntu-24.04",
+            ),
             (
                 "//wsl.localhost/Debian/home/./u/",
                 "Debian",

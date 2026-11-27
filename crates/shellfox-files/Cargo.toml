@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 cap-std = "3.4.5"
+shellfox-core = { path = "../shellfox-core" }
 cap-fs-ext = "3.4.5"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
