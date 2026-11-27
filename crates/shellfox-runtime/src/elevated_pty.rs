@@ -78,6 +78,12 @@ fn command_error(error: helper::AdapterError) -> RuntimeError {
             code: ErrorCode::ResourceLimit,
             message: error.to_string(),
         },
+        // The launcher closed its input while exiting. The helper's output
+        // still decides whether this was a clean exit, so this is not fatal.
+        helper::AdapterError::InputUnavailable => RuntimeError {
+            code: ErrorCode::Closed,
+            message: error.to_string(),
+        },
         _ => RuntimeError::unavailable(error),
     }
 }

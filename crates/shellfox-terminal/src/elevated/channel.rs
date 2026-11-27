@@ -109,7 +109,8 @@ impl<T: HelperIo> Channel<T> {
         self.phase == Phase::Closed
     }
     pub fn queued_input_bytes(&self) -> Option<usize> {
-        (self.phase == Phase::Active && self.failure.is_none()).then_some(self.queued)
+        (self.phase == Phase::Active && self.failure.is_none() && !self.input_closed)
+            .then_some(self.queued)
     }
     pub fn failure(&self) -> Option<AdapterError> {
         self.failure
@@ -122,7 +123,7 @@ impl<T: HelperIo> Channel<T> {
     }
     fn active(&self, generation: Generation) -> Result<(), AdapterError> {
         self.current(generation)?;
-        if self.phase != Phase::Active || self.failure.is_some() {
+        if self.phase != Phase::Active || self.failure.is_some() || self.input_closed {
             return Err(AdapterError::InputUnavailable);
         }
         Ok(())
@@ -242,12 +243,11 @@ impl<T: HelperIo> Channel<T> {
             Ok(None) => return Ok(None),
             Ok(Some(HelperFrame::Line(frame))) => frame,
             Ok(Some(HelperFrame::InputClosed)) => {
-                if self.cleanup_confirmed() {
-                    return Ok(None);
-                }
-                self.fail(AdapterError::Transport, false);
+                // The launcher closes its input only as it exits, often right
+                // after forwarding the peer's exit. Output decides the outcome:
+                // exit proof, an error frame, or EOF without proof.
                 self.close_input();
-                return Ok(Some(Event::Failed(AdapterError::Transport)));
+                return self.poll(generation);
             }
             Ok(Some(HelperFrame::Eof)) => {
                 if self.cleanup_confirmed() {

@@ -345,9 +345,11 @@ impl Owner {
         // Final output is parsed for display, but a retired PTY receives no replies.
         if self.source_kind == SourceKind::OwnedPty && self.phase == Phase::Active {
             match self.write(&replies) {
-                // A shell not reading its input misses these query replies;
-                // that must not close it.
-                Err(error) if error.code == ErrorCode::ResourceLimit => {}
+                // A shell not reading its input, or an administrator helper
+                // whose input closed as it exits, misses these query replies.
+                // That must not fail the terminal.
+                Err(error)
+                    if matches!(error.code, ErrorCode::ResourceLimit | ErrorCode::Closed) => {}
                 result => result?,
             }
         }

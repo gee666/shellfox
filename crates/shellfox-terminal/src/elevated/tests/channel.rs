@@ -233,18 +233,16 @@ fn refused_transport_backpressure_releases_credit_and_close_can_retry() {
 }
 
 #[test]
-fn input_closed_is_failure_not_exit_and_authenticated_output_can_still_confirm_peer() {
+fn input_closed_stops_input_and_leaves_the_outcome_to_authenticated_output() {
     let (mut channel, io) = active();
     channel.write(generation(), b"pending delivery").unwrap();
     io.0.borrow_mut()
         .incoming
         .push_back(HelperFrame::InputClosed);
-    assert_eq!(
-        channel.poll(generation()).unwrap(),
-        Some(Event::Failed(AdapterError::Transport))
-    );
-    assert_eq!(channel.phase(), Phase::Unconfirmed);
+    assert_eq!(channel.poll(generation()).unwrap(), None);
+    assert_eq!(channel.failure(), None);
     assert!(!channel.cleanup_confirmed());
+    assert_eq!(channel.queued_input_bytes(), None);
     assert_eq!(
         channel.write(generation(), b"do not replay"),
         Err(AdapterError::InputUnavailable)
@@ -253,12 +251,13 @@ fn input_closed_is_failure_not_exit_and_authenticated_output_can_still_confirm_p
         channel.begin_close(generation()),
         Err(AdapterError::CleanupUnconfirmed)
     );
-    send(&io, json!({"type":"exit", "exitCode":1}));
+    send(&io, json!({"type":"exit", "exitCode":0}));
     assert_eq!(
         channel.poll(generation()).unwrap(),
-        Some(Event::ExitConfirmed(1))
+        Some(Event::ExitConfirmed(0))
     );
     assert!(channel.cleanup_confirmed());
+    assert_eq!(channel.failure(), None);
 }
 
 #[test]

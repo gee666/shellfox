@@ -122,6 +122,35 @@ fn helper_frames_launcher_exit_and_pipe_ends_wake_the_owner() {
     finish_on_wakes(FixtureScenario::LauncherFirst);
 }
 
+/// The launcher closes its input as it exits, so a close (or keystroke) sent
+/// after that cannot be delivered. That is not a failure: the peer's
+/// authenticated exit still decides the outcome.
+#[test]
+fn input_written_after_launcher_exit_does_not_fail_a_clean_exit() {
+    let fixture = Fixture::new();
+    let mut session = fixture_session(
+        fixture.verified(),
+        (),
+        FixtureScenario::LauncherFirst,
+        generation(),
+        fixture.launch(),
+    )
+    .unwrap();
+    assert!(matches!(next(&mut session), Event::Ready(_)));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !session.observation().launcher_exited() {
+        session.service(generation()).unwrap();
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    session.begin_close(generation()).unwrap();
+    assert!(matches!(next(&mut session), Event::ExitConfirmed(0)));
+    session
+        .finish(generation(), Duration::from_secs(3))
+        .unwrap();
+    assert!(session.cleanup_confirmed());
+}
+
 struct Hold(Arc<AtomicBool>);
 impl Drop for Hold {
     fn drop(&mut self) {
