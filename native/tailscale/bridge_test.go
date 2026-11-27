@@ -286,3 +286,54 @@ func TestOneRequestConnectionsAreClosedByTheCaller(t *testing.T) {
 	}
 	callerClosed("incoming")
 }
+
+func TestConnectionCloseRepliesWaitForTheCallerToHangUp(t *testing.T) {
+	type outcome struct {
+		hungUp bool
+		waited time.Duration
+	}
+	outcomes := make(chan outcome, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		if r.URL.Path == "/framed" {
+			w.Header().Set("Content-Length", "2")
+		}
+		_, _ = w.Write([]byte("{}"))
+		start := time.Now()
+		awaitCallerClose(w, r)
+		outcomes <- outcome{r.Context().Err() != nil, time.Since(start)}
+	}))
+	defer server.Close()
+	call := func(transport *http.Transport, path string) outcome {
+		t.Helper()
+		defer transport.CloseIdleConnections()
+		response, err := (&http.Client{Transport: transport}).Post(server.URL+path, "application/json", strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if data, _ := io.ReadAll(response.Body); string(data) != "{}" {
+			t.Fatalf("%s: body %q", path, data)
+		}
+		_ = response.Body.Close()
+		select {
+		case seen := <-outcomes:
+			return seen
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: the handler never returned", path)
+		}
+		return outcome{}
+	}
+	// A 0.9.15 helper: Connection: close. The server must not close first.
+	if seen := call(&http.Transport{DisableKeepAlives: true}, "/framed"); !seen.hungUp || seen.waited >= callerCloseWait {
+		t.Errorf("Connection: close caller did not close first: %+v", seen)
+	}
+	// Keep-alive callers already close first; an unframed reply ends only when the handler returns.
+	for _, c := range []struct {
+		transport *http.Transport
+		path      string
+	}{{&http.Transport{}, "/framed"}, {&http.Transport{DisableKeepAlives: true}, "/chunked"}} {
+		if seen := call(c.transport, c.path); seen.hungUp || seen.waited > 500*time.Millisecond {
+			t.Errorf("%s: the reply was held: %+v", c.path, seen)
+		}
+	}
+}

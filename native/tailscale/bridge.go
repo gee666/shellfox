@@ -128,6 +128,7 @@ func (b *bridge) outgoing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *bridge) incoming(w http.ResponseWriter, r *http.Request) {
+	defer awaitCallerClose(w, r)
 	if !validPost(w, r) {
 		return
 	}
@@ -166,6 +167,29 @@ func (b *bridge) incoming(w http.ResponseWriter, r *http.Request) {
 func oneRequestTransport(dial func(context.Context, string, string) (net.Conn, error)) *http.Transport {
 	return &http.Transport{Proxy: nil, DialContext: dial, MaxIdleConnsPerHost: 1,
 		ResponseHeaderTimeout: requestTimeout, MaxResponseHeaderBytes: 16 * 1024}
+}
+
+// callerCloseWait matches the Rust backend's wait for the helper's close.
+const callerCloseWait = 2 * time.Second
+
+// awaitCallerClose keeps a Connection: close reply open until the caller
+// hangs up. 0.9.15 helpers still send Connection: close, and the server
+// would otherwise close first and leave TIME_WAIT on the tailnet listener
+// port. Only a Content-Length reply is held: the caller can read it to the
+// end and close, while a chunked reply ends only when the handler returns.
+func awaitCallerClose(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !r.Close || !ok || w.Header().Get("Content-Length") == "" {
+		return
+	}
+	flusher.Flush()
+	timer := time.NewTimer(callerCloseWait)
+	defer timer.Stop()
+	// The server's background read cancels the context at the caller's FIN.
+	select {
+	case <-r.Context().Done():
+	case <-timer.C:
+	}
 }
 
 func (b *bridge) incomingIdentity(ctx context.Context, remote string) (peer, error) {
