@@ -157,6 +157,40 @@ fn uncertain_mutation_is_never_retried() {
     assert_eq!(fake.calls(), 2);
 }
 #[test]
+fn failed_read_fails_only_that_request_but_refused_auth_retires_the_view() {
+    let fake = Fake::default();
+    let client = connected(&fake);
+    let connection = client.state().connection_id;
+    let list = ListFiles {
+        session_id: None,
+        tab_id: None,
+        path: "/tmp".into(),
+    };
+    for error in [
+        TransportError::Deadline,
+        TransportError::Unavailable,
+        TransportError::Rejected { status: 502 },
+    ] {
+        fake.queue(Response::Error(error));
+        assert!(matches!(
+            block_on(client.execute(&list)),
+            Err(ClientError::Transport(e)) if e == error
+        ));
+        assert!(client.with_connection(connection, || ()).is_ok());
+    }
+    fake.bytes(b"{\"not\":\"a reply\"}");
+    assert!(matches!(
+        block_on(client.execute(&GetSnapshot {})),
+        Err(ClientError::Validation(_))
+    ));
+    assert_eq!(client.state().status, ConnectionStatus::Connected);
+    // Reads are not retried either; the caller decides.
+    assert_eq!(fake.calls(), 5);
+    fake.queue(Response::Error(TransportError::Authentication));
+    assert!(block_on(client.execute(&list)).is_err());
+    assert_eq!(client.state().status, ConnectionStatus::Reconnecting);
+}
+#[test]
 fn pending_approval_and_denial_are_host_permissions_not_transport_authentication() {
     let fake = Fake::default();
     let client = client(fake.clone());

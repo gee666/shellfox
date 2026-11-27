@@ -31,6 +31,32 @@ pub(crate) fn is_connection_denial(method: &str, code: &ErrorCode) -> bool {
     }
 }
 
+/// Reads that change no host state. A transport failure fails only that call:
+/// the long poll owns the view, so a lost host still retires it on the next poll.
+const IDEMPOTENT_READS: &[&str] = &[
+    GetSnapshot::METHOD,
+    GetTerminalProfiles::METHOD,
+    GetHomeDirectory::METHOD,
+    GetSessionStats::METHOD,
+    ListFiles::METHOD,
+    ReadFile::METHOD,
+    ReadFileAsset::METHOD,
+    ReadFileChunk::METHOD,
+    CompleteDirectory::METHOD,
+    ResolveDirectory::METHOD,
+];
+fn is_idempotent_read(method: &str) -> bool {
+    IDEMPOTENT_READS.contains(&method)
+}
+
+/// The peer refused this view, whatever the request.
+fn is_view_refused(error: &TransportError) -> bool {
+    matches!(
+        error,
+        TransportError::Authentication | TransportError::Rejected { status: 401 | 403 }
+    )
+}
+
 /// One approved host view. Runtime drives pairing and polling; this crate spawns no tasks.
 /// Mutations always make exactly one send. A transport error means outcome unknown.
 pub struct Client<T> {
@@ -241,6 +267,9 @@ impl<T: OutboundTransport> Client<T> {
                 Self::failed(&mut s, Some(error))
             }
             Err(ClientError::Transport(TransportError::Cancelled)) => {}
+            Err(ClientError::Transport(error))
+                if is_idempotent_read(R::METHOD) && !is_view_refused(error) => {}
+            Err(ClientError::Validation(_)) if is_idempotent_read(R::METHOD) => {}
             Err(_) => Self::failed(&mut s, None),
             _ => {}
         }
