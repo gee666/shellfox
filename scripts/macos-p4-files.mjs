@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { appendFileSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -45,8 +46,21 @@ function window(pid, executable, flag, data, action, ...values) {
   const command = run('/bin/ps', ['-ww', '-p', String(pid), '-o', 'command='], { timeout: 4_000 }).trim();
   assert.ok(command.startsWith(`${executable} `) && ` ${command} `.includes(` ${flag} ${data} `),
     `PID ${pid} is not the owned fixture: ${command}`);
-  const output = run(args.probe, [String(pid), action, ...values.map(String)], { timeout: 12_000 });
-  return output ? JSON.parse(output) : undefined;
+  const probe = [String(pid), action, ...values.map(String)];
+  // ScreenCaptureKit can take well over 12 s on a loaded Intel runner. A
+  // capture has no side effects, so a timed-out one is retried.
+  const capture = action === 'capture';
+  for (let attempt = 1; ; attempt += 1) {
+    const started = Date.now();
+    try {
+      const output = run(args.probe, probe, { timeout: capture ? 30_000 : 12_000 });
+      return output ? JSON.parse(output) : undefined;
+    } catch (error) {
+      appendFileSync(path.join(dir, 'probe-failures.log'), `${new Date().toISOString()} ${action} attempt ${attempt} ` +
+        `after ${Date.now() - started} ms: ${String(error.message).trim()}\n`);
+      if (!capture || attempt === 3 || !/ETIMEDOUT|SIGTERM/.test(String(error))) throw error;
+    }
+  }
 }
 
 async function environment(parent, runtime) {
