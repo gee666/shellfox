@@ -227,8 +227,8 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
         [terminal.pendingIntents clear]; terminal.viewportUnaccepted = NO;
       }
       uint16_t cols = terminal.columns, rows = terminal.rows;
+      uint16_t hostCols = 0, hostRows = 0;
       if (status == SFM_OK) {
-        uint16_t hostCols = 0, hostRows = 0;
         status = sfm_client_terminal_reset_grid(client.handle, terminal.handle, ticket, &hostCols, &hostRows);
         if (status == SFM_OK) { cols = hostCols; rows = hostRows; }
         else if (status == SFM_CLIENT_EMPTY) status = SFM_OK;
@@ -236,6 +236,7 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
       if (status == SFM_OK) status = sfm_terminal_reset(terminal.handle, cols, rows);
       if (status == SFM_OK) {
         terminal.columns = cols; terminal.rows = rows;
+        terminal.hostColumns = hostCols; terminal.hostRows = hostRows;
         terminal.mailbox->resetFrame(); terminal.delivered = 0;
         status = sfm_client_terminal_reset_done(client.handle, terminal.handle, ticket);
       }

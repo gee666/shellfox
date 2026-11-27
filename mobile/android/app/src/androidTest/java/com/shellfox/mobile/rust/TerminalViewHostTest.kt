@@ -61,10 +61,18 @@ class TerminalViewHostTest {
     return visible
   }
 
+  @get:org.junit.Rule val test = org.junit.rules.TestName()
+
   @Before fun open() {
     val assets = instrumentation.context.assets
+    val attachment = JSONObject(assets.open("terminal-attach-owned-success.json").use { it.readBytes() }.toString(Charsets.UTF_8))
+    val fullScreen = test.methodName.startsWith("aFullScreenApp")
+    // pi's full screen, already running when the phone attaches: its modes arrive only in the snapshot.
+    if (fullScreen) attachment.getJSONObject("value").getJSONArray("chunks").getJSONObject(0)
+      .put("data", "\u0018\u001bc\u001b[?1049h\u001b[?7l\u001b[?1000h\u001b[?1002h\u001b[?1003h\u001b[?1004h\u001b[?1006h\u001b[?25lpi")
     FixtureTransport.initialize(assets.open("remote-pair-success.json").use { it.readBytes() },
-      assets.open("terminal-attach-owned-success.json").use { it.readBytes() })
+      attachment.toString().toByteArray())
+    if (fullScreen) FixtureTransport.output = "x"
     ClientTerminalBindings.transport = FixtureTransport::class.java
     activity = instrumentation.startActivitySync(Intent(instrumentation.targetContext, MainActivity::class.java)
       .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
@@ -127,6 +135,19 @@ class TerminalViewHostTest {
     waitFor("keyboard hidden") { !imeVisible() }
     waitFor("rows restored") { rows() == full }
   }
+
+  /** The fixture host's output turns on any-motion SGR mouse reports, as pi's full screen does. */
+  @Test fun aScrollGestureReachesAMouseReportingAppAsWheelReports() {
+    fun typed() = FixtureTransport.writes.joinToString("") { it.getJSONObject("payload").getString("data") }
+    Thread.sleep(500)
+    var cell = 0f
+    instrumentation.runOnMainSync { cell = view.cellHeight; view.scroll(-2, 1f, cell * 2.5f) }
+    waitFor("wheel reports") { typed().isNotEmpty() }
+    Thread.sleep(300)
+    assertEquals("\u001b[<64;1;3M\u001b[<64;1;3M", typed())
+  }
+
+  @Test fun aFullScreenAppAttachedMidRunGetsWheelReports() = aScrollGestureReachesAMouseReportingAppAsWheelReports()
 
   @Test fun aRefusedWriteDropsOnlyThatInputAndLostControlReattaches() {
     instrumentation.runOnMainSync { view.setFocused(true) }

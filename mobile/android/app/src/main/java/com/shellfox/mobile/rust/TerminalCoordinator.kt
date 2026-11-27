@@ -13,10 +13,10 @@ internal object TerminalCoordinator {
   private val terminals = mutableMapOf<String, Entry>()
   private val retiring = mutableMapOf<Any, RetainedModuleRelease>()
   private const val MAX_COMMANDS = 256
-  private data class Entry(val handle: Long, val module: Any, var view: TerminalSink? = null,
-    var dirty: Boolean = true, var ticking: Boolean = false, var cols: Int = 80, var rows: Int = 24,
+  /** [viewport] (cols to rows) stays null until the view measures itself; the create size is only a placeholder. */
+  private data class Entry(val handle: Long, val module: Any, var engineCols: Int, var engineRows: Int,
+    var view: TerminalSink? = null, var dirty: Boolean = true, var ticking: Boolean = false, var viewport: Pair<Int, Int>? = null,
     var appearance: TerminalAppearance = TerminalAppearance(), var foreground: Boolean = true, var inputEpoch: Long = 1, var writable: Boolean = false, var recovering: Boolean = false,
-    var engineCols: Int = cols, var engineRows: Int = rows,
     var pass: Runnable? = null, var passAt: Long = 0)
 
   interface TerminalSink {
@@ -45,7 +45,7 @@ internal object TerminalCoordinator {
     try {
       val handle = RustBindings.create(cols.toInt(), rows.toInt())
       val id = idString(handle)
-      val entry = Entry(handle, module, cols = cols.toInt(), rows = rows.toInt(), ticking = true)
+      val entry = Entry(handle, module, engineCols = cols.toInt(), engineRows = rows.toInt(), ticking = true)
       terminals[id] = entry
       schedule(id, entry, 0)
       done(id, null)
@@ -134,8 +134,7 @@ internal object TerminalCoordinator {
 
   // Critical: a size dropped on a full queue would stay wrong until the next layout change.
   fun resize(id: String, sink: TerminalSink, cols: Int, rows: Int, writable: Boolean) = command(id, sink, critical = true) { entry ->
-    entry.cols = cols
-    entry.rows = rows
+    entry.viewport = Pair(cols, rows)
     entry.writable = writable
     if (!entry.recovering) {
       flushAccepted(id, entry)
@@ -235,10 +234,15 @@ internal object TerminalCoordinator {
 
   fun fitAfterRecovery(id: String) {
     val entry = requireNotNull(terminals[id])
-    flushAccepted(id, entry)
-    RustBindings.resize(entry.handle, entry.cols, entry.rows)
-    entry.engineCols = entry.cols; entry.engineRows = entry.rows
-    ClientTerminalBindings.resize(id, entry.cols, entry.rows, entry.writable)
+    // A view that has not measured itself keeps the replayed host grid; its first
+    // resize fits it. Fitting to the placeholder first would push rows above a
+    // parked cursor into scrollback for good.
+    entry.viewport?.let { (cols, rows) ->
+      flushAccepted(id, entry)
+      RustBindings.resize(entry.handle, cols, rows)
+      entry.engineCols = cols; entry.engineRows = rows
+      ClientTerminalBindings.resize(id, cols, rows, entry.writable)
+    }
     entry.recovering = false
     entry.view?.state("ready")
     entry.dirty = true

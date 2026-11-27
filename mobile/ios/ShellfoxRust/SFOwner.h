@@ -28,6 +28,9 @@ NSString *SFDecimal(uint64_t value);
 @property(nonatomic) uint16_t rows;
 @property(nonatomic) uint16_t viewportColumns;
 @property(nonatomic) uint16_t viewportRows;
+// The grid the host last took from this view; 0 when unknown.
+@property(nonatomic) uint16_t hostColumns;
+@property(nonatomic) uint16_t hostRows;
 @property(nonatomic) BOOL readOnly;
 @property(nonatomic) BOOL recovering;
 @property(nonatomic) BOOL recoveryInstalled;

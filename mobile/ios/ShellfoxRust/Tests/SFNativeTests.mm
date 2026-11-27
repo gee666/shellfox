@@ -162,6 +162,36 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
   XCTAssertTrue(accepted);
   [self waitForExpectations:@[done] timeout:5];
 }
+// Reopening a session recovers its screen before the new view lays out.
+- (void)testRecoveredGridWaitsForAMeasuredViewportAndTheHostGetsTheReadOnlyFit {
+  XCTestExpectation *done = [self expectationWithDescription:@"recovered fit"];
+  BOOL accepted = [[SFOwner shared] enqueue:^{
+    SFOwner *owner = [SFOwner shared]; SFTerminal *terminal = nil;
+    XCTAssertEqual([owner create:80 rows:24 result:&terminal], SFM_OK);
+    SFTestInputSink *sink = [SFTestInputSink new]; terminal.sink = sink;
+    // As SFClientStore installs a recovery at the host grid.
+    XCTAssertEqual(sfm_terminal_reset(terminal.handle, 60, 50), SFM_OK);
+    terminal.columns = 60; terminal.rows = 50; terminal.hostColumns = 60; terminal.hostRows = 50;
+    // The recovery-ready fit before layout: the placeholder is not a viewport.
+    XCTAssertEqual([owner resize:terminal.identifier columns:terminal.viewportColumns rows:terminal.viewportRows], SFM_OK);
+    XCTAssertEqual(terminal.columns, 60); XCTAssertEqual(terminal.rows, 50);
+    // The view lays out while still read-only: only its own engine resizes.
+    terminal.readOnly = YES;
+    XCTAssertEqual([owner resize:terminal.identifier columns:60 rows:40], SFM_OK);
+    XCTAssertEqual(terminal.rows, 40); XCTAssertEqual(sink.sent.count, 0u);
+    // Becoming writable sends that same size to the host once.
+    terminal.readOnly = NO;
+    XCTAssertEqual([owner resize:terminal.identifier columns:60 rows:40], SFM_OK);
+    XCTAssertEqual([owner resize:terminal.identifier columns:60 rows:40], SFM_OK);
+    NSArray *expected = @[@"resize"];
+    XCTAssertEqualObjects(sink.sent, expected);
+    terminal.sink = nil;
+    XCTAssertEqual([owner close:terminal.identifier], SFM_OK);
+    [done fulfill];
+  }];
+  XCTAssertTrue(accepted);
+  [self waitForExpectations:@[done] timeout:5];
+}
 - (void)testPreadmissionQueueReservesReleaseSpaceAndOnlyCoalescesAdjacentIntents {
   SFIntentQueue *queue = [SFIntentQueue new];
   SFNativeIntent *write = [SFNativeIntent new]; write.kind = SFIntentWrite;

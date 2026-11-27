@@ -13,8 +13,11 @@ internal object FixtureTransport {
   val resizes = ConcurrentLinkedQueue<JSONObject>()
   /** The next write gets this host error code instead of success. */
   @Volatile var refuseNextWrite: String? = null
+  /** Live output each poll returns. */
+  @Volatile var output = "\u001b[>31u\u001b[?1003h\u001b[?1006h"
   fun initialize(pair: ByteArray, attachment: ByteArray) {
     paired = pair.copyOf(); attached = attachment.copyOf(); writes.clear(); resizes.clear(); refuseNextWrite = null
+    output = "\u001b[>31u\u001b[?1003h\u001b[?1006h"
   }
   @JvmStatic fun request(client: Long, generation: Long, request: Long, peer: ByteArray,
     path: ByteArray, body: ByteArray, deadlineMs: Int, maxResponse: Long) {
@@ -22,7 +25,10 @@ internal object FixtureTransport {
     val payload = JSONObject(body.toString(Charsets.UTF_8))
     val reply = when (path.toString(Charsets.UTF_8)) {
       "/v1/pair" -> paired
-      "/v1/events" -> """{"ok":true,"value":{"events":[{"type":"terminal","event":{"type":"data","tabId":"20000000-0000-4000-8000-000000000001","generation":"30000000-0000-4000-8000-000000000001","controlEpoch":1,"sequence":2,"data":"\u001b[>31u\u001b[?1003h\u001b[?1006h"}}]}}""".toByteArray()
+      "/v1/events" -> JSONObject().put("ok", true).put("value", JSONObject().put("events", org.json.JSONArray().put(
+        JSONObject().put("type", "terminal").put("event", JSONObject().put("type", "data")
+          .put("tabId", "20000000-0000-4000-8000-000000000001").put("generation", "30000000-0000-4000-8000-000000000001")
+          .put("controlEpoch", 1).put("sequence", 2).put("data", output))))).toString().toByteArray()
       "/v1/request" -> when (payload.getString("method")) {
         "attachTerminal" -> attached
         "writeTerminal" -> {

@@ -206,7 +206,8 @@ static void CopyFrame(void *context, const SfmFrame *source) {
   terminal.mailbox = std::make_shared<shellfox::Mailbox>();
   terminal.dirty = YES;
   terminal.columns = cols; terminal.rows = rows;
-  terminal.viewportColumns = cols; terminal.viewportRows = rows;
+  // The create size is a placeholder. The viewport is unknown until the view lays out.
+  terminal.viewportColumns = 0; terminal.viewportRows = 0;
   _terminals[terminal.identifier] = terminal;
   *result = terminal;
   return SFM_OK;

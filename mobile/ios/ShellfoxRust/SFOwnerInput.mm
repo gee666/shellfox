@@ -34,10 +34,15 @@ static void CopyInputEx(void *context, const uint8_t *bytes, size_t length, uint
   if (![self isOwnerThread]) return SFM_WRONG_THREAD;
   SFTerminal *terminal = [self terminal:identifier];
   if (!terminal) return SFM_STALE;
+  // An unmeasured viewport never resizes: fitting a recovered screen to the
+  // placeholder would push rows above a parked cursor into scrollback for good.
+  if (!cols || !rows) return SFM_OK;
   terminal.viewportColumns = cols; terminal.viewportRows = rows;
   if (terminal.recovering) return SFM_OK;
   BOOL changed = terminal.columns != cols || terminal.rows != rows;
-  if (!changed && !terminal.viewportUnaccepted) return SFM_OK;
+  // A read-only view resizes only its own engine, so compare with the host's grid too.
+  BOOL hostStale = !terminal.readOnly && terminal.sink && (terminal.hostColumns != cols || terminal.hostRows != rows);
+  if (!changed && !hostStale && !terminal.viewportUnaccepted) return SFM_OK;
   SfmStatus status = [self drainBeforeCommand:terminal];
   if (status == SFM_OK && changed) status = sfm_terminal_resize(terminal.handle, cols, rows);
   if (status == SFM_OK) {
@@ -47,6 +52,7 @@ static void CopyInputEx(void *context, const uint8_t *bytes, size_t length, uint
       SFNativeIntent *intent = [SFNativeIntent new]; intent.kind = SFIntentResize;
       intent.columns = cols; intent.rows = rows;
       status = [self submitIntent:intent terminal:terminal];
+      if (status == SFM_OK) { terminal.hostColumns = cols; terminal.hostRows = rows; }
     }
     terminal.viewportUnaccepted = status == SFM_BUSY;
   }
