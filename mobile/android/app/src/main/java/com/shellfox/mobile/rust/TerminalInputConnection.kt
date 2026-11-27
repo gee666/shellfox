@@ -7,6 +7,8 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.TextAttribute
+import androidx.annotation.RequiresApi
 
 /**
  * The keyboard's own small editor. It holds the text typed since the last
@@ -56,6 +58,9 @@ internal class TerminalInputConnection(
   }
   private fun settled() {
     if (batch > 0 || editing > 0) return
+    // BaseInputConnection can edit the editor inside a batch without a keyboard
+    // call we wrap. The terminal gets every settled editor; report is idempotent.
+    if (writable()) editing { report() }
     selection(Selection.getSelectionStart(editor).coerceAtLeast(0), Selection.getSelectionEnd(editor).coerceAtLeast(0),
       getComposingSpanStart(editor), getComposingSpanEnd(editor))
   }
@@ -72,6 +77,14 @@ internal class TerminalInputConnection(
     // A keyboard's clipboard paste of a long text is a paste, not typing.
     if (value.length > LONG_COMMIT) { finishAndClear(); input.paste(value); return true }
     return edit { super.commitText(text, newCursorPosition) }
+  }
+  // Android 14+ keyboards (Gboard) replace a word with a tapped suggestion here.
+  // BaseInputConnection edits the editor directly, without commitText.
+  @RequiresApi(34)
+  override fun replaceText(start: Int, end: Int, text: CharSequence, newCursorPosition: Int,
+    textAttribute: TextAttribute?): Boolean {
+    if (!writable() || !TerminalInput.validUnicode(text.toString())) return false
+    return edit { super.replaceText(start, end, text, newCursorPosition, textAttribute) }
   }
   override fun finishComposingText(): Boolean {
     if (!writable()) { clear(); return true }

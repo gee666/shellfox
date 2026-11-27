@@ -37,6 +37,37 @@ class TerminalInputTest {
     ime.commitText("status", 1)
     assertEquals(listOf("git stauts", "git ", "git status"), editors())
   }
+  // Android 14+ Gboard picks a suggestion with replaceText and no further key.
+  @Config(sdk = [35])
+  @Test fun aSuggestionPickedWithReplaceTextReachesTheTerminalAtOnce() {
+    val preedits = mutableListOf<String>()
+    val ime = TerminalInputConnection(View(RuntimeEnvironment.getApplication()), input, { preedits.add(it) }, { true })
+    ime.setComposingText("exa", 1)
+    assertTrue(editors().isEmpty())
+    ime.beginBatchEdit()
+    assertTrue(ime.replaceText(0, 3, "example", 1, null))
+    ime.endBatchEdit()
+    assertEquals(listOf("example"), editors())
+    assertEquals("", preedits.last())
+    // A later word is a plain append, not a retype of the suggestion.
+    ime.commitText(" ", 1)
+    assertEquals(listOf("example", "example "), editors())
+  }
+  @Test fun anEditInsideABatchIsReportedWhenTheBatchEnds() {
+    val ime = connection()
+    ime.commitText("exa", 1)
+    ime.beginBatchEdit()
+    ime.editable.replace(0, 3, "example")
+    assertEquals(listOf("exa"), editors())
+    ime.endBatchEdit()
+    assertEquals(listOf("exa", "example"), editors())
+  }
+  @Config(sdk = [35])
+  @Test fun readonlyImeRejectsReplaceText() {
+    val ime = TerminalInputConnection(View(RuntimeEnvironment.getApplication()), input, {}, { false })
+    assertFalse(ime.replaceText(0, 0, "x", 1, null))
+    assertTrue(editors().isEmpty())
+  }
   @Test fun partialUtf16TextIsRejected() {
     val ime = connection()
     assertFalse(ime.commitText("\uD83D", 1))

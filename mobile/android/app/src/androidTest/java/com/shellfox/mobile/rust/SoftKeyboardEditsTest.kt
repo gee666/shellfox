@@ -5,6 +5,7 @@ import android.os.HandlerThread
 import android.view.KeyEvent
 import android.view.View
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -194,6 +195,17 @@ class SoftKeyboardEditsTest {
     assertEquals("hello world", line.toString())
     call { commitText(" ", 1) }
     assertEquals("hello world ", line.toString())
+  }
+  // Android 14+ Gboard picks a suggestion with replaceText and no further key.
+  @SdkSuppress(minSdkVersion = 34)
+  @Test fun aSuggestionPickedWithReplaceTextReachesTheShellAtOnce() {
+    call { commitText("ls ", 1) }
+    call { setComposingText("exa", 1) }
+    call { beginBatchEdit(); replaceText(3, 6, "example", 1, null); endBatchEdit() }
+    assertEquals("ls example", line.toString())
+    call { setComposingRegion(3, 10) }
+    call { beginBatchEdit(); replaceText(3, 10, "examples", 1, null); endBatchEdit() }
+    assertEquals("ls examples", line.toString())
   }
   @Test fun theKeyboardHearsEachCallsResultOnceAndNeverAStaleOne() {
     val published = mutableListOf<List<Int>>()
