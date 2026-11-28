@@ -89,8 +89,20 @@ impl Harness {
     pub(super) fn send(&mut self, command: Command) -> RequestId {
         let id = RequestId(self.next);
         self.next += 1;
-        self.runtime.try_send(Request { id, command }).unwrap();
-        id
+        // The command queue is bounded and a burst of output acks can fill it;
+        // the owner drains it on its own thread, so waiting is enough.
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let mut request = Request { id, command };
+        loop {
+            match self.runtime.try_send(request) {
+                Ok(()) => return id,
+                Err(SubmitError::Full(rejected)) if Instant::now() < deadline => {
+                    request = rejected;
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => panic!("command not sent: {error:?}"),
+            }
+        }
     }
     fn ack(&mut self, sequence: u64) {
         self.send(Command::Ack {
