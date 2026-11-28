@@ -179,3 +179,14 @@ async fn occupied_prepare_does_not_create_private_layout_or_ui_children() {
     assert!(owner.is_alive());
     owner.shutdown_confirmed().await.unwrap();
 }
+#[test]
+fn a_root_with_a_terminal_upload_inbox_still_starts() {
+    // 0.10.0-beta.5/6 created <root>/uploads on the first terminal upload and
+    // then refused that root on every later start.
+    let data = scratch();
+    let (helper, digest) = helper();
+    let saved = data.path().join(UPLOADS_DIRECTORY).join("upload-id");
+    std::fs::create_dir_all(&saved).unwrap();
+    std::fs::write(saved.join("photo.jpg"), b"image").unwrap();
+    PrivateDirectory::plan(data.path(), &helper, digest, true).unwrap();
+}

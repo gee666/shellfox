@@ -49,7 +49,9 @@ impl RemoteService<'_> {
         let mut inbox = match self.state.uploads.take() {
             Some(inbox) => inbox,
             None => UploadInbox::open(
-                self.service.directory.join("uploads"),
+                self.service
+                    .directory
+                    .join(crate::security::UPLOADS_DIRECTORY),
                 UploadLimits::default(),
             )
             .map_err(|_| storage_failed())?,

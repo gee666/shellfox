@@ -11,6 +11,9 @@ mod cold_tests;
 mod test_support;
 
 pub(crate) const ENDPOINT_DIRECTORY: &str = "rust-service-v1";
+/// Terminal upload inbox. Every child the host creates in its root must be
+/// listed in `plan`, or the next start refuses the root.
+pub(crate) const UPLOADS_DIRECTORY: &str = "uploads";
 pub(crate) struct PrivateDirectory {
     pub path: PathBuf,
     pub helper: VerifiedHelper,
@@ -39,7 +42,8 @@ impl PrivateDirectory {
                     name.to_str(),
                     // terminal-home: left by earlier builds until Service::open_owned removes it.
                     Some(
-                        "rust-service-v1"
+                        ENDPOINT_DIRECTORY
+                            | UPLOADS_DIRECTORY
                             | "terminal-home"
                             | ".host-lock"
                             | "shellfox-rust-v1.lock"
@@ -56,7 +60,9 @@ impl PrivateDirectory {
                     &entry.path(),
                     matches!(
                         name.to_str(),
-                        Some("rust-service-v1" | "terminal-home" | ".host-lock")
+                        Some(
+                            ENDPOINT_DIRECTORY | UPLOADS_DIRECTORY | "terminal-home" | ".host-lock"
+                        )
                     ),
                 )?;
             }
