@@ -166,6 +166,13 @@ impl State {
         }
         Ok(None)
     }
+    /// Shutdown, not only a close: the control watch holds a duplicate, and
+    /// the controller must still see its owner leave.
+    pub fn close_control(&mut self) {
+        if let Some(control) = self.control.take() {
+            let _ = control.shutdown(std::net::Shutdown::Both);
+        }
+    }
     pub fn shutdown(&mut self) -> Result<()> {
         self.output.cancel();
         self.begin()?;
@@ -203,7 +210,7 @@ impl State {
             .context("PTY boundary missing")?
             .remove()?;
         self.group = None;
-        self.control = None;
+        self.close_control();
         self.master = None;
         self.child = None;
         self.pidfd = None;

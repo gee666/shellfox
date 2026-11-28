@@ -212,7 +212,7 @@ impl PtySession {
     #[cfg(feature = "test-support")]
     pub fn disconnect_controller_for_test(&mut self) {
         if let Some(state) = &mut self.inner {
-            state.control = None;
+            state.close_control();
         }
     }
     #[cfg(feature = "test-support")]
@@ -255,6 +255,10 @@ impl PtySession {
             .and_then(|child| child.process_id())
             .context("PTY child missing")?;
         let exit = crate::wake::watch_exit(pid, wake.clone()).context("start PTY exit watch")?;
+        if let Some(control) = &state.control {
+            crate::wake::watch_readable(control.try_clone()?.into(), wake.clone())
+                .context("start PTY control watch")?;
+        }
         state
             .group
             .as_ref()

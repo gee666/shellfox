@@ -1,6 +1,8 @@
 #![cfg(all(target_os = "linux", feature = "test-support"))]
 #[path = "support/unix_production.rs"]
 mod support;
+#[path = "support/wakes.rs"]
+mod wakes;
 use shellfox_terminal::{
     launch_privilege::{self, LaunchEvidenceBasis, LaunchPrivilege},
     PtyConfig, PtyOutput, PtySession, UnixPrivilegeMode,
@@ -173,4 +175,24 @@ fn production_drop_retains_owner_until_real_cleanup() {
     let mut session = PtySession::spawn(fixture.shell("while :; do printf x; done")).unwrap();
     session.write(b"ignored\n").unwrap();
     drop(session);
+}
+#[test]
+fn production_root_exit_wakes_the_owner() {
+    // The controller outlives its shell, so only its exit report can wake an
+    // owner that polls after wakes, as the host does.
+    let fixture = Fixture::new();
+    let mut session = PtySession::spawn(fixture.shell("read value; exit 5")).unwrap();
+    let wakes = std::sync::Arc::new(wakes::Wakes::default());
+    session.set_wake(wakes.wake()).unwrap();
+    session.write(b"go\n").unwrap();
+    let status = loop {
+        let seen = wakes.count();
+        while let Ok(Some(_)) = session.try_read() {}
+        if let Some(status) = session.try_wait().unwrap() {
+            break status;
+        }
+        wakes.wait_past(seen);
+    };
+    assert_eq!(status.exit_code(), 5);
+    session.shutdown().unwrap();
 }

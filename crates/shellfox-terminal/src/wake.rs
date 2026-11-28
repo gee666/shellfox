@@ -88,6 +88,34 @@ pub(crate) fn watch_exit(pid: u32, wake: Wake) -> std::io::Result<ExitSignal> {
         .map(|_| signal)
 }
 
+/// Calls `wake` once `fd` turns readable or hangs up. The Linux controller
+/// reports its shell's exit on its control socket while it lives on to hold the
+/// tree, so neither its exit nor the tree's events say the shell ended.
+#[cfg(target_os = "linux")]
+pub(crate) fn watch_readable(fd: std::os::fd::OwnedFd, wake: Wake) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    std::thread::Builder::new()
+        .name("shellfox-pty-control".into())
+        .spawn(move || {
+            let mut entry = libc::pollfd {
+                fd: fd.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            loop {
+                // SAFETY: `entry` names `fd`, which stays open for the whole poll.
+                let result = unsafe { libc::poll(&mut entry, 1, -1) };
+                if result >= 0
+                    || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                {
+                    break;
+                }
+            }
+            wake();
+        })
+        .map(drop)
+}
+
 #[cfg(windows)]
 pub(crate) fn watch_exit(
     process: std::os::windows::io::RawHandle,
