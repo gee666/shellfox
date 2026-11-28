@@ -50,7 +50,16 @@ impl SettingsRuntimeAdapter {
         deadline: Instant,
     ) -> Result<Settings> {
         candidate.validate()?;
-        let selection_changed = candidate.terminal_profile_id != previous.terminal_profile_id
+        // `settings read` fills in the profile a null one implies; saving that
+        // back is no new selection (macOS defaults to 0.9's "pwsh").
+        let profile = |settings: &Settings| {
+            settings
+                .terminal_profile_id
+                .clone()
+                .flatten()
+                .unwrap_or_else(|| settings.shell_id.profile_name().into())
+        };
+        let selection_changed = profile(&candidate) != profile(previous)
             || candidate.shell_id != previous.shell_id
             || candidate.shell_executable != previous.shell_executable
             || candidate.adapter_id != previous.adapter_id;

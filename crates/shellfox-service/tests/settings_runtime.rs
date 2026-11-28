@@ -199,3 +199,20 @@ fn actual_windows_catalog_changes_normalize_without_launching() {
         .is_err());
     assert_eq!(host.snapshot().unwrap(), before);
 }
+#[test]
+fn saving_the_profile_a_null_selection_implies_is_no_switch() {
+    // `settings read` prints the implied profile; scripts save it back.
+    let scratch = Scratch::new();
+    let host = scratch.host();
+    host.install_settings_runtime(Arc::new(SettingsRuntimeAdapter::new(
+        CancellationToken::new(),
+    )))
+    .unwrap();
+    assert_eq!(host.global_settings().unwrap().terminal_profile_id, None);
+    let implied = host.snapshot().unwrap().preferences.default_profile_id;
+    host.save_global_settings(SettingsPatch {
+        terminal_profile_id: Some(Some(implied.to_string())),
+        ..Default::default()
+    })
+    .unwrap();
+}
