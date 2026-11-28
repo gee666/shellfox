@@ -296,63 +296,9 @@ fn api_input(rest: &[&str]) -> Result<Value> {
         .map_or(Ok(Value::Object(Default::default())), |input| json(&input))
 }
 
-fn session(operation: &str, rest: &[&str]) -> Result<ManagerCommand> {
-    let operation = match operation {
-        "rm" | "-rm" => "delete",
-        operation => operation,
-    };
-    let valued: &[&str] = if operation == "env" {
-        &["--id", "--input"]
-    } else {
-        &["--id"]
-    };
-    let booleans: &[&str] = match operation {
-        "pin" => &["--current", "--off"],
-        "settle" => &["--current", "--confirm-active"],
-        _ => &["--current"],
-    };
-    let args = Arguments::parse(rest, valued, booleans)?;
-    if operation == "rename" {
-        let positional = args.arity(1, 2)?;
-        if positional.len() == 1
-            && !args.has("--id")
-            && uuid::<SessionId>(&positional[0], "").is_ok()
-        {
-            return Err(CliError::usage(
-                "Missing the new title after the session UUID.",
-            ));
-        }
-        let id = (positional.len() == 2).then(|| positional[0].as_str());
-        let target = session_target(id, args.text("--id"))?;
-        let name = title(&positional[positional.len() - 1], "Invalid session title.")?;
-        return Ok(ManagerCommand::Session(SessionOp::Rename(name), target));
-    }
-    let positional = args.arity(0, 1)?;
-    let target = session_target(positional.first().map(String::as_str), args.text("--id"))?;
-    let op = match operation {
-        "inspect" => SessionOp::Inspect,
-        "unsettle" => SessionOp::Unsettle,
-        "delete" => SessionOp::Delete,
-        "focus" => SessionOp::Focus,
-        "refresh" => SessionOp::Refresh,
-        "clear-error" => SessionOp::ClearError,
-        "pin" => SessionOp::Pin(!args.has("--off")),
-        "env" => SessionOp::Env(args.text("--input").map(|text| json(&text)).transpose()?),
-        "settle" => SessionOp::Settle {
-            confirm_active: args.has("--confirm-active"),
-        },
-        _ => {
-            return Err(CliError::usage(
-                "Unknown session operation. Run shellfox session --help.",
-            ))
-        }
-    };
-    Ok(ManagerCommand::Session(op, target))
-}
-
 #[path = "manager_args_more.rs"]
 mod more;
-use more::{filters, path, remote_request, terminals};
+use more::{filters, path, remote_request, session, terminals};
 
 #[cfg(test)]
 #[path = "manager_args_tests.rs"]

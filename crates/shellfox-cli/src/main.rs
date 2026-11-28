@@ -23,6 +23,7 @@ mod legacy_host;
 mod manager;
 mod manager_args;
 mod manager_local;
+mod manager_local_call;
 mod manager_local_files;
 mod manager_local_terminal;
 mod manager_peer;

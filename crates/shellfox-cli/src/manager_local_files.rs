@@ -122,3 +122,42 @@ impl Local<'_> {
         Ok(json!({ "path": written.path, "revision": written.revision, "size": written.size }))
     }
 }
+
+pub(crate) fn home() -> Result<String> {
+    std::env::home_dir()
+        .and_then(|home| home.into_os_string().into_string().ok())
+        .ok_or_else(|| {
+            CliError::coded("INTERNAL", "Could not determine the home directory.", false)
+        })
+}
+
+pub(crate) enum Directory {
+    Resolve,
+    Complete,
+    Create,
+}
+/// 0.9 resolved prompt paths against the home directory, never the CLI's cwd.
+pub(crate) fn directory(path: &str, operation: Directory) -> Result<Value> {
+    use shellfox_files::FileContext;
+    let home = home()?;
+    let context = FileContext {
+        cwd: home.clone(),
+        home: Some(home),
+    };
+    let files = FileService::local_desktop(Access::ReadWrite);
+    let location = Location {
+        path: path.to_owned(),
+    };
+    let result = match operation {
+        Directory::Resolve => files
+            .resolve_directory_with_context(&location, Some(&context))
+            .map(|r| json!({ "cwd": r.cwd })),
+        Directory::Create => files
+            .create_directory_with_context(&location, Some(&context))
+            .map(|r| json!({ "cwd": r.cwd })),
+        Directory::Complete => files
+            .complete_directory_with_context(&location, Some(&context))
+            .map(|r| json!({ "matches": r.matches })),
+    };
+    result.map_err(file_failure)
+}
