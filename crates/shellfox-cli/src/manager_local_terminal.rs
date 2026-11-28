@@ -85,7 +85,13 @@ impl Local<'_> {
     /// The running terminal's generation, checked against the caller's. As in
     /// 0.9, a caller naming a generation that isn't running gets TARGET_LOST.
     async fn running(&self, tab: TabId, expected: Option<Generation>) -> Result<Generation> {
-        let missing = || if expected.is_some() { stale() } else { not_found() };
+        let missing = || {
+            if expected.is_some() {
+                stale()
+            } else {
+                not_found()
+            }
+        };
         let generation = self.live(tab).await?.ok_or_else(missing)?;
         if expected.is_some_and(|expected| expected != generation) {
             return Err(stale());
@@ -138,7 +144,11 @@ impl Local<'_> {
                 };
                 // Control stays with this view until the process exits, as in 0.9.
                 let tab = input.tab_id;
-                match self.0.execute(LocalApiRequest::ManagerAttach { input }).await? {
+                match self
+                    .0
+                    .execute(LocalApiRequest::ManagerAttach { input })
+                    .await?
+                {
                     LocalApiResponse::ManagerAttachment(attachment) => {
                         attachment_value(tab, attachment)
                     }

@@ -63,7 +63,9 @@ impl Owner {
             | Command::ObserverRecoverStamped { .. }
             | Command::ObserverLayoutAck { .. }
             | Command::Unobserve { .. } => return self.observer_command(command),
-            Command::ReadOutput { after, max_bytes } => return self.read_output(*after, *max_bytes),
+            Command::ReadOutput { after, max_bytes } => {
+                return self.read_output(*after, *max_bytes)
+            }
             Command::Key { lease, .. }
             | Command::Keys { lease, .. }
             | Command::Paste { lease, .. }

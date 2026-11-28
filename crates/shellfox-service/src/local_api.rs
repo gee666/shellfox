@@ -1,9 +1,9 @@
 //! The private local API used by the desktop and CLI. Not the mobile ManagerSnapshot protocol.
+pub use crate::terminals::ManagerAttachment;
 use crate::{Attachment, Service, TerminalOutput};
 use serde::{Deserialize, Serialize};
 use shellfox_core::{AddTab, CreateSession, SessionId, Settings, Snapshot, TabId};
 pub use shellfox_host::SettingsRequest;
-pub use crate::terminals::ManagerAttachment;
 use shellfox_protocol::{validation::ensure, ReadTerminal, Validate, ValidationError};
 
 pub const METHOD: &str = "private.local.v1";
