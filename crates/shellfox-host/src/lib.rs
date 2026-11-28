@@ -19,6 +19,7 @@ mod settings_profiles;
 mod settings_store;
 mod storage;
 mod storage_guard;
+mod storage_read;
 mod storage_write;
 mod tabs;
 #[cfg(feature = "test-support")]
