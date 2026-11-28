@@ -232,7 +232,12 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
             && lost["snapshotChunks"][0]["index"] == 1,
         "{lost}"
     );
-    (cursor, _) = follow_lossy(host, tab, resume, "FLOOD", true)?;
+    // A fast shell may finish the flood before the loss is seen.
+    cursor = if snapshot_text(&lost).contains("SFFLOOD") {
+        resume
+    } else {
+        follow_lossy(host, tab, resume, "FLOOD", true)?.0
+    };
     host.json(&["terminals", "write", tab, &command(1, "AFTER"), "--json"])?;
     let (cursor, seen) = follow(host, tab, cursor, "AFTER")?;
     ensure!(!seen.contains("SFFLOOD"), "{seen:?}");

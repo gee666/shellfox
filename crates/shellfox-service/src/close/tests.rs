@@ -127,13 +127,15 @@ fn a_failed_start_keeps_its_tab_and_activating_an_empty_session_adds_one() {
             request_id: SessionId::new(),
             title: None,
             cwd: data.path().to_string_lossy().into_owned(),
-            profile_id: default_catalog_profile(),
+            // No platform starts this from the test binary: Windows needs the
+            // PTY supervisor, and Unix has no cmd.
+            profile_id: shellfox_core::ProfileId::new("cmd").unwrap(),
         })
         .unwrap();
     let (session, tab) = (created.sessions[0].id, created.sessions[0].tabs[0].id);
     let tabs = |service: &Service| service.host().snapshot().unwrap().sessions[0].tabs.len();
-    // The test binary is no PTY supervisor: the start fails and the tab
-    // keeps its error, as in 0.9. Only a shell that ran and exited leaves.
+    // The start fails and the tab keeps its error, as in 0.9. Only a shell
+    // that ran and exited leaves.
     assert!(service.attach(tab, 1, false).is_err());
     for _ in 0..20 {
         service.pump();
