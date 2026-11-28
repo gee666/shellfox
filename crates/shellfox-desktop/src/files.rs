@@ -15,6 +15,7 @@ pub(crate) mod pending;
 mod preview;
 pub(crate) mod resizer;
 mod selection_backend;
+mod source_check;
 pub(crate) mod terminal_links;
 pub(crate) mod tree;
 pub(crate) use preview::Preview;
@@ -170,63 +171,6 @@ impl Root {
                         .is_some_and(image_editor::ImageEditor::transforming)
             }),
         )
-    }
-    pub(crate) fn files_source_current(&self) -> bool {
-        self.files.panel.as_ref().is_some_and(|f| {
-            same_ui_source(
-                f.source_epoch,
-                self.source_selection_epoch(),
-                f.backend.is_local(),
-                self.is_local_source(),
-            ) && f.source == self.peers.selected
-                && (f.backend.is_local()
-                    || self.peers.selected_peer().is_some_and(|(_, state)| {
-                        state.phase == crate::peers::source::Phase::Connected
-                    }))
-                && self.active_file_tab(&f.backend)
-                && f.backend.check_current().is_ok()
-        })
-    }
-    fn active_file_tab(&self, backend: &DocumentBackend) -> bool {
-        backend
-            .wsl_tab()
-            .is_none_or(|tab| self.selected_tab() == Some(tab))
-            && backend.peer_file_scope().is_none_or(|scope| {
-                self.peers.selected_peer().is_some_and(|(_, state)| {
-                    state
-                        .selected_session
-                        .is_some_and(|id| id.to_string() == scope.session.to_string())
-                        && state
-                            .selected_tab
-                            .is_some_and(|id| id.to_string() == scope.tab.to_string())
-                })
-            })
-    }
-    pub(crate) fn files_result_current(&self, epoch: u64, backend: &DocumentBackend) -> bool {
-        same_ui_source(
-            epoch,
-            self.source_selection_epoch(),
-            backend.is_local(),
-            self.is_local_source(),
-        ) && self
-            .files
-            .panel
-            .as_ref()
-            .is_some_and(|f| f.source_epoch == epoch && f.backend.same_origin(backend))
-            && self.active_file_tab(backend)
-            && backend.check_current().is_ok()
-    }
-    pub(crate) fn require_files_source(&mut self, cx: &mut Context<Self>) -> bool {
-        if self.files_source_current() {
-            true
-        } else {
-            self.error = Some(
-                "Files belong to another or retired source. Return to it or reopen explicitly."
-                    .into(),
-            );
-            cx.notify();
-            false
-        }
     }
     pub(crate) fn toggle_files(&mut self, cx: &mut Context<Self>) {
         self.sync_file_source(cx);
